@@ -1,0 +1,125 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Modal,
+  Animated,
+  TouchableWithoutFeedback,
+  View,
+  Dimensions,
+  Easing,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+} from 'react-native';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+interface SlideUpModalProps {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  backdropOpacity?: number;
+  useKeyboardAvoiding?: boolean;
+}
+
+export const SlideUpModal: React.FC<SlideUpModalProps> = ({
+  visible,
+  onClose,
+  children,
+  backdropOpacity = 0.5,
+  useKeyboardAvoiding = false,
+}) => {
+  const [modalVisible, setModalVisible] = useState(visible);
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setModalVisible(true);
+      Animated.timing(animValue, {
+        toValue: 1,
+        duration: 260,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(animValue, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) {
+          setModalVisible(false);
+        }
+      });
+    }
+  }, [visible, animValue]);
+
+  if (!modalVisible) return null;
+
+  const backdropAnimStyle = {
+    opacity: animValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, backdropOpacity],
+    }),
+  };
+
+  const sheetAnimStyle = {
+    transform: [
+      {
+        translateY: animValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [SCREEN_HEIGHT * 0.5, 0],
+        }),
+      },
+    ],
+  };
+
+  const KeyboardWrapper = useKeyboardAvoiding ? KeyboardAvoidingView : View;
+  const keyboardProps = useKeyboardAvoiding
+    ? {
+        behavior: Platform.OS === 'ios' ? ('padding' as const) : ('height' as const),
+        style: { flex: 1, justifyContent: 'flex-end' as const },
+      }
+    : {
+        style: { flex: 1, justifyContent: 'flex-end' as const },
+      };
+
+  return (
+    <Modal
+      visible={modalVisible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={styles.outerContainer}>
+        {/* Fixed dark backdrop overlay that stays stationary and only fades opacity */}
+        <TouchableWithoutFeedback onPress={onClose}>
+          <Animated.View style={[styles.backdrop, backdropAnimStyle]} />
+        </TouchableWithoutFeedback>
+
+        {/* Slide-up bottom sheet container */}
+        <KeyboardWrapper {...keyboardProps} pointerEvents="box-none">
+          <Animated.View style={[styles.sheetContainer, sheetAnimStyle]}>
+            {children}
+          </Animated.View>
+        </KeyboardWrapper>
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  outerContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000000',
+  },
+  sheetContainer: {
+    width: '100%',
+    justifyContent: 'flex-end',
+  },
+});

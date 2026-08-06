@@ -1,0 +1,107 @@
+In this Flutter project called "barkadash" for a mobile trip-planning app for Filipino friend groups (barkada), please create the following below.
+THIS IS PURELY UI/UX FOR NOW. No need to provide real functions.
+
+Scaffold the FULL project structure below now, but only build out real UI/logic for files marked // ACTIVE. Files marked // STUB should exist with a minimal class definition/comment (e.g. "// TODO: implement in later sprint") so the folder structure is complete from commit one, without wasting time building screens I don't need yet. Do not wire STUB screens into navigation.
+
+FOLDER STRUCTURE (inside lib/):
+
+lib/
+  main.dart                                  // ACTIVE
+
+  screens/
+    home/
+      home_screen.dart                       // ACTIVE — trip list / dashboard
+    trip/
+      trip_detail_screen.dart                // STUB
+      create_trip_screen.dart                // STUB
+      destination_poll_screen.dart           // STUB
+    planner/
+      trip_planner_screen.dart               // ACTIVE — AI itinerary planner
+    radar/
+      barkada_radar_screen.dart              // ACTIVE — live location map
+    expenses/
+      expense_ledger_screen.dart             // ACTIVE — shared expenses
+      settle_up_screen.dart                  // STUB — debt-simplification view
+    checklist/
+      packing_checklist_screen.dart          // STUB
+      decision_log_screen.dart               // STUB
+    feed/
+      trip_feed_screen.dart                  // ACTIVE — public post-trip recap feed
+      trip_recap_screen.dart                 // STUB — single trip recap detail
+    profile/
+      profile_screen.dart                    // STUB
+      settings_screen.dart                   // STUB
+    auth/
+      login_screen.dart                      // STUB
+      signup_screen.dart                     // STUB
+
+  widgets/
+    nav/
+      app_bottom_nav.dart                    // ACTIVE — reusable bottom nav bar (5 tabs)
+    buttons/
+      primary_button.dart                    // ACTIVE
+      secondary_button.dart                  // ACTIVE
+      icon_button_circle.dart                // STUB — for map/radar action buttons
+    cards/
+      app_card.dart                          // ACTIVE — generic reusable card container
+      trip_card.dart                         // ACTIVE — used on home screen
+      expense_item_card.dart                 // ACTIVE — used on ledger screen
+      feed_post_card.dart                    // ACTIVE — used on trip feed
+    common/
+      section_header.dart                    // ACTIVE
+      empty_state.dart                       // ACTIVE — reusable "no data yet" placeholder
+      loading_indicator.dart                 // ACTIVE
+      app_avatar.dart                        // STUB — member avatar/initials circle
+      confidence_badge.dart                  // STUB — RSVP confidence score badge
+    inputs/
+      app_text_field.dart                    // STUB
+
+  models/
+    trip.dart                                // ACTIVE
+    expense.dart                             // ACTIVE
+    user_profile.dart                        // ACTIVE
+    poll.dart                                // STUB
+    checklist_item.dart                      // STUB
+    decision_log_entry.dart                  // STUB
+    feed_post.dart                           // ACTIVE
+
+  services/
+    trip_service.dart                        // ACTIVE — mock data for now
+    expense_service.dart                     // ACTIVE — mock data for now
+    location_service.dart                    // STUB
+    auth_service.dart                        // STUB
+    places_api_service.dart                  // STUB — future external API integration
+
+  utils/
+    app_colors.dart                          // ACTIVE
+    app_text_styles.dart                     // ACTIVE
+    app_routes.dart                          // ACTIVE — named routes, only registers ACTIVE screens for now
+    constants.dart                           // ACTIVE
+    formatters.dart                          // STUB — currency/date formatting helpers
+
+  assets/
+    images/
+    icons/
+
+REQUIREMENTS:
+1. Bottom nav bar (StatefulWidget + IndexedStack) switches between the 5 ACTIVE screens only: Home, Planner, Radar, Ledger, Feed.
+2. All buttons use PrimaryButton / SecondaryButton — no raw ElevatedButton/TextButton scattered around.
+3. Colors and text styles pulled from app_colors.dart / app_text_styles.dart — no hardcoded hex or font sizes inline.
+4. Each ACTIVE screen has placeholder UI (dummy trip cards, dummy expense list, etc.) reflecting its real purpose, using Material 3.
+5. Use app_routes.dart for named routes instead of inline Navigator.push with MaterialPageRoute.
+6. STUB files: create the file with the class name, a constructor, and a `// TODO:` comment — don't build full UI, don't add to routes/nav.
+7. Standard Dart/Flutter naming: snake_case files, PascalCase classes, camelCase variables. Brief doc comment above each class.
+8. Keep pubspec.yaml minimal — flag any added package and why.
+9. Confirm `flutter run` builds with no errors after scaffolding.
+
+REFERENCE DESIGN: (reference folder)
+I will upload an HTML/CSS file (or a set of them) showing the intended look for the initial screens. 
+Use it as the visual source of truth — match its layout, spacing, color palette, typography, and 
+component styling as closely as Flutter allows, rather than inventing a new design direction. 
+Pull actual color values and font choices from the CSS into app_colors.dart and app_text_styles.dart 
+instead of guessing. If a screen in the HTML doesn't map 1:1 to a Flutter screen listed above, 
+flag it and ask rather than skipping it silently.
+
+Design direction: follow the uploaded HTML/CSS reference exactly for ACTIVE screens. Only fall back 
+to "clean, warm, friendly, rounded corners, soft shadows, warm coral or teal accent" for STUB files 
+or anything not covered in the reference.
