@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Home, Compass, MapPin, Receipt, Grid } from 'lucide-react-native';
 import Svg, { Defs, LinearGradient as SvgGradient, Stop, Rect } from 'react-native-svg';
 
+import { useTheme } from '../../context/ThemeContext';
+
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -43,6 +45,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const safeBottom = insets.bottom;
+  const { colors, isDark } = useTheme();
 
   // Track dynamic layout x & width for each tab to fit the oval highlight perfectly
   const [tabLayouts, setTabLayouts] = useState<{ [key: number]: { x: number; width: number } }>({});
@@ -58,47 +61,58 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
   ).current;
 
   // Scale & Opacity for scroll expand/collapse
-  const scaleAnim = useRef(new Animated.Value(isExpanded ? 1.0 : 0.78)).current;
-  const opacityAnim = useRef(new Animated.Value(isExpanded ? 1.0 : 0.65)).current;
+  const scaleAnim = useRef(new Animated.Value(isExpanded ? 1.0 : 0.88)).current;
+  const opacityAnim = useRef(new Animated.Value(isExpanded ? 1.0 : 0.80)).current;
 
-  // Subtle press scale on whole bar
-  const bounceAnim = useRef(new Animated.Value(1.0)).current;
+  const activeX = tabLayouts[currentIndex]?.x;
+  const activeWidth = tabLayouts[currentIndex]?.width;
 
   // Smooth sliding highlight oval centered perfectly around active tab
   useEffect(() => {
-    const activeLayout = tabLayouts[currentIndex];
-    if (activeLayout && activeLayout.width > 0) {
+    if (activeX !== undefined && activeWidth !== undefined && activeWidth > 0) {
       Animated.parallel([
         Animated.timing(slideLeftAnim, {
-          toValue: activeLayout.x,
-          duration: 200,
+          toValue: activeX,
+          duration: 220,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: false,
         }),
         Animated.timing(slideWidthAnim, {
-          toValue: activeLayout.width,
-          duration: 200,
+          toValue: activeWidth,
+          duration: 220,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: false,
         }),
       ]).start();
     }
-  }, [currentIndex, tabLayouts]);
+  }, [currentIndex, activeX, activeWidth]);
 
-  // Animate oval opacity and container padding on scroll (useNativeDriver: false for layout property)
+  // Animate oval opacity, container padding, scale and bar opacity on scroll
   useEffect(() => {
     Animated.parallel([
       Animated.timing(ovalOpacityAnim, {
         toValue: isExpanded ? 1 : 0,
-        duration: 180,
+        duration: 200,
         easing: Easing.out(Easing.quad),
         useNativeDriver: false,
       }),
       Animated.timing(containerPaddingAnim, {
         toValue: isExpanded ? 10 : 18,
-        duration: 180,
+        duration: 200,
         easing: Easing.out(Easing.quad),
         useNativeDriver: false,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: isExpanded ? 1.0 : 0.88,
+        duration: 200,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: isExpanded ? 1.0 : 0.80,
+        duration: 200,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
       }),
     ]).start();
   }, [isExpanded]);
@@ -109,51 +123,22 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
       const shouldBeExpanded = idx === currentIndex && isExpanded;
       Animated.timing(tabAnims[idx], {
         toValue: shouldBeExpanded ? 1 : 0,
-        duration: 200,
+        duration: 220,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }).start();
     });
   }, [currentIndex, isExpanded]);
 
-  // Zero-delay scroll collapse/expand without scale bounce
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: isExpanded ? 1.0 : 0.78,
-        stiffness: 400,
-        damping: 36,
-        mass: 0.7,
-        overshootClamping: true,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: isExpanded ? 1.0 : 0.65,
-        duration: 110,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [isExpanded]);
-
-  // Tab switch handler with softened touch feedback
+  // Tab switch handler
   const handleTabPress = (idx: number) => {
     if (!isExpanded && onExpand) {
       onExpand();
     }
-
-    bounceAnim.setValue(0.994);
-    Animated.spring(bounceAnim, {
-      toValue: 1.0,
-      stiffness: 300,
-      damping: 35,
-      overshootClamping: true,
-      useNativeDriver: true,
-    }).start();
-
     onTabChange(idx);
   };
 
-  const appleBlue = '#007AFF';
+  const activeColor = isDark ? '#38BDF8' : '#007AFF';
 
   return (
     <>
@@ -165,15 +150,15 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
         <Svg height="100%" width="100%">
           <Defs>
             <SvgGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#FAF8F5" stopOpacity="0" />
-              <Stop offset="1" stopColor="#FAF8F5" stopOpacity="0.88" />
+              <Stop offset="0" stopColor={colors.paper} stopOpacity="0" />
+              <Stop offset="1" stopColor={colors.paper} stopOpacity="0.9" />
             </SvgGradient>
           </Defs>
           <Rect x="0" y="0" width="100%" height="100%" fill="url(#fade)" />
         </Svg>
       </View>
 
-      {/* Floating Light Glassmorphism Pill */}
+      {/* Floating Light/Dark Glassmorphism Pill */}
       <View
         style={{
           position: 'absolute',
@@ -187,7 +172,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
         <Animated.View
           style={{
             width: '100%',
-            transform: [{ scale: Animated.multiply(scaleAnim, bounceAnim) }],
+            transform: [{ scale: scaleAnim }],
             opacity: opacityAnim,
           }}
         >
@@ -200,21 +185,21 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
             style={{
               height: 62,
               borderRadius: 50,
-              backgroundColor: 'rgba(255, 255, 255, 0.88)',
+              backgroundColor: colors.pillBg,
               borderWidth: 1,
-              borderColor: 'rgba(225, 220, 210, 0.65)',
+              borderColor: colors.pillBorder,
               paddingHorizontal: containerPaddingAnim,
               flexDirection: 'row',
               justifyContent: 'space-between',
               alignItems: 'center',
-              shadowColor: '#1A2A40',
+              shadowColor: '#000',
               shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: 0.10,
+              shadowOpacity: isDark ? 0.35 : 0.10,
               shadowRadius: 16,
               elevation: 8,
             }}
           >
-            {/* Perfectly Fitted Responsive Sliding Blue Active Highlight Oval (Fades out completely when scrolled) */}
+            {/* Perfectly Fitted Responsive Sliding Active Highlight Oval */}
             {tabLayouts[currentIndex] && (
               <Animated.View
                 pointerEvents="none"
@@ -225,9 +210,9 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
                   left: slideLeftAnim,
                   width: slideWidthAnim,
                   borderRadius: 24,
-                  backgroundColor: 'rgba(0, 122, 255, 0.13)',
+                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.16)' : 'rgba(0, 122, 255, 0.13)',
                   borderWidth: 1,
-                  borderColor: 'rgba(0, 122, 255, 0.22)',
+                  borderColor: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(0, 122, 255, 0.22)',
                   opacity: ovalOpacityAnim,
                 }}
               />
@@ -271,7 +256,8 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
                   onLayout={(e) => {
                     const { x, width } = e.nativeEvent.layout;
                     setTabLayouts((prev) => {
-                      if (prev[idx]?.x === x && prev[idx]?.width === width) return prev;
+                      const current = prev[idx];
+                      if (current && Math.abs(current.x - x) < 2 && Math.abs(current.width - width) < 2) return prev;
                       return { ...prev, [idx]: { x, width } };
                     });
                   }}
@@ -287,7 +273,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
                 >
                   <IconComponent
                     size={21}
-                    color={isActive ? appleBlue : '#6E738A'}
+                    color={isActive ? activeColor : colors.inkSoft}
                     strokeWidth={isActive ? 2.5 : 1.8}
                   />
                   <Animated.View
@@ -304,7 +290,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
                     <Text
                       numberOfLines={1}
                       style={{
-                        color: appleBlue,
+                        color: activeColor,
                         fontWeight: '700',
                         fontSize: 12.5,
                         letterSpacing: -0.2,

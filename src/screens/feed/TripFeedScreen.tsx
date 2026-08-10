@@ -8,14 +8,22 @@ import {
   StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Heart } from 'lucide-react-native';
+import { Heart, Menu } from 'lucide-react-native';
 import { useResponsive } from '../../utils/responsive';
+import { useTheme } from '../../context/ThemeContext';
+import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 
 const elnidoImg = require('../../../assets/images/elnido.jpg');
 const sagadaImg = require('../../../assets/images/sagada.jpeg');
 const zambalesImg = require('../../../assets/images/zambales.jpg');
 
-export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | 'down') => void }> = ({ onScrollDirection }) => {
+interface TripFeedScreenProps {
+  onScrollDirection?: (direction: 'up' | 'down') => void;
+  onOpenCabinet?: () => void;
+}
+
+export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+  const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<'Following' | 'Explore'>('Following');
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
@@ -53,11 +61,30 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
   const cardImgHeight = isTablet ? 220 : 176;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FAF8F5' }} edges={['top']}>
-      <StatusBar barStyle="dark-content" />
-      <View style={{ flex: 1, paddingHorizontal: sp.lg, paddingTop: sp.md }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
+      <View style={{ flex: 1, paddingHorizontal: sp.lg, paddingTop: sp.sm }}>
+        {/* App Logo & Borderless Hamburger Match Home Screen */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
+          <TouchableOpacity
+            onPress={onOpenCabinet}
+            activeOpacity={0.7}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'transparent',
+            }}
+          >
+            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+          </TouchableOpacity>
+          <BarkadashLogo height={32} />
+        </View>
+
         {/* Header */}
-        <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: '#1A1D2D', letterSpacing: -0.5, marginBottom: sp.sm }}>
+        <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, marginBottom: sp.sm }}>
           Barkada Feed
         </Text>
 
@@ -74,15 +101,15 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
                   paddingVertical: sp.xs + 2,
                   borderRadius: 100,
                   borderWidth: 1,
-                  backgroundColor: isSelected ? '#1F4E67' : '#FFFFFF',
-                  borderColor: isSelected ? '#1F4E67' : '#EAE4D7',
+                  backgroundColor: isSelected ? colors.tealDark : colors.card,
+                  borderColor: isSelected ? colors.tealDark : colors.cardBorder,
                 }}
               >
                 <Text
                   style={{
                     fontSize: fs.xs,
                     fontWeight: '700',
-                    color: isSelected ? '#FFFFFF' : '#1A1D2D',
+                    color: isSelected ? '#FFFFFF' : colors.ink,
                   }}
                 >
                   {tab}
@@ -117,11 +144,11 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
               key={item.id}
               activeOpacity={0.9}
               style={{
-                backgroundColor: '#FFFFFF',
+                backgroundColor: colors.card,
                 borderRadius: 24,
                 overflow: 'hidden',
                 borderWidth: 1,
-                borderColor: '#EAE4D7',
+                borderColor: colors.cardBorder,
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.05,
@@ -130,7 +157,7 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
               }}
             >
               {/* Photo with Overlay */}
-              <View style={{ height: cardImgHeight, width: '100%', backgroundColor: '#F0ECE3', position: 'relative' }}>
+              <View style={{ height: cardImgHeight, width: '100%', backgroundColor: colors.paperDim, position: 'relative' }}>
                 <Image source={item.image} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
 
                 <View
@@ -146,8 +173,8 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
                   }}
                 >
                   {/* Top Price Tag */}
-                  <View style={{ alignSelf: 'flex-end', backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 10, paddingVertical: sp.xs, borderRadius: 100 }}>
-                    <Text style={{ color: '#1A1D2D', fontSize: 11, fontWeight: '900' }}>{item.price}</Text>
+                  <View style={{ alignSelf: 'flex-end', backgroundColor: colors.card, paddingHorizontal: 10, paddingVertical: sp.xs, borderRadius: 100 }}>
+                    <Text style={{ color: colors.ink, fontSize: 11, fontWeight: '900' }}>{item.price}</Text>
                   </View>
 
                   {/* Bottom Title */}
@@ -164,7 +191,7 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
                   flexDirection: 'row',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  backgroundColor: '#FFFFFF',
+                  backgroundColor: colors.card,
                 }}
               >
                 {/* Avatars + Count */}
@@ -177,7 +204,7 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
                         height: 24,
                         borderRadius: 12,
                         borderWidth: 2,
-                        borderColor: '#FFFFFF',
+                        borderColor: colors.card,
                         alignItems: 'center',
                         justifyContent: 'center',
                         backgroundColor: color,
@@ -185,15 +212,15 @@ export const TripFeedScreen: React.FC<{ onScrollDirection?: (direction: 'up' | '
                       }}
                     />
                   ))}
-                  <Text style={{ fontSize: fs.xs, fontWeight: '600', color: '#6E738A', marginLeft: sp.sm }}>
+                  <Text style={{ fontSize: fs.xs, fontWeight: '600', color: colors.inkSoft, marginLeft: sp.sm }}>
                     {item.extraText}
                   </Text>
                 </View>
 
                 {/* Like Counter */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.xs }}>
-                  <Heart size={icon.sm} color="#2A8563" fill="#2A8563" />
-                  <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>{item.likes}</Text>
+                  <Heart size={icon.sm} color="#EF4444" fill="#EF4444" />
+                  <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>{item.likes}</Text>
                 </View>
               </View>
             </TouchableOpacity>

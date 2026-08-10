@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { X, Vote, Receipt, MapPin, Calendar, CheckCheck } from 'lucide-react-native';
+import { useTheme } from '../../context/ThemeContext';
 
 interface NotificationModalProps {
   visible: boolean;
@@ -18,8 +19,8 @@ const INITIAL_NOTIFICATIONS = [
   {
     id: '1',
     icon: Vote,
-    iconBg: '#FDEBD3',
-    iconColor: '#B8791E',
+    iconBgKey: 'lightOrangeBg',
+    iconColorKey: 'orangeAccent',
     title: 'New Poll Vote',
     message: 'Steven voted for Siargao Island in Destination Poll.',
     time: '5m ago',
@@ -28,8 +29,8 @@ const INITIAL_NOTIFICATIONS = [
   {
     id: '2',
     icon: Receipt,
-    iconBg: '#FBE7E1',
-    iconColor: '#E2604A',
+    iconBgKey: 'lightRedBg',
+    iconColorKey: 'redAccent',
     title: 'New Ledger Expense',
     message: 'Travis added ₱2,450 Seafood Dinner to the group expense.',
     time: '25m ago',
@@ -38,8 +39,8 @@ const INITIAL_NOTIFICATIONS = [
   {
     id: '3',
     icon: MapPin,
-    iconBg: '#E4F0EA',
-    iconColor: '#1F4E67',
+    iconBgKey: 'lightGreenBg',
+    iconColorKey: 'tealDark',
     title: 'Barkada Radar Alert',
     message: 'Ahiah checked in at Twin Lagoon, El Nido.',
     time: '1h ago',
@@ -48,8 +49,8 @@ const INITIAL_NOTIFICATIONS = [
   {
     id: '4',
     icon: Calendar,
-    iconBg: '#E4F0F4',
-    iconColor: '#3B7A9E',
+    iconBgKey: 'lightBlueBg',
+    iconColorKey: 'sky',
     title: 'Upcoming Activity',
     message: 'Island Hopping Tour scheduled tomorrow at 8:00 AM.',
     time: '3h ago',
@@ -61,6 +62,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   visible,
   onClose,
 }) => {
+  const { colors, isDark } = useTheme();
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
 
   const markAllAsRead = () => {
@@ -73,20 +75,20 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
   return (
     <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.45}>
-      <View style={styles.modalContent}>
+      <View style={[styles.modalContent, { backgroundColor: colors.paper, borderColor: colors.cardBorder }]}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { borderColor: colors.cardBorder }]}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>Notifications</Text>
+            <Text style={[styles.title, { color: colors.ink }]}>Notifications</Text>
             {unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
+              <View style={[styles.unreadBadge, { backgroundColor: colors.tealDark }]}>
                 <Text style={styles.unreadText}>{unreadCount} New</Text>
               </View>
             )}
           </View>
 
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <X size={22} color="#1A1D2D" />
+            <X size={22} color={colors.ink} />
           </TouchableOpacity>
         </View>
 
@@ -97,8 +99,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
             onPress={markAllAsRead}
             style={styles.markReadBtn}
           >
-            <CheckCheck size={14} color="#1F4E67" />
-            <Text style={styles.markReadText}>Mark all as read</Text>
+            <CheckCheck size={14} color={colors.tealDark} />
+            <Text style={[styles.markReadText, { color: colors.tealDark }]}>Mark all as read</Text>
           </TouchableOpacity>
         )}
 
@@ -107,26 +109,28 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           <View style={styles.listContainer}>
             {notifications.map((item) => {
               const IconComp = item.icon;
+              const bg = (colors as any)[item.iconBgKey] || colors.subtleBg;
+              const fg = (colors as any)[item.iconColorKey] || colors.tealDark;
               return (
                 <View
                   key={item.id}
                   style={[
                     styles.notificationItem,
-                    item.unread ? styles.unreadItem : null,
+                    { backgroundColor: colors.card, borderColor: item.unread ? colors.tealDark : colors.cardBorder },
                   ]}
                 >
                   <View
-                    style={[styles.iconBox, { backgroundColor: item.iconBg }]}
+                    style={[styles.iconBox, { backgroundColor: bg }]}
                   >
-                    <IconComp size={18} color={item.iconColor} />
+                    <IconComp size={18} color={fg} />
                   </View>
 
                   <View style={styles.itemContent}>
                     <View style={styles.itemHeader}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemTime}>{item.time}</Text>
+                      <Text style={[styles.itemTitle, { color: colors.ink }]}>{item.title}</Text>
+                      <Text style={[styles.itemTime, { color: colors.inkSoft }]}>{item.time}</Text>
                     </View>
-                    <Text style={styles.itemMessage}>{item.message}</Text>
+                    <Text style={[styles.itemMessage, { color: colors.inkSoft }]}>{item.message}</Text>
                   </View>
 
                   {item.unread && <View style={styles.unreadDot} />}

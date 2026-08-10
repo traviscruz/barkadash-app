@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { DestinationPollOption } from '../../types/trip';
 import { useResponsive } from '../../utils/responsive';
+import { useTheme } from '../../context/ThemeContext';
 import { HandwrittenText } from '../common/HandwrittenText';
 import { Vote, RotateCw, Layers } from 'lucide-react-native';
 
@@ -25,6 +26,7 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
   const [activeIndex, setActiveIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const { fs, isTablet } = useResponsive();
+  const { colors, isDark } = useTheme();
 
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -123,9 +125,9 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.headerRow}>
-        <View style={styles.badgePill}>
-          <Layers size={14} color="#1F4E67" />
-          <Text style={styles.badgeText}>
+        <View style={[styles.badgePill, { backgroundColor: colors.lightGreenBg }]}>
+          <Layers size={14} color={colors.tealDark} />
+          <Text style={[styles.badgeText, { color: colors.tealDark }]}>
             POLAROID STACK ({activeIndex + 1}/{stackSize})
           </Text>
         </View>
@@ -207,6 +209,8 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                   zIndex,
                   opacity,
                   transform,
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
                 },
               ]}
             >
@@ -224,7 +228,7 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                 />
 
                 {/* Photo */}
-                <View style={[styles.photoBox, { height: photoHeight }]}>
+                <View style={[styles.photoBox, { height: photoHeight, backgroundColor: colors.paperDim }]}>
                   <Image
                     source={poll.imagePath}
                     style={styles.photoImage}
@@ -245,13 +249,13 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                 {/* Caption */}
                 <View style={styles.polaroidCaptionArea}>
                   <View style={styles.captionHeader}>
-                    <Text style={styles.destinationTitle} numberOfLines={1}>
+                    <Text style={[styles.destinationTitle, { color: colors.ink }]} numberOfLines={1}>
                       {poll.title}
                     </Text>
                     <TouchableOpacity
                       activeOpacity={0.8}
                       onPress={() => onVotePress && onVotePress(poll)}
-                      style={styles.voteBtn}
+                      style={[styles.voteBtn, { backgroundColor: colors.tealDark }]}
                     >
                       <Vote size={14} color="#FFFFFF" />
                       <Text style={styles.voteBtnText}>Vote</Text>
@@ -259,7 +263,7 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                   </View>
                   {poll.leaderComment ? (
                     <HandwrittenText
-                      style={{ fontSize: fs.xs, color: '#1B4D3E', marginTop: 4 }}
+                      style={{ fontSize: fs.xs, color: isDark ? colors.emerald : '#1B4D3E', marginTop: 4 }}
                     >
                       {poll.leaderComment}
                     </HandwrittenText>

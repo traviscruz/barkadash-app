@@ -4,6 +4,7 @@ import { DestinationPollOption } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
+import { useTheme } from '../../context/ThemeContext';
 import { X, CheckCircle2, MessageSquare } from 'lucide-react-native';
 
 interface PollDetailModalProps {
@@ -12,6 +13,7 @@ interface PollDetailModalProps {
 }
 
 export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClose }) => {
+  const { colors } = useTheme();
   const [options, setOptions] = useState<DestinationPollOption[]>([]);
 
   useEffect(() => {
@@ -28,14 +30,17 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
 
   return (
     <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.5}>
-      <View className="bg-paper rounded-t-3xl max-h-[85%] p-5 border-t border-rule">
-        <View className="flex-row justify-between items-center pb-3 border-b border-rule mb-4">
+      <View
+        style={{ backgroundColor: colors.paper, borderColor: colors.cardBorder }}
+        className="rounded-t-3xl max-h-[85%] p-5 border-t"
+      >
+        <View style={{ borderColor: colors.cardBorder }} className="flex-row justify-between items-center pb-3 border-b mb-4">
           <View>
-            <Text className="text-xl font-black text-ink">Destination Poll</Text>
-            <Text className="text-xs text-inkSoft">Where are we going for our next trip?</Text>
+            <Text style={{ color: colors.ink }} className="text-xl font-black">Destination Poll</Text>
+            <Text style={{ color: colors.inkSoft }} className="text-xs">Where are we going for our next trip?</Text>
           </View>
           <TouchableOpacity onPress={onClose} className="p-1">
-            <X size={22} color="#1A1D2D" />
+            <X size={22} color={colors.ink} />
           </TouchableOpacity>
         </View>
 
@@ -44,26 +49,32 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
             {options.map((opt) => (
               <View
                 key={opt.id}
-                className={`p-3.5 bg-white rounded-2xl border ${
-                  opt.isVotedByMe ? 'border-[#1F4E67] shadow-sm' : 'border-rule'
+                style={{
+                  backgroundColor: colors.card,
+                  borderColor: opt.isVotedByMe ? colors.tealDark : colors.cardBorder,
+                }}
+                className={`p-3.5 rounded-2xl border ${
+                  opt.isVotedByMe ? 'shadow-sm' : ''
                 }`}
               >
                 <View className="flex-row items-center mb-3">
                   <Image
                     source={opt.imagePath}
-                    className="w-16 h-16 rounded-xl mr-3 bg-paperDim"
+                    style={{ backgroundColor: colors.paperDim }}
+                    className="w-16 h-16 rounded-xl mr-3"
                     resizeMode="cover"
                   />
                   <View className="flex-1">
-                    <Text className="text-base font-bold text-ink">{opt.title}</Text>
-                    <Text className="text-xs font-semibold text-[#1F4E67] mt-0.5">
+                    <Text style={{ color: colors.ink }} className="text-base font-bold">{opt.title}</Text>
+                    <Text style={{ color: colors.tealDark }} className="text-xs font-semibold mt-0.5">
                       {opt.votes} {opt.votes === 1 ? 'vote' : 'votes'}
                     </Text>
                     {opt.leaderComment && (
                       <View className="flex-row items-center mt-1">
-                        <MessageSquare size={11} color="#6E738A" />
+                        <MessageSquare size={11} color={colors.inkSoft} />
                         <Text
-                          className="text-xs text-inkSoft italic ml-1 flex-1"
+                          style={{ color: colors.inkSoft }}
+                          className="text-xs italic ml-1 flex-1"
                           numberOfLines={1}
                         >
                           {opt.leaderComment}
@@ -76,15 +87,16 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => handleVote(opt.id)}
-                  className={`py-2 px-4 rounded-xl flex-row items-center justify-center ${
-                    opt.isVotedByMe ? 'bg-[#1F4E67]' : 'bg-paperDim border border-rule'
-                  }`}
+                  style={{
+                    backgroundColor: opt.isVotedByMe ? colors.tealDark : colors.paperDim,
+                    borderColor: colors.cardBorder,
+                  }}
+                  className="py-2 px-4 rounded-xl flex-row items-center justify-center border"
                 >
                   {opt.isVotedByMe && <CheckCircle2 size={16} color="#FFFFFF" className="mr-1.5" />}
                   <Text
-                    className={`text-xs font-bold ${
-                      opt.isVotedByMe ? 'text-white' : 'text-ink'
-                    }`}
+                    style={{ color: opt.isVotedByMe ? '#FFFFFF' : colors.ink }}
+                    className="text-xs font-bold"
                   >
                     {opt.isVotedByMe ? 'Voted' : 'Vote for this Destination'}
                   </Text>

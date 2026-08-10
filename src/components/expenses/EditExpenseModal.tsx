@@ -10,6 +10,7 @@ import { AppTextField } from '../inputs/AppTextField';
 import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ExpenseService } from '../../services/expenseService';
+import { useTheme } from '../../context/ThemeContext';
 import { X } from 'lucide-react-native';
 
 interface EditExpenseModalProps {
@@ -23,6 +24,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   visible,
   onClose,
 }) => {
+  const { colors } = useTheme();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -51,11 +53,14 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
 
   return (
     <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.4} useKeyboardAvoiding>
-      <View className="bg-paper rounded-t-3xl max-h-[80%] p-5 border-t border-rule">
-        <View className="flex-row justify-between items-center pb-3 mb-2 border-b border-rule">
-          <Text className="text-xl font-extrabold text-ink">Edit Expense</Text>
+      <View
+        style={{ backgroundColor: colors.paper, borderColor: colors.cardBorder }}
+        className="rounded-t-3xl max-h-[80%] p-5 border-t"
+      >
+        <View style={{ borderColor: colors.cardBorder }} className="flex-row justify-between items-center pb-3 mb-2 border-b">
+          <Text style={{ color: colors.ink }} className="text-xl font-extrabold">Edit Expense</Text>
           <TouchableOpacity onPress={onClose} className="p-1">
-            <X size={22} color="#1A1D2D" />
+            <X size={22} color={colors.ink} />
           </TouchableOpacity>
         </View>
 

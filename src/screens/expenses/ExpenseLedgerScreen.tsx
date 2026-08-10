@@ -13,12 +13,20 @@ import { AddExpenseModal } from '../../components/expenses/AddExpenseModal';
 import { ReceiptPreviewDialog } from '../../components/expenses/ReceiptPreviewDialog';
 import { EditExpenseModal } from '../../components/expenses/EditExpenseModal';
 import { useResponsive } from '../../utils/responsive';
-import { Plus, ArrowRightLeft } from 'lucide-react-native';
+import { useTheme } from '../../context/ThemeContext';
+import { Plus, ArrowRightLeft, Utensils, Home, Compass, Receipt, Menu } from 'lucide-react-native';
+import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { formatCurrency } from '../../utils/formatters';
 
 const CATEGORY_FILTERS = ['All', 'Food', 'Stay', 'Transport', 'Activities', 'Groceries'];
 
-export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up' | 'down') => void }> = ({ onScrollDirection }) => {
+interface ExpenseLedgerScreenProps {
+  onScrollDirection?: (direction: 'up' | 'down') => void;
+  onOpenCabinet?: () => void;
+}
+
+export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+  const { colors } = useTheme();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [settleUps, setSettleUps] = useState<SettleUpItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -48,30 +56,53 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
   const totalSpent = expenses.reduce((sum, item) => sum + item.amount, 0);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FAF8F5' }} edges={['top']}>
-      <StatusBar barStyle="dark-content" />
-      <View style={{ flex: 1, paddingHorizontal: sp.lg, paddingTop: sp.md }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
+      <View style={{ flex: 1, paddingHorizontal: sp.lg, paddingTop: sp.sm }}>
+        {/* App Logo & Borderless Hamburger Match Home Screen */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
+          <TouchableOpacity
+            onPress={onOpenCabinet}
+            activeOpacity={0.7}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'transparent',
+            }}
+          >
+            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+          </TouchableOpacity>
+          <BarkadashLogo height={32} />
+        </View>
+
         {/* Header Bar */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sp.md }}>
           <View>
-            <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: '#1A1D2D', letterSpacing: -0.5 }}>Trip Ledger</Text>
-            <Text style={{ fontSize: fs.xs, color: '#6E738A' }}>El Nido shared expenses & settlements</Text>
+            <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5 }}>Trip Ledger</Text>
+            <Text style={{ fontSize: fs.xs, color: colors.inkSoft }}>El Nido shared expenses & settlements</Text>
           </View>
 
           <TouchableOpacity
             onPress={() => setAddModalVisible(true)}
+            activeOpacity={0.8}
             style={{
-              backgroundColor: '#1F4E67',
-              paddingHorizontal: sp.md,
-              paddingVertical: sp.sm,
-              borderRadius: 12,
-              flexDirection: 'row',
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: colors.tealDark,
               alignItems: 'center',
-              gap: sp.xs,
+              justifyContent: 'center',
+              shadowColor: colors.tealDark,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+              elevation: 4,
             }}
           >
-            <Plus size={icon.md} color="#FFFFFF" />
-            <Text style={{ color: '#FFFFFF', fontSize: fs.xs, fontWeight: '700' }}>Add Expense</Text>
+            <Plus size={22} color="#FFFFFF" strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
 
@@ -100,45 +131,45 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
             <View
               style={{
                 flex: 1,
-                backgroundColor: '#E4F0EA',
+                backgroundColor: colors.lightGreenBg,
                 padding: sp.md,
                 borderRadius: 16,
                 borderWidth: 1,
                 borderColor: 'rgba(58,142,113,0.2)',
               }}
             >
-              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: '#3A8E71', letterSpacing: 1 }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: colors.emerald, letterSpacing: 1 }}>
                 ↓ YOU'RE OWED
               </Text>
-              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: '#3A8E71', marginTop: sp.xs }}>₱850</Text>
+              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.emerald, marginTop: sp.xs }}>₱850</Text>
             </View>
 
             {/* Settle In Card */}
             <View
               style={{
                 flex: 1,
-                backgroundColor: '#FBE7E1',
+                backgroundColor: colors.lightRedBg,
                 padding: sp.md,
                 borderRadius: 16,
                 borderWidth: 1,
                 borderColor: 'rgba(226,96,74,0.2)',
               }}
             >
-              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: '#E2604A', letterSpacing: 1 }}>
+              <Text style={{ fontSize: 10, fontWeight: '900', textTransform: 'uppercase', color: colors.redAccent, letterSpacing: 1 }}>
                 ⇄ SETTLE IN
               </Text>
-              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: '#E2604A', marginTop: sp.xs }}>2 txns</Text>
+              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.redAccent, marginTop: sp.xs }}>2 txns</Text>
             </View>
           </View>
 
           {/* Category Breakdown Bar */}
           <View
             style={{
-              backgroundColor: '#FFFFFF',
+              backgroundColor: colors.card,
               padding: sp.md,
               borderRadius: 16,
               borderWidth: 1,
-              borderColor: '#EAE4D7',
+              borderColor: colors.cardBorder,
               flexDirection: 'row',
               justifyContent: 'space-around',
               alignItems: 'center',
@@ -146,18 +177,27 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
             }}
           >
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: '#6E738A', fontWeight: '500' }}>🍽️ Food</Text>
-              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>₱4.0k</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Utensils size={12} color={colors.inkSoft} />
+                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>Food</Text>
+              </View>
+              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink, marginTop: 2 }}>₱4.0k</Text>
             </View>
-            <View style={{ height: 24, width: 1, backgroundColor: '#EAE4D7' }} />
+            <View style={{ height: 24, width: 1, backgroundColor: colors.cardBorder }} />
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: '#6E738A', fontWeight: '500' }}>🏠 Stay</Text>
-              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>₱9.6k</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Home size={12} color={colors.inkSoft} />
+                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>Stay</Text>
+              </View>
+              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink, marginTop: 2 }}>₱9.6k</Text>
             </View>
-            <View style={{ height: 24, width: 1, backgroundColor: '#EAE4D7' }} />
+            <View style={{ height: 24, width: 1, backgroundColor: colors.cardBorder }} />
             <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 10, color: '#6E738A', fontWeight: '500' }}>⛵ Activities</Text>
-              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>₱4.8k</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Compass size={12} color={colors.inkSoft} />
+                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>Activities</Text>
+              </View>
+              <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink, marginTop: 2 }}>₱4.8k</Text>
             </View>
           </View>
 
@@ -175,15 +215,15 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                       paddingVertical: sp.xs + 2,
                       borderRadius: 100,
                       borderWidth: 1,
-                      backgroundColor: isSelected ? '#1F4E67' : '#FFFFFF',
-                      borderColor: isSelected ? '#1F4E67' : '#EAE4D7',
+                      backgroundColor: isSelected ? colors.tealDark : colors.card,
+                      borderColor: isSelected ? colors.tealDark : colors.cardBorder,
                     }}
                   >
                     <Text
                       style={{
                         fontSize: fs.xs,
                         fontWeight: '700',
-                        color: isSelected ? '#FFFFFF' : '#1A1D2D',
+                        color: isSelected ? '#FFFFFF' : colors.ink,
                       }}
                     >
                       {cat}
@@ -197,11 +237,11 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
           {/* Receipt Paper Card */}
           <View
             style={{
-              backgroundColor: '#FAF8F5',
+              backgroundColor: colors.card,
               padding: sp.xl,
               borderRadius: 24,
               borderWidth: 1,
-              borderColor: '#EAE4D7',
+              borderColor: colors.cardBorder,
               marginBottom: sp.xxl,
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 2 },
@@ -217,15 +257,15 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                 paddingBottom: sp.lg,
                 marginBottom: sp.lg,
                 borderBottomWidth: 1,
-                borderBottomColor: '#EAE4D7',
+                borderBottomColor: colors.cardBorder,
                 borderStyle: 'dashed',
               }}
             >
-              <Text style={{ fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 3, color: '#6E738A' }}>
+              <Text style={{ fontSize: 9, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 3, color: colors.inkSoft }}>
                 BARKADASH TRIP CO.
               </Text>
-              <Text style={{ fontSize: fs.xl, fontWeight: '900', color: '#1A1D2D', letterSpacing: -0.5, marginTop: 2 }}>EL NIDO</Text>
-              <Text style={{ fontSize: 10, fontWeight: '600', color: '#6E738A', marginTop: 2 }}>
+              <Text style={{ fontSize: fs.xl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, marginTop: 2 }}>EL NIDO</Text>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}>
                 Jul 18 – Jul 21, 2026
               </Text>
             </View>
@@ -237,13 +277,13 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                 justifyContent: 'space-between',
                 paddingBottom: sp.sm,
                 borderBottomWidth: 1,
-                borderBottomColor: 'rgba(234,228,215,0.5)',
+                borderBottomColor: colors.cardBorder,
               }}
             >
-              <Text style={{ fontSize: 10, fontWeight: '700', color: '#6E738A' }}>ITEM</Text>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: colors.inkSoft }}>ITEM</Text>
               <View style={{ flexDirection: 'row', gap: sp.xxl }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#6E738A' }}>PAID BY</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#6E738A' }}>AMT</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.inkSoft }}>PAID BY</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.inkSoft }}>AMT</Text>
               </View>
             </View>
 
@@ -259,16 +299,19 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                     alignItems: 'center',
                     paddingVertical: sp.xs + 2,
                     borderBottomWidth: 1,
-                    borderBottomColor: 'rgba(234,228,215,0.3)',
+                    borderBottomColor: colors.cardBorder,
                   }}
                 >
                   <View style={{ flex: 1, paddingRight: sp.sm }}>
-                    <Text style={{ fontSize: fs.sm, fontWeight: '700', color: '#1A1D2D' }}>{exp.title}</Text>
-                    <Text style={{ fontSize: 10, color: '#6E738A' }}>📄 receipt</Text>
+                    <Text style={{ fontSize: fs.sm, fontWeight: '700', color: colors.ink }}>{exp.title}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                      <Receipt size={10} color={colors.inkSoft} />
+                      <Text style={{ fontSize: 10, color: colors.inkSoft }}>receipt</Text>
+                    </View>
                   </View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.xxl }}>
-                    <Text style={{ fontSize: fs.xs, fontWeight: '600', color: '#6E738A' }}>{exp.paidBy}</Text>
-                    <Text style={{ fontSize: fs.sm, fontWeight: '900', color: '#1A1D2D' }}>
+                    <Text style={{ fontSize: fs.xs, fontWeight: '600', color: colors.inkSoft }}>{exp.paidBy}</Text>
+                    <Text style={{ fontSize: fs.sm, fontWeight: '900', color: colors.ink }}>
                       {formatCurrency(exp.amount)}
                     </Text>
                   </View>
@@ -282,17 +325,17 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                 paddingTop: sp.lg,
                 marginTop: sp.md,
                 borderTopWidth: 1,
-                borderTopColor: '#EAE4D7',
+                borderTopColor: colors.cardBorder,
                 borderStyle: 'dashed',
               }}
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sp.xs }}>
-                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#6E738A' }}>ITEMS TOTAL</Text>
-                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>{expenses.length} expenses</Text>
+                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.inkSoft }}>ITEMS TOTAL</Text>
+                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>{expenses.length} expenses</Text>
               </View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: fs.md, fontWeight: '900', color: '#1A1D2D' }}>GRAND TOTAL</Text>
-                <Text style={{ fontSize: fs.xl, fontWeight: '900', color: '#1F4E67' }}>
+                <Text style={{ fontSize: fs.md, fontWeight: '900', color: colors.ink }}>GRAND TOTAL</Text>
+                <Text style={{ fontSize: fs.xl, fontWeight: '900', color: colors.tealDark }}>
                   {formatCurrency(totalSpent)}
                 </Text>
               </View>
@@ -304,23 +347,23 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
                 marginTop: sp.xxl,
                 paddingTop: sp.lg,
                 borderTopWidth: 1,
-                borderTopColor: '#EAE4D7',
+                borderTopColor: colors.cardBorder,
                 borderStyle: 'dashed',
                 alignItems: 'center',
               }}
             >
-              <Text style={{ fontSize: 9, color: '#6E738A', letterSpacing: 3, fontFamily: 'monospace', marginBottom: sp.sm, textTransform: 'uppercase' }}>
+              <Text style={{ fontSize: 9, color: colors.inkSoft, letterSpacing: 3, fontFamily: 'monospace', marginBottom: sp.sm, textTransform: 'uppercase' }}>
                 *** THANK YOU FOR BARKADASHIN' ***
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1, height: 40, width: 192, justifyContent: 'center' }}>
                 {[2, 1, 3, 1, 4, 1, 2, 3, 1, 4, 2, 1, 3, 2, 1, 4, 2, 1, 3].map((w, idx) => (
                   <View
                     key={idx}
-                    style={{ backgroundColor: '#1A1D2D', height: '100%', borderRadius: 1, width: w }}
+                    style={{ backgroundColor: colors.ink, height: '100%', borderRadius: 1, width: w }}
                   />
                 ))}
               </View>
-              <Text style={{ fontSize: 10, color: '#6E738A', fontFamily: 'monospace', marginTop: sp.xs }}>4242-BARK-DAS4-2026</Text>
+              <Text style={{ fontSize: 10, color: colors.inkSoft, fontFamily: 'monospace', marginTop: sp.xs }}>4242-BARK-DAS4-2026</Text>
             </View>
           </View>
 
@@ -328,7 +371,7 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
           {settleUps.length > 0 && (
             <View
               style={{
-                backgroundColor: '#E4F0F4',
+                backgroundColor: colors.lightBlueBg,
                 padding: sp.md,
                 borderRadius: 16,
                 borderWidth: 1,
@@ -340,12 +383,12 @@ export const ExpenseLedgerScreen: React.FC<{ onScrollDirection?: (direction: 'up
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
-                <ArrowRightLeft size={icon.sm} color="#3B7A9E" />
-                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: '#1A1D2D' }}>
+                <ArrowRightLeft size={icon.sm} color={colors.tealAccent} />
+                <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>
                   {settleUps[0].fromUser} → {settleUps[0].toUser}
                 </Text>
               </View>
-              <Text style={{ fontSize: fs.xs, fontWeight: '900', color: '#3B7A9E' }}>
+              <Text style={{ fontSize: fs.xs, fontWeight: '900', color: colors.tealAccent }}>
                 {formatCurrency(settleUps[0].amount)}
               </Text>
             </View>

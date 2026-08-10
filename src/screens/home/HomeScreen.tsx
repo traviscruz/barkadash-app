@@ -6,8 +6,12 @@ import {
   TouchableOpacity,
   StatusBar,
   StyleSheet,
+  Modal,
+  Animated,
+  TouchableWithoutFeedback,
+  Easing,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TripService } from '../../services/tripService';
 import { DestinationPollOption, BarkadaActivity, Trip } from '../../types/trip';
 import { TripCard } from '../../components/cards/TripCard';
@@ -17,30 +21,52 @@ import { PollDetailModal } from '../../components/poll/PollDetailModal';
 import { NotificationModal } from '../../components/notifications/NotificationModal';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { PolaroidStack } from '../../components/home/PolaroidStack';
-import { HandwrittenText } from '../../components/common/HandwrittenText';
 import { useResponsive } from '../../utils/responsive';
+import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
+import { AppColors } from '../../utils/colors';
+import { SubScreenType } from '../../components/nav/MainAppContainer';
 import {
   Sun,
   Bell,
   Vote,
   ChevronRight,
   Clock,
-  Sparkles,
-  CheckCircle2,
+  Menu,
+  User,
+  Settings,
+  ShieldCheck,
+  LogOut,
+  X,
 } from 'lucide-react-native';
 
 interface HomeScreenProps {
   onNavigateToTab?: (index: number) => void;
+  onNavigateToSubScreen?: (screen: SubScreenType) => void;
   onScrollDirection?: (direction: 'up' | 'down') => void;
+  onLogout?: () => void;
+  onOpenCabinet?: () => void;
 }
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrollDirection }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({
+  onNavigateToTab,
+  onNavigateToSubScreen,
+  onScrollDirection,
+  onLogout,
+  onOpenCabinet,
+}) => {
+  const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const { profile } = useUser();
+
+  const userFullName = `${profile.firstName} ${profile.lastName}`.trim() || 'User';
+  const userHandle = profile.username ? `@${profile.username}` : '@user';
+  const userInitials = `${(profile.firstName[0] || '').toUpperCase()}${(profile.lastName[0] || '').toUpperCase()}` || 'U';
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [activities, setActivities] = useState<BarkadaActivity[]>([]);
   const [polls, setPolls] = useState<DestinationPollOption[]>([]);
   const [pollModalVisible, setPollModalVisible] = useState(false);
   const [notifModalVisible, setNotifModalVisible] = useState(false);
-
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
@@ -56,8 +82,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: '#FAF8F5' }} edges={['top']}>
-      <StatusBar barStyle="dark-content" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         onScroll={(e) => {
@@ -81,36 +108,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
           paddingBottom: bottomNavOffset + 20,
         }}
       >
-        {/* App Bar Header with Logo SVG */}
+        {/* App Header with Borderless Hamburger Button */}
         <View style={styles.appHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <BarkadashLogo height={36} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity onPress={onOpenCabinet} activeOpacity={0.7} style={styles.borderlessMenuBtn}>
+              <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <BarkadashLogo height={32} />
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
-            {/* Enhanced Weather Badge */}
-            <View style={styles.weatherBadge}>
+            {/* Weather Badge */}
+            <View style={[styles.weatherBadge, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <View style={styles.sunIconCircle}>
                 <Sun size={14} color="#D97706" />
               </View>
-              <Text style={styles.weatherTempText}>29°C</Text>
-              <View style={styles.weatherDivider} />
-              <Text style={styles.weatherLocText}>El Nido</Text>
+              <Text style={[styles.weatherTempText, { color: colors.ink }]}>29°C</Text>
+              <View style={[styles.weatherDivider, { backgroundColor: colors.cardBorder }]} />
+              <Text style={[styles.weatherLocText, { color: colors.inkSoft }]}>El Nido</Text>
             </View>
 
-            {/* Notification Bell */}
+            {/* Notification Bell Button */}
             <TouchableOpacity
-              style={styles.bellButton}
-              activeOpacity={0.8}
               onPress={() => setNotifModalVisible(true)}
+              style={[styles.bellButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              activeOpacity={0.8}
             >
-              <Bell size={icon.md} color="#1A1D2D" />
+              <Bell size={18} color={colors.ink} />
               <View style={styles.bellUnreadDot} />
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Hero Active Trip Card */}
+        {/* Active Trip Card */}
         {activeTrip && (
           <TripCard
             trip={activeTrip}
@@ -123,7 +153,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => onNavigateToTab && onNavigateToTab(1)}
-            style={styles.nextUpBanner}
+            style={[styles.nextUpBanner, { backgroundColor: isDark ? colors.card : '#0F2A3C', borderColor: isDark ? colors.cardBorder : 'rgba(255,255,255,0.1)' }]}
           >
             <View style={styles.nextUpIconBox}>
               <Clock size={icon.lg} color="#FFFFFF" />
@@ -141,29 +171,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
           </TouchableOpacity>
         )}
 
-        {/* Single Featured Quick Access: Destination Poll Widget */}
+        {/* Destination Poll Widget */}
         <View style={styles.pollQuickSection}>
           <TouchableOpacity
             activeOpacity={0.92}
             onPress={() => setPollModalVisible(true)}
-            style={styles.pollWidgetCard}
+            style={[styles.pollWidgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
           >
             <View style={styles.pollWidgetHeader}>
-              <View style={styles.pollTagPill}>
-                <Vote size={14} color="#B8791E" />
-                <Text style={styles.pollTagText}>QUICK ACCESS • DESTINATION POLL</Text>
+              <View style={[styles.pollTagPill, { backgroundColor: colors.lightOrangeBg }]}>
+                <Vote size={14} color={colors.orangeAccent} />
+                <Text style={[styles.pollTagText, { color: colors.orangeAccent }]}>QUICK ACCESS • DESTINATION POLL</Text>
               </View>
             </View>
 
             <View style={styles.pollWidgetBody}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.pollWidgetTitle}>Where to Next?</Text>
-                <Text style={styles.pollWidgetSub}>
+                <Text style={[styles.pollWidgetTitle, { color: colors.ink }]}>Where to Next?</Text>
+                <Text style={[styles.pollWidgetSub, { color: colors.inkSoft }]}>
                   3 destinations competing • Tap to cast or change vote
                 </Text>
               </View>
 
-              <View style={styles.castVoteButton}>
+              <View style={[styles.castVoteButton, { backgroundColor: colors.tealDark }]}>
                 <Text style={styles.castVoteText}>Cast Vote</Text>
                 <ChevronRight size={14} color="#FFFFFF" />
               </View>
@@ -171,14 +201,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
           </TouchableOpacity>
         </View>
 
-        {/* Polaroid Poll Section */}
+        {/* Polaroid Poll Gallery */}
         <SectionHeader
           title="WHERE TO NEXT? VOTE NOW"
           actionText="View All Options"
           onActionPress={() => setPollModalVisible(true)}
         />
 
-        {/* Interactive Stacked Polaroid Gallery */}
         {polls && polls.length > 0 && (
           <PolaroidStack
             polls={polls}
@@ -190,7 +219,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
         <SectionHeader title="LIVE BARKADA UPDATES" />
         <View style={{ gap: sp.sm, marginBottom: sp.xl }}>
           {activities.map((act) => (
-            <AppCard key={act.id} className="p-3 border-rule bg-white">
+            <AppCard key={act.id} className="p-3">
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View
                   style={{
@@ -208,12 +237,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: fs.xs, color: '#1A1D2D' }}>
-                    <Text style={{ fontWeight: '800', fontSize: fs.sm }}>{act.memberName}</Text>{' '}
+                  <Text style={{ fontSize: fs.xs, color: colors.ink }}>
+                    <Text style={{ fontWeight: '800', fontSize: fs.sm, color: colors.ink }}>{act.memberName}</Text>{' '}
                     {act.action}
                   </Text>
                 </View>
-                <Text style={{ fontSize: 10, color: '#6E738A', fontWeight: '600' }}>
+                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>
                   {act.timeAgo}
                 </Text>
               </View>
@@ -222,6 +251,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
         </View>
       </ScrollView>
 
+      {/* MODALS */}
       <PollDetailModal
         visible={pollModalVisible}
         onClose={() => setPollModalVisible(false)}
@@ -238,10 +268,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateToTab, onScrol
 const styles = StyleSheet.create({
   appHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
     paddingVertical: 4,
+  },
+  borderlessMenuBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   weatherBadge: {
     flexDirection: 'row',
@@ -304,6 +342,101 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2604A',
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
+  },
+  drawerCabinet: {
+    width: 280,
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 6, height: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  brandText: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FAF8F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: AppColors.tealDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  profileName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: AppColors.ink,
+  },
+  profileHandle: {
+    fontSize: 12,
+    color: AppColors.inkSoft,
+    marginTop: 1,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#EAE4D7',
+    marginVertical: 8,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 12,
+  },
+  menuIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#FAF8F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuItemText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: AppColors.ink,
+  },
+  logoutMenuItem: {
+    marginTop: 2,
+  },
+  logoutIconBox: {
+    backgroundColor: '#FEE2E2',
+  },
+  logoutText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#DC2626',
   },
   nextUpBanner: {
     marginBottom: 20,
@@ -376,20 +509,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#B8791E',
     letterSpacing: 0.8,
-  },
-  pollActiveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#E4F0EA',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  pollActiveText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#2A8563',
   },
   pollWidgetBody: {
     flexDirection: 'row',

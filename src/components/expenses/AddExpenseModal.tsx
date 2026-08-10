@@ -10,6 +10,7 @@ import { AppTextField } from '../inputs/AppTextField';
 import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ExpenseService } from '../../services/expenseService';
+import { useTheme } from '../../context/ThemeContext';
 import { X, Utensils, Home, Compass, ShoppingBag, Car, Receipt } from 'lucide-react-native';
 
 interface AddExpenseModalProps {
@@ -29,6 +30,7 @@ const CATEGORIES = [
 const PAYERS = ['Steven', 'Harry', 'Ahiah', 'Travis', 'Me'];
 
 export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClose }) => {
+  const { colors } = useTheme();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [paidBy, setPaidBy] = useState('Me');
@@ -60,12 +62,15 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
 
   return (
     <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.4} useKeyboardAvoiding>
-      <View className="bg-paper rounded-t-3xl max-h-[90%] p-5 border-t border-rule">
+      <View
+        style={{ backgroundColor: colors.paper, borderColor: colors.cardBorder }}
+        className="rounded-t-3xl max-h-[90%] p-5 border-t"
+      >
         {/* Header */}
-        <View className="flex-row justify-between items-center pb-4 mb-2 border-b border-rule">
-          <Text className="text-xl font-extrabold text-ink">Add New Expense</Text>
+        <View style={{ borderColor: colors.cardBorder }} className="flex-row justify-between items-center pb-4 mb-2 border-b">
+          <Text style={{ color: colors.ink }} className="text-xl font-extrabold">Add New Expense</Text>
           <TouchableOpacity onPress={onClose} className="p-1">
-            <X size={22} color="#1A1D2D" />
+            <X size={22} color={colors.ink} />
           </TouchableOpacity>
         </View>
 
@@ -88,7 +93,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
           />
 
           {/* Paid By */}
-          <Text className="text-xs font-bold text-ink mb-1.5 uppercase">Paid By</Text>
+          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-1.5 uppercase">Paid By</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
             <View className="flex-row space-x-2">
               {PAYERS.map((p) => {
@@ -97,16 +102,15 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
                   <TouchableOpacity
                     key={p}
                     onPress={() => setPaidBy(p)}
-                    className={`px-4 py-2 rounded-full border ${
-                      isSelected
-                        ? 'bg-sky border-sky'
-                        : 'bg-white border-rule'
-                    }`}
+                    style={{
+                      backgroundColor: isSelected ? colors.sky : colors.card,
+                      borderColor: isSelected ? colors.sky : colors.cardBorder,
+                    }}
+                    className="px-4 py-2 rounded-full border"
                   >
                     <Text
-                      className={`text-sm font-semibold ${
-                        isSelected ? 'text-white' : 'text-ink'
-                      }`}
+                      style={{ color: isSelected ? '#FFFFFF' : colors.ink }}
+                      className="text-sm font-semibold"
                     >
                       {p}
                     </Text>
@@ -117,7 +121,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
           </ScrollView>
 
           {/* Category Selection */}
-          <Text className="text-xs font-bold text-ink mb-1.5 uppercase">Category</Text>
+          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-1.5 uppercase">Category</Text>
           <View className="flex-row flex-wrap gap-2 mb-4">
             {CATEGORIES.map((cat) => {
               const isSelected = category === cat.name;
@@ -126,20 +130,19 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
                 <TouchableOpacity
                   key={cat.name}
                   onPress={() => setCategory(cat.name)}
-                  className={`flex-row items-center px-3.5 py-2 rounded-xl border ${
-                    isSelected
-                      ? 'bg-ink border-ink'
-                      : 'bg-white border-rule'
-                  }`}
+                  style={{
+                    backgroundColor: isSelected ? colors.tealDark : colors.card,
+                    borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                  }}
+                  className="flex-row items-center px-3.5 py-2 rounded-xl border"
                 >
                   <IconComponent
                     size={16}
                     color={isSelected ? '#FFFFFF' : cat.color}
                   />
                   <Text
-                    className={`text-xs font-bold ml-1.5 ${
-                      isSelected ? 'text-white' : 'text-ink'
-                    }`}
+                    style={{ color: isSelected ? '#FFFFFF' : colors.ink }}
+                    className="text-xs font-bold ml-1.5"
                   >
                     {cat.name}
                   </Text>
@@ -149,17 +152,20 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
           </View>
 
           {/* Pinaluwal Toggle */}
-          <View className="flex-row items-center justify-between p-3.5 bg-white rounded-xl border border-rule mb-4">
+          <View
+            style={{ backgroundColor: colors.card, borderColor: colors.cardBorder }}
+            className="flex-row items-center justify-between p-3.5 rounded-xl border mb-4"
+          >
             <View className="flex-1 pr-3">
-              <Text className="text-sm font-bold text-ink">Advance Payment (Pinaluwal)</Text>
-              <Text className="text-xs text-inkSoft mt-0.5">
+              <Text style={{ color: colors.ink }} className="text-sm font-bold">Advance Payment (Pinaluwal)</Text>
+              <Text style={{ color: colors.inkSoft }} className="text-xs mt-0.5">
                 Paid ahead on behalf of the barkada
               </Text>
             </View>
             <Switch
               value={isPinaluwal}
               onValueChange={setIsPinaluwal}
-              trackColor={{ false: '#EAE4D7', true: '#1F4E67' }}
+              trackColor={{ false: colors.cardBorder, true: colors.tealDark }}
               thumbColor="#FFFFFF"
             />
           </View>

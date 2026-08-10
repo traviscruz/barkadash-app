@@ -1,76 +1,75 @@
 import './global.css';
-import React, { useState } from 'react';
-import { View, StatusBar } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { HomeScreen } from './src/screens/home/HomeScreen';
-import { TripPlannerScreen } from './src/screens/planner/TripPlannerScreen';
-import { BarkadaRadarScreen } from './src/screens/radar/BarkadaRadarScreen';
-import { ExpenseLedgerScreen } from './src/screens/expenses/ExpenseLedgerScreen';
-import { TripFeedScreen } from './src/screens/feed/TripFeedScreen';
-import { AppBottomNav } from './src/components/nav/AppBottomNav';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ThemeProvider } from './src/context/ThemeContext';
+import { UserProvider } from './src/context/UserContext';
+import { AuthFlowContainer } from './src/screens/auth/AuthFlowContainer';
+import { MainAppContainer } from './src/components/nav/MainAppContainer';
+import { supabase } from './src/utils/supabase';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
-  const handleScrollDirection = (direction: 'up' | 'down') => {
-    if (direction === 'down' && isExpanded) {
-      setIsExpanded(false);
-    } else if (direction === 'up' && !isExpanded) {
-      setIsExpanded(true);
-    }
-  };
+  useEffect(() => {
+    const checkPersistedAuth = async () => {
+      try {
+        const rememberMeValue = await AsyncStorage.getItem('@barkadash_remember_me');
+        const isLoggedInValue = await AsyncStorage.getItem('@barkadash_logged_in');
+        const { data: { session } } = await supabase.auth.getSession();
 
-  const renderActiveScreen = () => {
-    switch (currentTab) {
-      case 0:
-        return (
-          <HomeScreen
-            onNavigateToTab={(index) => {
-              setCurrentTab(index);
-              setIsExpanded(true);
-            }}
-            onScrollDirection={handleScrollDirection}
-          />
-        );
-      case 1:
-        return <TripPlannerScreen onScrollDirection={handleScrollDirection} />;
-      case 2:
-        return <BarkadaRadarScreen onScrollDirection={handleScrollDirection} />;
-      case 3:
-        return <ExpenseLedgerScreen onScrollDirection={handleScrollDirection} />;
-      case 4:
-        return <TripFeedScreen onScrollDirection={handleScrollDirection} />;
-      default:
-        return (
-          <HomeScreen
-            onNavigateToTab={(index) => {
-              setCurrentTab(index);
-              setIsExpanded(true);
-            }}
-            onScrollDirection={handleScrollDirection}
-          />
-        );
+        if ((session || isLoggedInValue === 'true') && rememberMeValue !== 'false') {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (e) {
+        console.warn('Auth check error:', e);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkPersistedAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN') {
+        setIsAuthenticated(true);
+      } else if (event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      await AsyncStorage.setItem('@barkadash_logged_in', 'false');
+    } catch (e) {
+      console.warn('Logout error:', e);
     }
+    setIsAuthenticated(false);
   };
 
   return (
-    <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: '#FAF8F5' }}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FAF8F5" />
-        <View style={{ flex: 1 }}>
-          {renderActiveScreen()}
-          <AppBottomNav
-            currentIndex={currentTab}
-            onTabChange={(index) => {
-              setCurrentTab(index);
-              setIsExpanded(true);
-            }}
-            isExpanded={isExpanded}
-            onExpand={() => setIsExpanded(true)}
-          />
-        </View>
-      </View>
-    </SafeAreaProvider>
+    <ThemeProvider>
+      <UserProvider>
+        <SafeAreaProvider>
+          {isAuthenticated === null ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B132B' }}>
+              <ActivityIndicator size="large" color="#38BDF8" />
+            </View>
+          ) : isAuthenticated ? (
+            <MainAppContainer onLogout={handleLogout} />
+          ) : (
+            <AuthFlowContainer onAuthenticated={() => setIsAuthenticated(true)} />
+          )}
+        </SafeAreaProvider>
+      </UserProvider>
+    </ThemeProvider>
   );
 }

@@ -12,8 +12,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
+import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 
 const { width } = Dimensions.get('window');
@@ -22,7 +23,14 @@ const bigLagoonImg = require('../../../assets/images/biglagoon.jpg');
 const nacpanImg = require('../../../assets/images/nacpan.jpg');
 const sagadaImg = require('../../../assets/images/sagada.jpeg');
 
-export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' | 'down') => void }> = ({ onScrollDirection }) => {
+interface TripPlannerScreenProps {
+  onScrollDirection?: (direction: 'up' | 'down') => void;
+  onOpenCabinet?: () => void;
+}
+
+export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+  const { colors, isDark } = useTheme();
+  const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
   const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots' | 'AI Chat'>('Itinerary');
   const [selectedDay, setSelectedDay] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState('DINING');
@@ -40,7 +48,17 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
     }).start();
   }, [selectedDay, slideAnim]);
   
-  const [chatMessages, setChatMessages] = useState([
+  const [chatMessages, setChatMessages] = useState<Array<{
+    id: string;
+    sender: string;
+    text: string;
+    time: string;
+    hasCard?: boolean;
+    spotTitle?: string;
+    spotMeta?: string;
+    rating?: string;
+    image?: any;
+  }>>([
     {
       id: '1',
       sender: 'ai',
@@ -65,8 +83,6 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
       image: bigLagoonImg,
     },
   ]);
-
-  const { sp, fs, bottomNavOffset, isTablet } = useResponsive();
 
   const itineraryItems = [
     {
@@ -135,27 +151,41 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
 
   // App-aligned Colors
   const COLORS = {
-    bgDark: '#0F2A3C', // Deep Navy from Home banner
-    bgLight: AppColors.paper, // '#FAF8F5'
-    accent: AppColors.sun, // Orange accent
-    textDark: AppColors.ink, // '#1A1D2D'
+    bgDark: colors.card,
+    bgLight: colors.paper,
+    accent: colors.sun,
+    textDark: colors.ink,
     textLight: '#FFFFFF',
-    borderDark: AppColors.tealDark, // '#1F4E67'
-    borderLight: AppColors.rule, // '#EAE4D7'
-    subtleDark: AppColors.inkSoft, // '#6E738A'
+    borderDark: colors.tealDark,
+    borderLight: colors.cardBorder,
+    subtleDark: colors.inkSoft,
     subtleLight: 'rgba(255,255,255,0.6)',
   };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bgLight }} edges={['top']}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
       {/* HEADER - Editorial but App-Themed */}
-      <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.md, paddingBottom: sp.lg, backgroundColor: COLORS.bgLight }}>
+      <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.sm, paddingBottom: sp.lg, backgroundColor: COLORS.bgLight }}>
         
-        {/* App Logo Match Home Screen */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.xl }}>
-          <BarkadashLogo height={36} />
+        {/* App Logo & Borderless Hamburger Match Home Screen */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
+          <TouchableOpacity
+            onPress={onOpenCabinet}
+            activeOpacity={0.7}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'transparent',
+            }}
+          >
+            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+          </TouchableOpacity>
+          <BarkadashLogo height={32} />
         </View>
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: sp.lg }}>
@@ -171,10 +201,10 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
             <Text style={{ fontSize: 8, fontWeight: '800', color: COLORS.subtleDark, letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>TODAY</Text>
             <View style={{ 
               width: 38, 
-              backgroundColor: '#FFFFFF', 
+              backgroundColor: colors.card, 
               borderRadius: 6, 
               borderWidth: 1, 
-              borderColor: COLORS.borderLight, 
+              borderColor: colors.cardBorder, 
               overflow: 'hidden', 
               alignItems: 'center',
               shadowColor: '#000',
@@ -184,10 +214,14 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
               elevation: 2,
             }}>
               <View style={{ width: '100%', backgroundColor: '#FF3B30', paddingVertical: 2, alignItems: 'center' }}>
-                <Text style={{ fontSize: 8, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>AUG</Text>
+                <Text style={{ fontSize: 8, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>
+                  {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][new Date().getMonth()]}
+                </Text>
               </View>
               <View style={{ paddingVertical: 2, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 16, fontWeight: '900', color: COLORS.textDark }}>6</Text>
+                <Text style={{ fontSize: 16, fontWeight: '900', color: COLORS.textDark }}>
+                  {new Date().getDate()}
+                </Text>
               </View>
             </View>
           </View>
@@ -205,16 +239,16 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                   paddingVertical: sp.sm,
                   paddingHorizontal: sp.md,
                   borderRadius: 100,
-                  backgroundColor: isSelected ? COLORS.textDark : 'transparent',
+                  backgroundColor: isSelected ? colors.tealDark : 'transparent',
                   borderWidth: 1,
-                  borderColor: isSelected ? COLORS.textDark : COLORS.borderLight,
+                  borderColor: isSelected ? colors.tealDark : colors.cardBorder,
                 }}
               >
                 <Text
                   style={{
                     fontSize: 12,
                     fontWeight: '800',
-                    color: isSelected ? COLORS.textLight : COLORS.subtleDark,
+                    color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
                   }}
                 >
                   {tab}
@@ -252,11 +286,11 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
               {/* Premium Segmented Day Selector */}
               <View style={{ 
                 flexDirection: 'row', 
-                backgroundColor: '#FFFFFF', 
+                backgroundColor: colors.card, 
                 padding: 6, 
                 borderRadius: 100, 
                 borderWidth: 1, 
-                borderColor: COLORS.borderLight, 
+                borderColor: colors.cardBorder, 
                 marginBottom: sp.xl,
                 shadowColor: '#000',
                 shadowOffset: { width: 0, height: 4 },
@@ -271,7 +305,7 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                   bottom: 6,
                   left: 6,
                   width: (width - (sp.lg * 2) - 12) / 4,
-                  backgroundColor: COLORS.bgDark,
+                  backgroundColor: colors.tealDark,
                   borderRadius: 100,
                   transform: [{
                     translateX: slideAnim.interpolate({
@@ -300,10 +334,10 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                         justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: isSelected ? 'rgba(255,255,255,0.7)' : COLORS.subtleDark, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: isSelected ? 'rgba(255,255,255,0.85)' : COLORS.subtleDark, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                         DAY {d.day}
                       </Text>
-                      <Text style={{ fontSize: 11, fontWeight: '900', color: isSelected ? COLORS.textLight : COLORS.textDark, letterSpacing: 0.5 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '900', color: isSelected ? '#FFFFFF' : COLORS.textDark, letterSpacing: 0.5 }}>
                         {d.date}
                       </Text>
                     </TouchableOpacity>
@@ -333,7 +367,7 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
 
                     {/* Timeline Line */}
                     <View style={{ width: 24, alignItems: 'center' }}>
-                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.bgDark, marginTop: 8 }} />
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.tealDark, marginTop: 8 }} />
                       {idx < itineraryItems.length - 1 && (
                         <View style={{ width: 2, flex: 1, backgroundColor: COLORS.borderLight, marginVertical: 4 }} />
                       )}
@@ -345,11 +379,11 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                       onPress={() => toggleItemCompletion(item.id)}
                       style={{ flex: 1, paddingBottom: sp.xl, opacity: completedItems[item.id] ? 0.4 : 1 }}
                     >
-                      <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', backgroundColor: AppColors.lightOrangeBg, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 8, borderRadius: 6 }}>
-                        {item.tag === 'TRANSPORT' && <MapPin size={10} color="#B8791E" style={{ marginRight: 4 }} />}
-                        {item.tag === 'ACTIVITY' && <Compass size={10} color="#B8791E" style={{ marginRight: 4 }} />}
-                        {item.tag === 'FOOD' && <Utensils size={10} color="#B8791E" style={{ marginRight: 4 }} />}
-                        <Text style={{ fontSize: 9, fontWeight: '800', color: '#B8791E', letterSpacing: 1 }}>{item.tag}</Text>
+                      <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', backgroundColor: colors.lightOrangeBg, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 8, borderRadius: 6 }}>
+                        {item.tag === 'TRANSPORT' && <MapPin size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />}
+                        {item.tag === 'ACTIVITY' && <Compass size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />}
+                        {item.tag === 'FOOD' && <Utensils size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />}
+                        <Text style={{ fontSize: 9, fontWeight: '800', color: colors.orangeAccent, letterSpacing: 1 }}>{item.tag}</Text>
                       </View>
                       <Text style={{ fontSize: fs.md, fontWeight: '800', color: COLORS.textDark, marginBottom: 4, textDecorationLine: completedItems[item.id] ? 'line-through' : 'none' }}>{item.title}</Text>
                       <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.subtleDark, letterSpacing: 0.2, marginBottom: 8, textDecorationLine: completedItems[item.id] ? 'line-through' : 'none' }}>
@@ -379,7 +413,7 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                           style={{
                             fontSize: 22,
                             fontWeight: '900',
-                            color: isSelected ? COLORS.textDark : '#D1C9B9',
+                            color: isSelected ? COLORS.textDark : (isDark ? '#4B5563' : '#D1C9B9'),
                             textDecorationLine: isSelected ? 'underline' : 'none',
                           }}
                         >
@@ -411,7 +445,7 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
               </ScrollView>
 
               {/* Featured AI Pick */}
-              <View style={{ backgroundColor: '#FFFFFF', borderRadius: 20, padding: sp.md, borderWidth: 1, borderColor: COLORS.borderLight }}>
+              <View style={{ backgroundColor: colors.card, borderRadius: 20, padding: sp.md, borderWidth: 1, borderColor: colors.cardBorder }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sp.md }}>
                   <Text style={{ fontSize: 11, fontWeight: '900', letterSpacing: 1, color: COLORS.textDark, textTransform: 'uppercase' }}>Featured AI Pick</Text>
                   <View style={{ backgroundColor: AppColors.lightGreenBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 100 }}>
@@ -439,13 +473,13 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
 
                 <TouchableOpacity
                   style={{
-                    backgroundColor: COLORS.bgDark,
+                    backgroundColor: colors.tealDark,
                     paddingVertical: sp.md,
                     borderRadius: 14,
                     alignItems: 'center',
                   }}
                 >
-                  <Text style={{ color: COLORS.textLight, fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>Add to Itinerary</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>Add to Itinerary</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -470,13 +504,13 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                     <View
                       style={{
                         maxWidth: '85%',
-                        backgroundColor: msg.sender === 'user' ? COLORS.bgDark : '#FFFFFF',
+                        backgroundColor: msg.sender === 'user' ? colors.tealDark : colors.card,
                         padding: sp.md,
                         borderRadius: 18,
                         borderBottomRightRadius: msg.sender === 'user' ? 4 : 18,
                         borderBottomLeftRadius: msg.sender === 'ai' ? 4 : 18,
                         borderWidth: msg.sender === 'ai' ? 1 : 0,
-                        borderColor: COLORS.borderLight,
+                        borderColor: colors.cardBorder,
                       }}
                     >
                       <Text
@@ -484,14 +518,14 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                           fontSize: fs.sm,
                           fontWeight: '600',
                           lineHeight: 20,
-                          color: msg.sender === 'user' ? COLORS.textLight : COLORS.textDark,
+                          color: msg.sender === 'user' ? '#FFFFFF' : COLORS.textDark,
                         }}
                       >
                         {msg.text}
                       </Text>
 
                       {msg.hasCard && (
-                        <View style={{ marginTop: sp.md, backgroundColor: COLORS.bgLight, padding: sp.sm, borderRadius: 12 }}>
+                        <View style={{ marginTop: sp.md, backgroundColor: colors.paper, padding: sp.sm, borderRadius: 12 }}>
                           <Image
                             source={msg.image}
                             style={{ height: 100, width: '100%', marginBottom: sp.sm, borderRadius: 8 }}
@@ -521,9 +555,9 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                       key={idx}
                       onPress={() => setPromptText(prompt)}
                       style={{
-                        backgroundColor: '#FFFFFF',
+                        backgroundColor: colors.card,
                         borderWidth: 1,
-                        borderColor: COLORS.borderLight,
+                        borderColor: colors.cardBorder,
                         paddingHorizontal: sp.md,
                         paddingVertical: 10,
                         borderRadius: 100,
@@ -536,7 +570,7 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
               </ScrollView>
 
               {/* Chat Input */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 100, paddingLeft: sp.lg, paddingRight: 6, paddingVertical: 6, borderWidth: 1, borderColor: COLORS.borderLight }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 100, paddingLeft: sp.lg, paddingRight: 6, paddingVertical: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
                 <TextInput
                   style={{ flex: 1, fontSize: 14, fontWeight: '600', color: COLORS.textDark, paddingVertical: 8 }}
                   placeholder="Type message..."
@@ -547,13 +581,13 @@ export const TripPlannerScreen: React.FC<{ onScrollDirection?: (direction: 'up' 
                 <TouchableOpacity
                   onPress={handleSendMessage}
                   style={{
-                    backgroundColor: COLORS.bgDark,
+                    backgroundColor: colors.tealDark,
                     paddingHorizontal: sp.lg,
                     paddingVertical: 10,
                     borderRadius: 100,
                   }}
                 >
-                  <Text style={{ color: COLORS.textLight, fontSize: 11, fontWeight: '900', letterSpacing: 0.5 }}>Send</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 }}>Send</Text>
                 </TouchableOpacity>
               </View>
             </View>

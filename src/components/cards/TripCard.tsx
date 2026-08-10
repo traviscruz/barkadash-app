@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Trip } from '../../types/trip';
 import { formatCurrency } from '../../utils/formatters';
 import { useResponsive } from '../../utils/responsive';
+import { useTheme } from '../../context/ThemeContext';
 import { Calendar, Users, Clock, Sparkles } from 'lucide-react-native';
 
 interface TripCardProps {
@@ -12,6 +13,7 @@ interface TripCardProps {
 
 export const TripCard: React.FC<TripCardProps> = ({ trip, onPress }) => {
   const { sp, fs, isTablet } = useResponsive();
+  const { colors } = useTheme();
   const avatarSize = isTablet ? 34 : 30;
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -44,8 +46,8 @@ export const TripCard: React.FC<TripCardProps> = ({ trip, onPress }) => {
       >
         <View style={styles.cardContainer}>
           {/* Decorative Boarding Pass Notches */}
-          <View style={styles.notchLeft} />
-          <View style={styles.notchRight} />
+          <View style={[styles.notchLeft, { backgroundColor: colors.paper }]} />
+          <View style={[styles.notchRight, { backgroundColor: colors.paper }]} />
 
           {/* Top Banner Header: BOARDING PASS */}
           <View style={styles.headerRow}>
