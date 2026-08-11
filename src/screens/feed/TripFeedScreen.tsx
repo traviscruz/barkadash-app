@@ -12,6 +12,7 @@ import { Heart, Menu } from 'lucide-react-native';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
+import { ShimmerImage } from '../../components/common/ShimmerImage';
 
 const elnidoImg = require('../../../assets/images/elnido.jpg');
 const sagadaImg = require('../../../assets/images/sagada.jpeg');
@@ -158,7 +159,7 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
             >
               {/* Photo with Overlay */}
               <View style={{ height: cardImgHeight, width: '100%', backgroundColor: colors.paperDim, position: 'relative' }}>
-                <Image source={item.image} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                <ShimmerImage source={item.image} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
 
                 <View
                   style={{

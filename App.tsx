@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { UserProvider } from './src/context/UserContext';
+import { AppSplashScreen } from './src/components/common/AppSplashScreen';
 import { AuthFlowContainer } from './src/screens/auth/AuthFlowContainer';
 import { MainAppContainer } from './src/components/nav/MainAppContainer';
 import { supabase } from './src/utils/supabase';
@@ -60,9 +61,7 @@ export default function App() {
       <UserProvider>
         <SafeAreaProvider>
           {isAuthenticated === null ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B132B' }}>
-              <ActivityIndicator size="large" color="#38BDF8" />
-            </View>
+            <AppSplashScreen />
           ) : isAuthenticated ? (
             <MainAppContainer onLogout={handleLogout} />
           ) : (

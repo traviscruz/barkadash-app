@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,27 +6,32 @@ import {
   StatusBar,
   Alert,
   StyleSheet,
-  Image,
+  ActivityIndicator,
   Dimensions,
+  Image,
   PanResponder,
+  ScrollView,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
 import {
-  Settings,
-  Share2,
   MapPin,
   Users,
   LocateFixed,
   Layers,
   Radio,
   Navigation,
-  Sun,
   Battery,
   Clock,
-  Plus,
-  Minus,
   Menu,
+  Share2,
+  Sun,
+  Moon,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useResponsive } from '../../utils/responsive';
@@ -38,12 +43,35 @@ interface MemberStatus {
   initial: string;
   avatarBg: string;
   statusText: string;
+  address: string;
   distance: string;
   battery: number;
+  speed: string;
   lastUpdated: string;
   isMe?: boolean;
   lat: number;
   lng: number;
+}
+
+interface BarkadaRadarScreenProps {
+  onScrollDirection?: (direction: 'up' | 'down') => void;
+  onOpenCabinet?: () => void;
+}
+
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): string {
+  const R = 6371; // Earth radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c;
+  if (d < 0.1) return 'Here';
+  return `${d.toFixed(1)} km away`;
 }
 
 function latLngToPixel(lat: number, lng: number, zoom: number) {
@@ -55,94 +83,255 @@ function latLngToPixel(lat: number, lng: number, zoom: number) {
   return { x, y };
 }
 
-interface BarkadaRadarScreenProps {
-  onScrollDirection?: (direction: 'up' | 'down') => void;
-  onOpenCabinet?: () => void;
-}
-
-export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCabinet }) => {
   const { colors, isDark } = useTheme();
-  const [selectedMemberId, setSelectedMemberId] = useState<string>('m1');
-  const [mapTileStyle, setMapTileStyle] = useState<'voyager' | 'dark' | 'osm'>('voyager');
-  const [zoom, setZoom] = useState<number>(12);
-  const [center, setCenter] = useState<{ lat: number; lng: number }>({ lat: 11.21, lng: 119.39 });
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  const initialPinchDist = useRef<number | null>(null);
-  const lastPinchTime = useRef<number>(0);
-
-  const { sp, fs, icon, insets, isTablet } = useResponsive();
+  const { sp, fs, insets, isTablet } = useResponsive();
   const screenDimensions = Dimensions.get('window');
   const viewWidth = screenDimensions.width;
   const viewHeight = screenDimensions.height;
 
-  const members: MemberStatus[] = [
+  const [loadingLocation, setLoadingLocation] = useState<boolean>(true);
+  const [mapStyleOverride, setMapStyleOverride] = useState<'auto' | 'hybrid' | 'dark' | 'light'>('auto');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('m1');
+  const [locationStatus, setLocationStatus] = useState<string>('Acquiring GPS...');
+  const [isCardCollapsed, setIsCardCollapsed] = useState<boolean>(false);
+
+  // Asymmetric Animation: Playful Spring Bounce on Open, Snappy Clean Ease on Close
+  const animatedProgress = useRef(new Animated.Value(1)).current; // 1 = expanded, 0 = collapsed
+
+  const toggleCardCollapsed = () => {
+    const nextCollapsedState = !isCardCollapsed;
+    setIsCardCollapsed(nextCollapsedState);
+
+    if (nextCollapsedState) {
+      // Snappy Clean Ease Down for Closing (No Weird Bounce Overshoot)
+      Animated.timing(animatedProgress, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.poly(3)),
+        useNativeDriver: false,
+      }).start();
+    } else {
+      // Perfect Elastic Bounce Pop for Opening
+      Animated.spring(animatedProgress, {
+        toValue: 1,
+        bounciness: 15,
+        speed: 10,
+        useNativeDriver: false,
+      }).start();
+    }
+  };
+
+  // Continuous Float Zoom (Allows 60fps smooth Pinching without frame skips)
+  const [zoom, setZoom] = useState<number>(14.0);
+  const zoomRef = useRef<number>(14.0);
+  zoomRef.current = zoom;
+
+  const [center, setCenter] = useState<{ lat: number; lng: number }>({
+    lat: 14.5995,
+    lng: 120.9842,
+  });
+
+  const [members, setMembers] = useState<MemberStatus[]>([
     {
       id: 'm1',
       name: 'Travis (you)',
       initial: 'T',
       avatarBg: '#0171F8',
-      statusText: 'Nacpan Beach',
+      statusText: 'Current Location',
+      address: 'Near City Center Plaza',
       distance: '0.0 km',
       battery: 94,
+      speed: 'Stationary',
       lastUpdated: 'Just now',
       isMe: true,
-      lat: 11.3195,
-      lng: 119.4262,
+      lat: 14.5995,
+      lng: 120.9842,
     },
     {
       id: 'm2',
       name: 'Steven',
       initial: 'S',
-      avatarBg: '#4F86C6',
-      statusText: 'Town Harbor',
-      distance: '1.2 km away',
-      battery: 82,
+      avatarBg: '#EA4335',
+      statusText: 'Coffee Hub',
+      address: 'Main St & 5th Ave',
+      distance: '0.8 km away',
+      battery: 88,
+      speed: 'Walking • 4 km/h',
       lastUpdated: '2m ago',
-      lat: 11.1808,
-      lng: 119.3900,
+      lat: 14.6045,
+      lng: 120.9892,
     },
     {
       id: 'm3',
       name: 'Harry',
       initial: 'H',
-      avatarBg: '#3B7A9E',
-      statusText: 'Las Cabañas Sunset',
-      distance: '4.8 km away',
+      avatarBg: '#FBBC05',
+      statusText: 'City Square',
+      address: 'Central Park West',
+      distance: '1.4 km away',
       battery: 76,
-      lastUpdated: '5m ago',
-      lat: 11.1472,
-      lng: 119.3934,
+      speed: 'Driving • 24 km/h',
+      lastUpdated: '4m ago',
+      lat: 14.5915,
+      lng: 120.9932,
     },
     {
       id: 'm4',
       name: 'Ahiah',
       initial: 'A',
-      avatarBg: '#F0A93E',
-      statusText: 'Big Lagoon Kayaks',
-      distance: '7.3 km away',
-      battery: 61,
-      lastUpdated: '12m ago',
-      lat: 11.1542,
-      lng: 119.3214,
+      avatarBg: '#34A853',
+      statusText: 'Shopping District',
+      address: 'Grand Promenade',
+      distance: '2.1 km away',
+      battery: 63,
+      speed: 'Stationary',
+      lastUpdated: '10m ago',
+      lat: 14.6115,
+      lng: 120.9742,
     },
     {
       id: 'm5',
       name: 'Ica',
       initial: 'I',
-      avatarBg: '#3A8E71',
-      statusText: 'Cadlao Resort',
-      distance: '0.8 km away',
-      battery: 98,
+      avatarBg: '#A142F4',
+      statusText: 'Waterfront Park',
+      address: 'Baywalk Esplanade',
+      distance: '0.5 km away',
+      battery: 97,
+      speed: 'Idle',
       lastUpdated: '1m ago',
-      lat: 11.1870,
-      lng: 119.3945,
+      lat: 14.5955,
+      lng: 120.9802,
     },
-  ];
+  ]);
+
+  // Fetch Phone GPS Location
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchPhoneLocation() {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (isMounted) {
+            setLocationStatus('GPS Access Denied');
+            setLoadingLocation(false);
+          }
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+
+        if (location && location.coords && isMounted) {
+          const lat = location.coords.latitude;
+          const lng = location.coords.longitude;
+
+          setCenter({ lat, lng });
+          setLocationStatus('Live GPS Active');
+
+          const updatedMembers: MemberStatus[] = [
+            {
+              id: 'm1',
+              name: 'Travis (you)',
+              initial: 'T',
+              avatarBg: '#0171F8',
+              statusText: 'Your Phone Location',
+              address: 'Current Device Location',
+              distance: '0.0 km',
+              battery: 94,
+              speed: 'Stationary',
+              lastUpdated: 'Just now',
+              isMe: true,
+              lat,
+              lng,
+            },
+            {
+              id: 'm2',
+              name: 'Steven',
+              initial: 'S',
+              avatarBg: '#EA4335',
+              statusText: 'Nearby Spot',
+              address: '0.5 km North',
+              distance: calculateDistanceKm(lat, lng, lat + 0.005, lng + 0.004),
+              battery: 88,
+              speed: 'Walking • 3 km/h',
+              lastUpdated: '2m ago',
+              lat: lat + 0.005,
+              lng: lng + 0.004,
+            },
+            {
+              id: 'm3',
+              name: 'Harry',
+              initial: 'H',
+              avatarBg: '#FBBC05',
+              statusText: 'Avenue Plaza',
+              address: '0.9 km East',
+              distance: calculateDistanceKm(lat, lng, lat - 0.007, lng + 0.006),
+              battery: 76,
+              speed: 'Driving • 18 km/h',
+              lastUpdated: '4m ago',
+              lat: lat - 0.007,
+              lng: lng + 0.006,
+            },
+            {
+              id: 'm4',
+              name: 'Ahiah',
+              initial: 'A',
+              avatarBg: '#34A853',
+              statusText: 'Food Market',
+              address: '1.4 km West',
+              distance: calculateDistanceKm(lat, lng, lat + 0.009, lng - 0.008),
+              battery: 63,
+              speed: 'Stationary',
+              lastUpdated: '10m ago',
+              lat: lat + 0.009,
+              lng: lng - 0.008,
+            },
+            {
+              id: 'm5',
+              name: 'Ica',
+              initial: 'I',
+              avatarBg: '#A142F4',
+              statusText: 'Central Gardens',
+              address: '0.4 km South',
+              distance: calculateDistanceKm(lat, lng, lat - 0.003, lng - 0.003),
+              battery: 97,
+              speed: 'Idle',
+              lastUpdated: '1m ago',
+              lat: lat - 0.003,
+              lng: lng - 0.003,
+            },
+          ];
+
+          setMembers(updatedMembers);
+          setLoadingLocation(false);
+        }
+      } catch (err) {
+        console.log('Location error:', err);
+        if (isMounted) {
+          setLocationStatus('GPS Ready');
+          setLoadingLocation(false);
+        }
+      }
+    }
+
+    fetchPhoneLocation();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const currentMember = members.find((m) => m.id === selectedMemberId) || members[0];
 
-  // Pinch-to-zoom + Glitch-free Drag PanResponder
+  // 60FPS Continuous Pinch Zooming & Dragging
+  const initialPinchDist = useRef<number | null>(null);
+  const initialPinchZoom = useRef<number>(14.0);
+  const lastTouchPos = useRef<{ x: number; y: number } | null>(null);
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -150,50 +339,55 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
       onPanResponderGrant: (evt) => {
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length >= 2) {
-          const t0 = touches[0];
-          const t1 = touches[1];
-          initialPinchDist.current = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
+          const dx = touches[0].pageX - touches[1].pageX;
+          const dy = touches[0].pageY - touches[1].pageY;
+          initialPinchDist.current = Math.hypot(dx, dy);
+          initialPinchZoom.current = zoomRef.current;
         } else {
           initialPinchDist.current = null;
         }
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches && touches.length >= 2) {
-          // Pinch Zooming
-          const t0 = touches[0];
-          const t1 = touches[1];
-          const currentDist = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-          if (initialPinchDist.current && Date.now() - lastPinchTime.current > 180) {
-            const ratio = currentDist / initialPinchDist.current;
-            if (ratio > 1.15) {
-              setZoom((z) => Math.min(16, z + 1));
-              initialPinchDist.current = currentDist;
-              lastPinchTime.current = Date.now();
-            } else if (ratio < 0.85) {
-              setZoom((z) => Math.max(10, z - 1));
-              initialPinchDist.current = currentDist;
-              lastPinchTime.current = Date.now();
-            }
-          }
-        } else {
-          // Drag Panning
-          setPanOffset({ x: gestureState.dx, y: gestureState.dy });
+        if (touches && touches.length >= 1) {
+          lastTouchPos.current = { x: touches[0].pageX, y: touches[0].pageY };
         }
       },
-      onPanResponderRelease: (_, gestureState) => {
-        initialPinchDist.current = null;
-        if (Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1) {
-          const scale = 256 * Math.pow(2, zoom);
-          const deltaLng = (-gestureState.dx / scale) * 360;
-          const deltaLat = (gestureState.dy / scale) * 180;
+      onPanResponderMove: (evt) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches && touches.length >= 2) {
+          // Continuous Pinch Zooming
+          const dx = touches[0].pageX - touches[1].pageX;
+          const dy = touches[0].pageY - touches[1].pageY;
+          const currentDist = Math.hypot(dx, dy);
+
+          if (!initialPinchDist.current) {
+            initialPinchDist.current = currentDist;
+            initialPinchZoom.current = zoomRef.current;
+          } else if (initialPinchDist.current > 0) {
+            const ratio = currentDist / initialPinchDist.current;
+            const nextZoom = Math.min(18, Math.max(3, initialPinchZoom.current + Math.log2(ratio)));
+            setZoom(nextZoom);
+            zoomRef.current = nextZoom;
+          }
+        } else if (touches && touches.length === 1 && lastTouchPos.current) {
+          // Smooth Drag Panning
+          initialPinchDist.current = null;
+          const dx = touches[0].pageX - lastTouchPos.current.x;
+          const dy = touches[0].pageY - lastTouchPos.current.y;
+          lastTouchPos.current = { x: touches[0].pageX, y: touches[0].pageY };
+
+          const z = zoomRef.current;
+          const scale = 256 * Math.pow(2, z);
+          const deltaLng = (-dx / scale) * 360;
+          const deltaLat = (dy / scale) * 180;
 
           setCenter((prev) => ({
             lat: Math.max(-85, Math.min(85, prev.lat + deltaLat)),
-            lng: prev.lng + deltaLng,
+            lng: ((prev.lng + deltaLng + 180) % 360) - 180,
           }));
         }
-        setPanOffset({ x: 0, y: 0 });
+      },
+      onPanResponderRelease: () => {
+        initialPinchDist.current = null;
+        lastTouchPos.current = null;
       },
     })
   ).current;
@@ -201,29 +395,34 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
   const handleSelectMember = (m: MemberStatus) => {
     setSelectedMemberId(m.id);
     setCenter({ lat: m.lat, lng: m.lng });
-    setPanOffset({ x: 0, y: 0 });
   };
 
-  const handleShare = () => {
-    Alert.alert('Radar Broadcast', 'Live location link generated for Barkada squad.');
+  const handleLocateMe = () => {
+    const me = members.find((m) => m.isMe) || members[0];
+    setSelectedMemberId(me.id);
+    setCenter({ lat: me.lat, lng: me.lng });
+    setZoom(15.0);
   };
 
-  const handlePingSquad = () => {
-    Alert.alert('Ping Sent', `Broadcasted location ping to ${currentMember.name.split(' ')[0]}.`);
+  const handleToggleStyle = () => {
+    const styles: ('auto' | 'hybrid' | 'dark' | 'light')[] = ['auto', 'hybrid', 'dark', 'light'];
+    const nextStyle = styles[(styles.indexOf(mapStyleOverride) + 1) % styles.length];
+    setMapStyleOverride(nextStyle);
   };
 
-  const bigAvatarSize = isTablet ? 52 : 46;
-  const memberAvatarSize = isTablet ? 48 : 42;
+  // Determine Effective Map Appearance based on System/App Appearance or User Override
+  const isDarkModeMap =
+    mapStyleOverride === 'dark' || (mapStyleOverride === 'auto' && isDark);
 
-  // Compute map tiles grid for current center, zoom, and pan offset
-  const centerPixel = latLngToPixel(center.lat, center.lng, zoom);
-  const effectiveCenterX = centerPixel.x - panOffset.x;
-  const effectiveCenterY = centerPixel.y - panOffset.y;
+  // Continuous Sub-Pixel Scale Math for Zero Frame Skipping
+  const baseZoom = Math.floor(zoom);
+  const tileScale = Math.pow(2, zoom - baseZoom);
 
-  const minXPixel = effectiveCenterX - viewWidth / 2 - 256;
-  const maxXPixel = effectiveCenterX + viewWidth / 2 + 256;
-  const minYPixel = effectiveCenterY - viewHeight / 2 - 256;
-  const maxYPixel = effectiveCenterY + viewHeight / 2 + 256;
+  const centerPixel = latLngToPixel(center.lat, center.lng, baseZoom);
+  const minXPixel = centerPixel.x - viewWidth / (2 * tileScale) - 256;
+  const maxXPixel = centerPixel.x + viewWidth / (2 * tileScale) + 256;
+  const minYPixel = centerPixel.y - viewHeight / (2 * tileScale) - 256;
+  const maxYPixel = centerPixel.y + viewHeight / (2 * tileScale) + 256;
 
   const minTileX = Math.floor(minXPixel / 256);
   const maxTileX = Math.floor(maxXPixel / 256);
@@ -233,24 +432,32 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
   const tiles = [];
   for (let tx = minTileX; tx <= maxTileX; tx++) {
     for (let ty = minTileY; ty <= maxTileY; ty++) {
-      let url = `https://a.basemaps.cartocdn.com/rastertiles/voyager/${zoom}/${tx}/${ty}.png`;
-      if (mapTileStyle === 'dark' || (mapTileStyle === 'voyager' && isDark)) {
-        url = `https://a.basemaps.cartocdn.com/dark_all/${zoom}/${tx}/${ty}.png`;
-      } else if (mapTileStyle === 'osm') {
-        url = `https://tile.openstreetmap.org/${zoom}/${tx}/${ty}.png`;
+      let url = `https://mt1.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
+
+      if (mapStyleOverride === 'hybrid') {
+        url = `https://mt1.google.com/vt/lyrs=y&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
+      } else if (isDarkModeMap) {
+        url = `https://a.basemaps.cartocdn.com/dark_all/${baseZoom}/${tx}/${ty}@2x.png`;
+      } else if (Platform.OS === 'ios') {
+        url = `https://a.basemaps.cartocdn.com/rastertiles/voyager/${baseZoom}/${tx}/${ty}@2x.png`;
       }
+
       tiles.push({
-        key: `${mapTileStyle}-${zoom}-${tx}-${ty}`,
+        key: `${isDarkModeMap ? 'dark' : 'light'}-${mapStyleOverride}-${baseZoom}-${tx}-${ty}`,
         url,
-        left: tx * 256 - effectiveCenterX + viewWidth / 2,
-        top: ty * 256 - effectiveCenterY + viewHeight / 2,
+        left: (tx * 256 - centerPixel.x) * tileScale + viewWidth / 2,
+        top: (ty * 256 - centerPixel.y) * tileScale + viewHeight / 2,
+        width: 256 * tileScale,
+        height: 256 * tileScale,
       });
     }
   }
 
-  // Frosted Glass Card Style helper
-  const glassContainerStyle = {
-    backgroundColor: isDark ? 'rgba(28, 28, 30, 0.92)' : 'rgba(255, 255, 255, 0.82)',
+  const bigAvatarSize = isTablet ? 54 : 48;
+  const memberAvatarSize = isTablet ? 48 : 42;
+
+  const glassCardStyle = {
+    backgroundColor: isDark ? 'rgba(28, 28, 30, 0.92)' : 'rgba(255, 255, 255, 0.88)',
     borderWidth: 1,
     borderColor: isDark ? 'rgba(44, 44, 46, 0.8)' : 'rgba(255, 255, 255, 0.7)',
     shadowColor: '#000',
@@ -261,11 +468,20 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
-      <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: isDarkModeMap ? '#0D1527' : colors.paper }}
+      edges={['top']}
+    >
+      <StatusBar barStyle={colors.statusBar} backgroundColor={isDarkModeMap ? '#0D1527' : colors.paper} />
 
-      {/* REAL CROSS-PLATFORM INTERACTIVE TILE MAP BACKDROP */}
-      <View style={StyleSheet.absoluteFillObject} {...panResponder.panHandlers}>
+      {/* MIDNIGHT NAVY BLUE SYSTEM-AWARE MAP CANVAS */}
+      <View
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: isDarkModeMap ? '#0D1527' : '#FAF8F5' },
+        ]}
+        {...panResponder.panHandlers}
+      >
         {/* Render Map Tiles */}
         {tiles.map((tile) => (
           <Image
@@ -273,8 +489,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
             source={{ uri: tile.url }}
             style={{
               position: 'absolute',
-              width: 256,
-              height: 256,
+              width: tile.width,
+              height: tile.height,
               left: tile.left,
               top: tile.top,
             }}
@@ -282,12 +498,27 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
           />
         ))}
 
-        {/* Render Member Pin Markers */}
+        {/* Midnight Blue Tint Overlay for Dark Mode */}
+        {isDarkModeMap && (
+          <View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: 'rgba(15, 23, 42, 0.32)',
+              },
+            ]}
+          />
+        )}
+
+        {/* Render Member Avatar Pin Markers */}
         {members.map((m) => {
-          const pinPixel = latLngToPixel(m.lat, m.lng, zoom);
-          const pinLeft = pinPixel.x - effectiveCenterX + viewWidth / 2 - 20;
-          const pinTop = pinPixel.y - effectiveCenterY + viewHeight / 2 - 20;
+          const pinPixel = latLngToPixel(m.lat, m.lng, baseZoom);
           const isSelected = m.id === selectedMemberId;
+          const pinSize = isSelected ? 46 : 40;
+
+          const pinLeft = (pinPixel.x - centerPixel.x) * tileScale + viewWidth / 2 - pinSize / 2;
+          const pinTop = (pinPixel.y - centerPixel.y) * tileScale + viewHeight / 2 - pinSize / 2;
 
           return (
             <TouchableOpacity
@@ -299,48 +530,86 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
                 left: pinLeft,
                 top: pinTop,
                 alignItems: 'center',
-                zIndex: isSelected ? 30 : 20,
+                justifyContent: 'center',
+                zIndex: isSelected ? 50 : 20,
               }}
             >
+              {/* Avatar Circle Pin */}
               <View
                 style={{
-                  width: isSelected ? 44 : 38,
-                  height: isSelected ? 44 : 38,
-                  borderRadius: isSelected ? 22 : 19,
+                  width: pinSize,
+                  height: pinSize,
+                  borderRadius: pinSize / 2,
                   backgroundColor: m.avatarBg,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  borderWidth: isSelected ? 3 : 2,
+                  borderWidth: isSelected ? 3.5 : 2.5,
                   borderColor: isSelected ? '#0171F8' : '#FFFFFF',
                   shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  elevation: 6,
+                  shadowOffset: { width: 0, height: 6 },
+                  shadowOpacity: 0.35,
+                  shadowRadius: 10,
+                  elevation: 8,
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: isSelected ? 15 : 13 }}>
+                <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: isSelected ? 16 : 14 }}>
                   {m.initial}
                 </Text>
+
+                {/* Battery Badge on Pin */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    backgroundColor: '#3A8E71',
+                    paddingHorizontal: 4,
+                    paddingVertical: 1,
+                    borderRadius: 8,
+                    borderWidth: 1.5,
+                    borderColor: '#FFFFFF',
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 8, fontWeight: '900' }}>
+                    {m.battery}%
+                  </Text>
+                </View>
               </View>
 
+              {/* Name Pill Badge with High-Contrast Dark/Light Mode Colors */}
               <View
                 style={{
-                  backgroundColor: colors.pillBg,
+                  backgroundColor: isDarkModeMap
+                    ? 'rgba(15, 23, 42, 0.95)'
+                    : 'rgba(255, 255, 255, 0.95)',
                   paddingHorizontal: 8,
                   paddingVertical: 3,
-                  borderRadius: 8,
+                  borderRadius: 10,
                   marginTop: 4,
                   borderWidth: 1,
-                  borderColor: colors.pillBorder,
+                  borderColor: isSelected
+                    ? '#0171F8'
+                    : isDarkModeMap
+                    ? 'rgba(255, 255, 255, 0.22)'
+                    : 'rgba(0, 0, 0, 0.12)',
                   shadowColor: '#000',
                   shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.12,
+                  shadowOpacity: 0.2,
                   shadowRadius: 4,
-                  elevation: 3,
+                  elevation: 4,
                 }}
               >
-                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.ink }}>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: '800',
+                    color: isSelected
+                      ? '#38BDF8'
+                      : isDarkModeMap
+                      ? '#F8FAFC'
+                      : '#0F172A',
+                  }}
+                >
                   {m.name.split(' ')[0]}
                 </Text>
               </View>
@@ -349,7 +618,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
         })}
       </View>
 
-      {/* TOP FLOATING APP BAR OVERLAY DIRECTLY ON MAP */}
+      {/* ORIGINAL FLOATING HEADER */}
       <View
         style={{
           position: 'absolute',
@@ -362,10 +631,9 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
           zIndex: 50,
         }}
       >
-        {/* Frosted Glass Oval with Hamburger + Logo + Radar Live */}
         <View
           style={[
-            glassContainerStyle,
+            glassCardStyle,
             {
               flexDirection: 'row',
               alignItems: 'center',
@@ -394,7 +662,14 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
 
           <BarkadashLogo height={26} />
 
-          <View style={{ width: 1, height: 16, backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)', marginHorizontal: 2 }} />
+          <View
+            style={{
+              width: 1,
+              height: 16,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
+              marginHorizontal: 2,
+            }}
+          />
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3A8E71' }} />
@@ -416,10 +691,10 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
           </View>
         </View>
 
-        {/* Right Header Action: Weather Badge */}
+        {/* Weather / Day-Night Appearance Badge */}
         <View
           style={[
-            glassContainerStyle,
+            glassCardStyle,
             {
               flexDirection: 'row',
               alignItems: 'center',
@@ -430,12 +705,14 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
             },
           ]}
         >
-          <Sun size={14} color="#D97706" />
-          <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>29°C</Text>
+          {isDark ? <Moon size={14} color="#60A5FA" /> : <Sun size={14} color="#D97706" />}
+          <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>
+            {loadingLocation ? 'Locating...' : '29°C'}
+          </Text>
         </View>
       </View>
 
-      {/* FLOATING QUICK MAP CONTROLS (RIGHT SIDE) */}
+      {/* FLOATING QUICK MAP CONTROLS */}
       <View
         style={{
           position: 'absolute',
@@ -447,84 +724,40 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
       >
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => {
-            const travis = members[0];
-            setCenter({ lat: travis.lat, lng: travis.lng });
-            setSelectedMemberId('m1');
-            setZoom(13);
-            setPanOffset({ x: 0, y: 0 });
-          }}
+          onPress={handleLocateMe}
           style={[
-            glassContainerStyle,
+            glassCardStyle,
             {
-              width: 40,
-              height: 40,
-              borderRadius: 20,
+              width: 42,
+              height: 42,
+              borderRadius: 21,
               alignItems: 'center',
               justifyContent: 'center',
             },
           ]}
         >
-          <LocateFixed size={18} color="#0171F8" />
+          <LocateFixed size={20} color="#0171F8" />
         </TouchableOpacity>
 
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => setZoom((prev) => Math.min(16, prev + 1))}
+          onPress={handleToggleStyle}
           style={[
-            glassContainerStyle,
+            glassCardStyle,
             {
-              width: 40,
-              height: 40,
-              borderRadius: 20,
+              width: 42,
+              height: 42,
+              borderRadius: 21,
               alignItems: 'center',
               justifyContent: 'center',
             },
           ]}
         >
-          <Plus size={18} color={colors.ink} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => setZoom((prev) => Math.max(10, prev - 1))}
-          style={[
-            glassContainerStyle,
-            {
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
-        >
-          <Minus size={18} color={colors.ink} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => {
-            const styles: ('voyager' | 'dark' | 'osm')[] = ['voyager', 'dark', 'osm'];
-            const next = styles[(styles.indexOf(mapTileStyle) + 1) % styles.length];
-            setMapTileStyle(next);
-          }}
-          style={[
-            glassContainerStyle,
-            {
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
-        >
-          <Layers size={18} color={colors.ink} />
+          <Layers size={20} color={isDarkModeMap ? '#60A5FA' : colors.ink} />
         </TouchableOpacity>
       </View>
 
-      {/* BOTTOM RADAR PANEL SHEET (FROSTED GLASS CARD) */}
+      {/* CUBIC EASE ANIMATED BOTTOM SQUAD PANEL SHEET */}
       <View
         style={{
           marginTop: 'auto',
@@ -535,31 +768,52 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
       >
         <View
           style={[
-            glassContainerStyle,
+            glassCardStyle,
             {
               borderRadius: 28,
-              padding: sp.lg,
-              gap: sp.md,
+              paddingHorizontal: sp.lg,
+              paddingTop: sp.xs,
+              paddingBottom: isCardCollapsed ? sp.md : sp.lg,
             },
           ]}
         >
-          {/* Member Detail Header */}
+          {/* Card Collapse Drag Handle Pill */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={toggleCardCollapsed}
+            style={{ alignItems: 'center', paddingVertical: 6 }}
+          >
+            <View
+              style={{
+                width: 38,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.25)',
+              }}
+            />
+          </TouchableOpacity>
+
+          {/* Member Detail Header Bar */}
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingBottom: sp.md,
-              borderBottomWidth: 1,
+              paddingBottom: isCardCollapsed ? 0 : sp.sm,
+              borderBottomWidth: isCardCollapsed ? 0 : 1,
               borderBottomColor: colors.cardBorder,
             }}
           >
-            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={toggleCardCollapsed}
+              style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+            >
               <View
                 style={{
-                  width: bigAvatarSize,
-                  height: bigAvatarSize,
-                  borderRadius: bigAvatarSize / 2,
+                  width: isCardCollapsed ? 38 : bigAvatarSize,
+                  height: isCardCollapsed ? 38 : bigAvatarSize,
+                  borderRadius: (isCardCollapsed ? 38 : bigAvatarSize) / 2,
                   alignItems: 'center',
                   justifyContent: 'center',
                   marginRight: sp.md,
@@ -572,158 +826,225 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
                   shadowRadius: 6,
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: fs.md }}>{currentMember.initial}</Text>
+                <Text
+                  style={{
+                    color: '#FFFFFF',
+                    fontWeight: '900',
+                    fontSize: isCardCollapsed ? 14 : fs.md,
+                  }}
+                >
+                  {currentMember.initial}
+                </Text>
               </View>
+
               <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={{ fontSize: fs.md, fontWeight: '800', color: colors.ink }}>{currentMember.name}</Text>
-                  {currentMember.isMe && (
-                    <View
-                      style={{
-                        backgroundColor: 'rgba(1, 113, 248, 0.12)',
-                        paddingHorizontal: sp.sm,
-                        paddingVertical: 2,
-                        borderRadius: 6,
-                        marginLeft: 6,
-                      }}
-                    >
-                      <Text style={{ color: '#0171F8', fontSize: 9, fontWeight: '900' }}>YOU</Text>
-                    </View>
-                  )}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={{ fontSize: fs.md, fontWeight: '800', color: colors.ink }}>
+                    {currentMember.name}
+                  </Text>
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: sp.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: sp.sm }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MapPin size={13} color="#0171F8" style={{ marginRight: 3 }} />
+                    <MapPin size={12} color="#0171F8" style={{ marginRight: 3 }} />
                     <Text style={{ fontSize: fs.xs, color: colors.ink, fontWeight: '600' }}>
                       {currentMember.statusText}
                     </Text>
                   </View>
-                  <Text style={{ fontSize: fs.xs, color: colors.inkSoft }}>• {currentMember.distance}</Text>
+                  <Text style={{ fontSize: fs.xs, color: colors.inkSoft }}>
+                    • {currentMember.distance}
+                  </Text>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
 
-            {/* Quick Status Stats */}
-            <View style={{ alignItems: 'flex-end', gap: 4 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Battery size={13} color="#3A8E71" />
-                <Text style={{ fontSize: 11, fontWeight: '700', color: '#3A8E71' }}>{currentMember.battery}%</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                <Clock size={11} color={colors.inkSoft} />
-                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '500' }}>{currentMember.lastUpdated}</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Member Selector Row */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 2 }}>
-            {members.map((m) => {
-              const isSelected = selectedMemberId === m.id;
-              return (
-                <TouchableOpacity
-                  key={m.id}
-                  activeOpacity={0.8}
-                  onPress={() => handleSelectMember(m)}
-                  style={{ alignItems: 'center' }}
-                >
-                  <View
-                    style={{
-                      width: memberAvatarSize,
-                      height: memberAvatarSize,
-                      borderRadius: memberAvatarSize / 2,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: m.avatarBg,
-                      borderWidth: isSelected ? 3 : 1,
-                      borderColor: isSelected ? '#0171F8' : 'rgba(255, 255, 255, 0.8)',
-                      shadowColor: isSelected ? '#0171F8' : 'transparent',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.25,
-                      shadowRadius: 8,
-                    }}
-                  >
-                    <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs.sm }}>{m.initial}</Text>
-                  </View>
-                  <Text
-                    style={{
-                      fontSize: 10,
-                      marginTop: 4,
-                      fontWeight: isSelected ? '800' : '500',
-                      color: isSelected ? '#0171F8' : colors.inkSoft,
-                    }}
-                  >
-                    {m.initial === 'T' ? 'Travis' : m.name.split(' ')[0]}
+            {/* Quick Battery, Clock & Expand/Collapse Chevron */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Battery size={13} color="#3A8E71" />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#3A8E71' }}>
+                    {currentMember.battery}%
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
+                </View>
+                {!isCardCollapsed && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <Clock size={11} color={colors.inkSoft} />
+                    <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '500' }}>
+                      {currentMember.lastUpdated}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={toggleCardCollapsed}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: 4,
+                }}
+              >
+                {isCardCollapsed ? (
+                  <ChevronUp size={18} color={colors.ink} />
+                ) : (
+                  <ChevronDown size={18} color={colors.ink} />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Bottom Actions & Summary Bar */}
-          <View
+          {/* Smooth Cubic Ease Slide Collapsible Container */}
+          <Animated.View
             style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              paddingTop: sp.sm,
-              borderTopWidth: 1,
-              borderTopColor: colors.cardBorder,
+              maxHeight: animatedProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 220],
+              }),
+              opacity: animatedProgress.interpolate({
+                inputRange: [0, 0.2, 1],
+                outputRange: [0, 0.7, 1],
+              }),
+              transform: [
+                {
+                  scaleY: animatedProgress.interpolate({
+                    inputRange: [0, 0.5, 1],
+                    outputRange: [0.82, 1.05, 1.0],
+                  }),
+                },
+              ],
+              overflow: 'hidden',
+              gap: sp.md,
+              marginTop: animatedProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, sp.md],
+              }),
             }}
           >
-            <View style={{ flexDirection: 'row', gap: sp.md, alignItems: 'center' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Users size={13} color="#3A8E71" />
-                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>5 Squad</Text>
+            {/* Member Selector Row */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 14, paddingVertical: 2 }}
+            >
+              {members.map((m) => {
+                const isSelected = selectedMemberId === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    activeOpacity={0.8}
+                    onPress={() => handleSelectMember(m)}
+                    style={{ alignItems: 'center' }}
+                  >
+                    <View
+                      style={{
+                        width: memberAvatarSize,
+                        height: memberAvatarSize,
+                        borderRadius: memberAvatarSize / 2,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: m.avatarBg,
+                        borderWidth: isSelected ? 3 : 1,
+                        borderColor: isSelected ? '#0171F8' : 'rgba(255, 255, 255, 0.8)',
+                        shadowColor: isSelected ? '#0171F8' : 'transparent',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 8,
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs.sm }}>
+                        {m.initial}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        marginTop: 4,
+                        fontWeight: isSelected ? '800' : '500',
+                        color: isSelected ? '#0171F8' : colors.inkSoft,
+                      }}
+                    >
+                      {m.initial === 'T' ? 'Travis' : m.name.split(' ')[0]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Bottom Actions Bar */}
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingTop: sp.sm,
+                borderTopWidth: 1,
+                borderTopColor: colors.cardBorder,
+              }}
+            >
+              <View style={{ flexDirection: 'row', gap: sp.md, alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Users size={13} color="#3A8E71" />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>
+                    5 Squad
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Navigation size={13} color="#0171F8" />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>
+                    {locationStatus}
+                  </Text>
+                </View>
               </View>
 
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Navigation size={13} color="#0171F8" />
-                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>El Nido</Text>
+              <View style={{ flexDirection: 'row', gap: sp.xs }}>
+                <TouchableOpacity
+                  onPress={() => Alert.alert('Ping Sent', `Broadcasted location ping to squad.`)}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: 'rgba(1, 113, 248, 0.12)',
+                    paddingHorizontal: sp.md,
+                    paddingVertical: sp.xs + 2,
+                    borderRadius: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: sp.xs,
+                  }}
+                >
+                  <Radio size={13} color="#0171F8" />
+                  <Text style={{ color: '#0171F8', fontSize: fs.xs, fontWeight: '800' }}>Ping</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => Alert.alert('Radar Broadcast', 'Live location link generated.')}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: '#1F4E67',
+                    paddingHorizontal: sp.md,
+                    paddingVertical: sp.xs + 2,
+                    borderRadius: 10,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: sp.xs,
+                    shadowColor: '#1F4E67',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.2,
+                    shadowRadius: 4,
+                  }}
+                >
+                  <Share2 size={13} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: fs.xs, fontWeight: '700' }}>Share</Text>
+                </TouchableOpacity>
               </View>
             </View>
-
-            <View style={{ flexDirection: 'row', gap: sp.xs }}>
-              <TouchableOpacity
-                onPress={handlePingSquad}
-                activeOpacity={0.8}
-                style={{
-                  backgroundColor: 'rgba(1, 113, 248, 0.12)',
-                  paddingHorizontal: sp.md,
-                  paddingVertical: sp.xs + 2,
-                  borderRadius: 10,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: sp.xs,
-                }}
-              >
-                <Radio size={13} color="#0171F8" />
-                <Text style={{ color: '#0171F8', fontSize: fs.xs, fontWeight: '800' }}>Ping</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={handleShare}
-                activeOpacity={0.8}
-                style={{
-                  backgroundColor: '#1F4E67',
-                  paddingHorizontal: sp.md,
-                  paddingVertical: sp.xs + 2,
-                  borderRadius: 10,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: sp.xs,
-                  shadowColor: '#1F4E67',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.2,
-                  shadowRadius: 4,
-                }}
-              >
-                <Share2 size={13} color="#FFFFFF" />
-                <Text style={{ color: '#FFFFFF', fontSize: fs.xs, fontWeight: '700' }}>Share</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          </Animated.View>
         </View>
       </View>
     </SafeAreaView>
