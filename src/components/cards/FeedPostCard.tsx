@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { FeedPost } from '../../types/feedPost';
 import { AppCard } from './AppCard';
 import { Heart, MessageCircle, MapPin, Share2 } from 'lucide-react-native';
+import { ShimmerImage } from '../common/ShimmerImage';
 
 interface FeedPostCardProps {
   post: FeedPost;
@@ -44,7 +45,7 @@ export const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
       {/* Image Carousel / Single Image */}
       {post.imageUrls && post.imageUrls.length > 0 && (
         <View className="h-64 w-full bg-paperDim">
-          <Image source={post.imageUrls[0]} className="w-full h-full" resizeMode="cover" />
+          <ShimmerImage source={post.imageUrls[0]} style={{ width: '100%', height: '100%' }} resizeMode="cover" borderRadius={0} />
         </View>
       )}
 

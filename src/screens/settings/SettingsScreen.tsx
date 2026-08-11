@@ -41,21 +41,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      {/* Apple-Style Minimalist Back Bar */}
-      <View style={styles.topNavRow}>
+      {/* Centered Top Header Bar */}
+      <View style={styles.headerBar}>
         <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={styles.backTouch}>
           <ChevronLeft size={24} color={colors.tealDark} />
           <Text style={[styles.backText, { color: colors.tealDark }]}>Back</Text>
         </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.ink }]}>Settings</Text>
+        <View style={{ width: 60 }} />
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 48 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48 }}
       >
-        {/* Large Apple-Style Left-Aligned Title */}
-        <Text style={[styles.largeAppleTitle, { color: colors.ink }]}>Settings</Text>
         {/* Notifications Group */}
         <Text style={[styles.groupTitle, { color: colors.inkSoft }]}>Notifications</Text>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
@@ -169,23 +169,26 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  topNavRow: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingVertical: 12,
   },
   backTouch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 12,
   },
   backText: {
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   largeAppleTitle: {
     fontSize: 32,

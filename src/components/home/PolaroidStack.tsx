@@ -13,6 +13,7 @@ import { DestinationPollOption } from '../../types/trip';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { HandwrittenText } from '../common/HandwrittenText';
+import { ShimmerImage } from '../common/ShimmerImage';
 import { Vote, RotateCw, Layers } from 'lucide-react-native';
 
 interface PolaroidStackProps {
@@ -229,10 +230,11 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
 
                 {/* Photo */}
                 <View style={[styles.photoBox, { height: photoHeight, backgroundColor: colors.paperDim }]}>
-                  <Image
+                  <ShimmerImage
                     source={poll.imagePath}
                     style={styles.photoImage}
                     resizeMode="cover"
+                    borderRadius={0}
                   />
                   <View style={styles.photoOverlayHeader}>
                     {poll.votes >= 3 && (

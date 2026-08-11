@@ -100,12 +100,14 @@ export const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
     <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      {/* Apple-Style Minimalist Back Bar */}
-      <View style={styles.topNavRow}>
+      {/* Centered Top Header Bar */}
+      <View style={styles.headerBar}>
         <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={styles.backTouch}>
           <ChevronLeft size={24} color={colors.tealDark} />
           <Text style={[styles.backText, { color: colors.tealDark }]}>Back</Text>
         </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.ink }]}>Edit Profile</Text>
+        <View style={{ width: 60 }} />
       </View>
 
       <KeyboardAvoidingView
@@ -116,10 +118,8 @@ export const EditProfileScreen: React.FC<EditProfileScreenProps> = ({
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 48 }}
+          contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48 }}
         >
-          {/* Large Apple-Style Left-Aligned Title */}
-          <Text style={[styles.largeAppleTitle, { color: colors.ink }]}>Edit Profile</Text>
 
           {/* Error / Success Notifications */}
           {errorMessage ? (
@@ -301,23 +301,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: AppColors.paper,
   },
-  topNavRow: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingVertical: 12,
   },
   backTouch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 12,
   },
   backText: {
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   largeAppleTitle: {
     fontSize: 32,

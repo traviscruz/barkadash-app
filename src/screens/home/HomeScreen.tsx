@@ -24,6 +24,8 @@ import { PolaroidStack } from '../../components/home/PolaroidStack';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
+import { NotificationService } from '../../services/notificationService';
+import { supabase } from '../../utils/supabase';
 import { AppColors } from '../../utils/colors';
 import { SubScreenType } from '../../components/nav/MainAppContainer';
 import {
@@ -66,9 +68,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [activities, setActivities] = useState<BarkadaActivity[]>([]);
   const [polls, setPolls] = useState<DestinationPollOption[]>([]);
   const [pollModalVisible, setPollModalVisible] = useState(false);
-  const [notifModalVisible, setNotifModalVisible] = useState(false);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
+
+  const fetchUnread = async () => {
+    if (profile?.id) {
+      const count = await NotificationService.getUnreadCount(profile.id);
+      setUnreadCount(count);
+    } else {
+      setUnreadCount(0);
+    }
+  };
 
   useEffect(() => {
     const service = TripService.getInstance();
@@ -76,10 +87,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setActivities(service.getRecentActivities());
     setPolls(service.getPollOptions());
 
-    return service.subscribe(() => {
-      setPolls(service.getPollOptions());
-    });
-  }, []);
+    fetchUnread();
+
+    if (profile?.id) {
+      const channel = supabase
+        .channel(`home:notifications:${profile.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${profile.id}`,
+          },
+          () => {
+            fetchUnread();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        service.subscribe(() => {
+          setPolls(service.getPollOptions());
+        });
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [profile?.id]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
@@ -94,13 +128,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
           if (currentY < 15) {
             onScrollDirection?.('up');
-          } else if (delta > 6) {
+          } else if (delta > 2) {
             onScrollDirection?.('down');
-          } else if (delta < -6) {
+          } else if (delta < -2) {
             onScrollDirection?.('up');
           }
         }}
-        scrollEventThrottle={8}
+        scrollEventThrottle={16}
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: sp.lg,
@@ -130,12 +164,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             {/* Notification Bell Button */}
             <TouchableOpacity
-              onPress={() => setNotifModalVisible(true)}
+              onPress={() => onNavigateToSubScreen?.('notifications')}
               style={[styles.bellButton, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
               activeOpacity={0.8}
             >
               <Bell size={18} color={colors.ink} />
-              <View style={styles.bellUnreadDot} />
+              {unreadCount > 0 && (
+                <View style={styles.bellBadgeCircle}>
+                  <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -256,11 +294,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         visible={pollModalVisible}
         onClose={() => setPollModalVisible(false)}
       />
-
-      <NotificationModal
-        visible={notifModalVisible}
-        onClose={() => setNotifModalVisible(false)}
-      />
     </SafeAreaView>
   );
 };
@@ -271,7 +304,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
-    paddingVertical: 4,
   },
   borderlessMenuBtn: {
     width: 36,
@@ -332,16 +364,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  bellUnreadDot: {
+  bellBadgeCircle: {
     position: 'absolute',
-    top: 7,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    top: -3,
+    right: -3,
     backgroundColor: '#E2604A',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
+  },
+  bellBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
   },
   drawerCabinet: {
     width: 280,

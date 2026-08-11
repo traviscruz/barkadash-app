@@ -16,6 +16,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
 import { MapPin, Compass, Utensils, Menu } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
+import { ShimmerImage } from '../../components/common/ShimmerImage';
 
 const { width } = Dimensions.get('window');
 
@@ -270,13 +271,13 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
             if (currentY < 15) {
               onScrollDirection?.('up');
-            } else if (delta > 6) {
+            } else if (delta > 2) {
               onScrollDirection?.('down');
-            } else if (delta < -6) {
+            } else if (delta < -2) {
               onScrollDirection?.('up');
             }
           }}
-          scrollEventThrottle={8}
+          scrollEventThrottle={16}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: sp.lg, paddingTop: sp.md, paddingBottom: bottomNavOffset + 40 }}
         >
@@ -435,7 +436,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   ].map((spot, idx) => (
                     <View key={idx} style={{ width: spotCardWidth }}>
                       <View style={{ height: spotImgHeight, backgroundColor: COLORS.borderLight, marginBottom: sp.sm, borderRadius: 16, overflow: 'hidden' }}>
-                        <Image source={spot.img} style={{ width: '100%', height: '100%' }} />
+                        <ShimmerImage source={spot.img} style={{ width: '100%', height: '100%' }} borderRadius={16} />
                       </View>
                       <Text style={{ fontSize: fs.sm, fontWeight: '900', color: COLORS.textDark, letterSpacing: 0 }}>{spot.title}</Text>
                       <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.subtleDark, marginTop: 2 }}>{spot.meta}</Text>
@@ -454,7 +455,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 </View>
                 
                 <View style={{ height: imgHeight, marginBottom: sp.md, borderRadius: 16, overflow: 'hidden' }}>
-                  <Image source={bigLagoonImg} style={{ width: '100%', height: '100%' }} />
+                  <ShimmerImage source={bigLagoonImg} style={{ width: '100%', height: '100%' }} borderRadius={16} />
                 </View>
 
                 <Text style={{ fontSize: fs.xl, fontWeight: '900', color: COLORS.textDark, marginBottom: 4 }}>
@@ -526,9 +527,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
                       {msg.hasCard && (
                         <View style={{ marginTop: sp.md, backgroundColor: colors.paper, padding: sp.sm, borderRadius: 12 }}>
-                          <Image
+                          <ShimmerImage
                             source={msg.image}
-                            style={{ height: 100, width: '100%', marginBottom: sp.sm, borderRadius: 8 }}
+                            style={{ height: 100, width: '100%', marginBottom: sp.sm }}
+                            borderRadius={8}
                           />
                           <Text style={{ fontSize: 12, fontWeight: '900', color: COLORS.textDark }}>{msg.spotTitle}</Text>
                           <Text style={{ fontSize: 9, fontWeight: '700', color: COLORS.subtleDark, marginBottom: 6 }}>{msg.spotMeta}</Text>

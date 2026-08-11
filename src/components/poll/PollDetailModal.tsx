@@ -4,6 +4,7 @@ import { DestinationPollOption } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
+import { ShimmerImage } from '../common/ShimmerImage';
 import { useTheme } from '../../context/ThemeContext';
 import { X, CheckCircle2, MessageSquare } from 'lucide-react-native';
 
@@ -58,10 +59,10 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
                 }`}
               >
                 <View className="flex-row items-center mb-3">
-                  <Image
+                  <ShimmerImage
                     source={opt.imagePath}
-                    style={{ backgroundColor: colors.paperDim }}
-                    className="w-16 h-16 rounded-xl mr-3"
+                    style={{ width: 64, height: 64, marginRight: 12 }}
+                    borderRadius={12}
                     resizeMode="cover"
                   />
                   <View className="flex-1">

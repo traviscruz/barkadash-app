@@ -348,7 +348,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
           );
         })}
       </View>
-      {/* TOP FLOATING APP BAR WITH HOMESCREEN LOGO */}
+
+      {/* TOP FLOATING APP BAR OVERLAY DIRECTLY ON MAP */}
       <View
         style={{
           position: 'absolute',
@@ -361,36 +362,41 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
           zIndex: 50,
         }}
       >
-        {/* Floating Hamburger + Logo + Title Glass Pill */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {/* Frosted Glass Oval with Hamburger + Logo + Radar Live */}
+        <View
+          style={[
+            glassContainerStyle,
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              paddingLeft: 4,
+              paddingRight: 12,
+              paddingVertical: 4,
+              borderRadius: 100,
+            },
+          ]}
+        >
           <TouchableOpacity
             onPress={onOpenCabinet}
             activeOpacity={0.7}
             style={{
               width: 36,
               height: 36,
-              borderRadius: 10,
+              borderRadius: 18,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
             }}
           >
-            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+            <Menu size={20} color={colors.ink} strokeWidth={2.2} />
           </TouchableOpacity>
-          <BarkadashLogo height={32} />
-          <View
-            style={[
-              glassContainerStyle,
-              {
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 100,
-              },
-            ]}
-          >
+
+          <BarkadashLogo height={26} />
+
+          <View style={{ width: 1, height: 16, backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)', marginHorizontal: 2 }} />
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3A8E71' }} />
             <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink, letterSpacing: -0.2 }}>
               RADAR
@@ -403,47 +409,29 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onScroll
                 borderRadius: 6,
               }}
             >
-                <Text style={{ fontSize: 9, fontWeight: '900', color: '#3A8E71', letterSpacing: 0.5 }}>
-                  LIVE
-                </Text>
-              </View>
+              <Text style={{ fontSize: 9, fontWeight: '900', color: '#3A8E71', letterSpacing: 0.5 }}>
+                LIVE
+              </Text>
             </View>
           </View>
+        </View>
 
-        {/* Header Right Actions */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.xs }}>
-          <View
-            style={[
-              glassContainerStyle,
-              {
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                paddingHorizontal: sp.md,
-                paddingVertical: 8,
-                borderRadius: 100,
-              },
-            ]}
-          >
-            <Sun size={14} color="#D97706" />
-            <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>29°C</Text>
-          </View>
-
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={[
-              glassContainerStyle,
-              {
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-              },
-            ]}
-          >
-            <Settings size={icon.md} color={colors.ink} />
-          </TouchableOpacity>
+        {/* Right Header Action: Weather Badge */}
+        <View
+          style={[
+            glassContainerStyle,
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 100,
+            },
+          ]}
+        >
+          <Sun size={14} color="#D97706" />
+          <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>29°C</Text>
         </View>
       </View>
 

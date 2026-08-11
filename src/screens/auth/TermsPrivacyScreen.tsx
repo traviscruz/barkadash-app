@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   SafeAreaView,
   StatusBar,
   StyleSheet,
+  Animated,
+  Dimensions,
 } from 'react-native';
 import {
   ChevronLeft,
@@ -15,9 +17,14 @@ import {
   Check,
   Lock,
 } from 'lucide-react-native';
-import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CONTAINER_PADDING = 24;
+const SEGMENT_PADDING = 4;
+const TAB_CONTAINER_WIDTH = SCREEN_WIDTH - CONTAINER_PADDING * 2;
+const TAB_WIDTH = (TAB_CONTAINER_WIDTH - SEGMENT_PADDING * 2) / 2;
 
 interface TermsPrivacyScreenProps {
   initialTab?: 'terms' | 'privacy';
@@ -34,6 +41,22 @@ export const TermsPrivacyScreen: React.FC<TermsPrivacyScreenProps> = ({
   const [activeTab, setActiveTab] = useState<'terms' | 'privacy'>(initialTab);
   const [accepted, setAccepted] = useState(false);
 
+  // Animated sliding pill position for tab switcher (replicated from Connections / Itinerary filter)
+  const animatedPillX = useRef(
+    new Animated.Value(initialTab === 'terms' ? 0 : TAB_WIDTH)
+  ).current;
+
+  const handleTabChange = (tab: 'terms' | 'privacy', index: number) => {
+    setActiveTab(tab);
+    Animated.spring(animatedPillX, {
+      toValue: index * TAB_WIDTH,
+      stiffness: 320,
+      damping: 28,
+      mass: 0.8,
+      useNativeDriver: true,
+    }).start();
+  };
+
   const handleAcceptPress = () => {
     setAccepted(true);
     if (onAccept) setTimeout(() => onAccept(), 300);
@@ -43,30 +66,44 @@ export const TermsPrivacyScreen: React.FC<TermsPrivacyScreenProps> = ({
     <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      {/* Apple-Style Minimalist Back Bar */}
-      <View style={styles.topNavRow}>
+      {/* Centered Top Header Bar */}
+      <View style={styles.headerBar}>
         {onBack ? (
           <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={styles.backTouch}>
             <ChevronLeft size={24} color={colors.tealDark} />
             <Text style={[styles.backText, { color: colors.tealDark }]}>Back</Text>
           </TouchableOpacity>
-        ) : null}
+        ) : (
+          <View style={{ width: 60 }} />
+        )}
+        <Text style={[styles.headerTitle, { color: colors.ink }]}>Terms & Privacy</Text>
+        <View style={{ width: 60 }} />
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 110 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: onBack ? 36 : 110 }}
       >
-        {/* Large Apple-Style Left-Aligned Title */}
-        <Text style={[styles.largeAppleTitle, { color: colors.ink }]}>Terms & Privacy</Text>
 
-        {/* Minimalist Segmented Control */}
+        {/* Animated Segmented Capsule Tab Control */}
         <View style={[styles.tabBar, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          {/* Animated Sliding Background Pill */}
+          <Animated.View
+            style={[
+              styles.animatedPill,
+              {
+                width: TAB_WIDTH,
+                backgroundColor: colors.tealDark,
+                transform: [{ translateX: animatedPillX }],
+              },
+            ]}
+          />
+
           <TouchableOpacity
-            onPress={() => setActiveTab('terms')}
+            onPress={() => handleTabChange('terms', 0)}
             activeOpacity={0.8}
-            style={[styles.tab, activeTab === 'terms' ? { backgroundColor: colors.tealDark } : null]}
+            style={styles.tab}
           >
             <FileText size={15} color={activeTab === 'terms' ? '#FFFFFF' : colors.inkSoft} />
             <Text style={[styles.tabText, { color: activeTab === 'terms' ? '#FFFFFF' : colors.inkSoft }]}>
@@ -75,9 +112,9 @@ export const TermsPrivacyScreen: React.FC<TermsPrivacyScreenProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => setActiveTab('privacy')}
+            onPress={() => handleTabChange('privacy', 1)}
             activeOpacity={0.8}
-            style={[styles.tab, activeTab === 'privacy' ? { backgroundColor: colors.tealDark } : null]}
+            style={styles.tab}
           >
             <Lock size={15} color={activeTab === 'privacy' ? '#FFFFFF' : colors.inkSoft} />
             <Text style={[styles.tabText, { color: activeTab === 'privacy' ? '#FFFFFF' : colors.inkSoft }]}>
@@ -86,7 +123,7 @@ export const TermsPrivacyScreen: React.FC<TermsPrivacyScreenProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Minimalist Section Card */}
+        {/* Section Card */}
         {activeTab === 'terms' ? (
           <View style={[styles.contentCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.iconHeading}>
@@ -146,28 +183,21 @@ export const TermsPrivacyScreen: React.FC<TermsPrivacyScreenProps> = ({
         )}
       </ScrollView>
 
-      {/* Bottom Sticky Action */}
-      <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
-        <TouchableOpacity
-          onPress={handleAcceptPress}
-          activeOpacity={0.85}
-          style={[styles.acceptBtn, { backgroundColor: colors.tealDark }, accepted ? styles.acceptBtnDone : null]}
-        >
-          <Check size={18} color="#FFFFFF" strokeWidth={3} />
-          <Text style={styles.acceptBtnText}>
-            {accepted ? 'Accepted ✓' : 'I Agree & Accept'}
-          </Text>
-        </TouchableOpacity>
-        {onBack ? (
+      {/* Bottom Sticky Action: ONLY rendered if NOT logged in (e.g. initial registration flow when onBack is null) */}
+      {!onBack && (
+        <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.cardBorder }]}>
           <TouchableOpacity
-            onPress={onBack}
-            activeOpacity={0.7}
-            style={styles.closeBtn}
+            onPress={handleAcceptPress}
+            activeOpacity={0.85}
+            style={[styles.acceptBtn, { backgroundColor: colors.tealDark }, accepted ? styles.acceptBtnDone : null]}
           >
-            <Text style={[styles.closeBtnText, { color: colors.inkSoft }]}>Close</Text>
+            <Check size={18} color="#FFFFFF" strokeWidth={3} />
+            <Text style={styles.acceptBtnText}>
+              {accepted ? 'Accepted ✓' : 'I Agree & Accept'}
+            </Text>
           </TouchableOpacity>
-        ) : null}
-      </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -176,23 +206,26 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  topNavRow: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingVertical: 12,
   },
   backTouch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 12,
   },
   backText: {
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   largeAppleTitle: {
     fontSize: 32,
@@ -204,9 +237,17 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     borderRadius: 100,
-    padding: 4,
+    padding: SEGMENT_PADDING,
     borderWidth: 1,
     marginBottom: 16,
+    position: 'relative',
+  },
+  animatedPill: {
+    position: 'absolute',
+    top: SEGMENT_PADDING,
+    bottom: SEGMENT_PADDING,
+    left: SEGMENT_PADDING,
+    borderRadius: 100,
   },
   tab: {
     flex: 1,
@@ -216,6 +257,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     borderRadius: 100,
+    zIndex: 2,
   },
   tabText: {
     fontSize: 13,
@@ -248,63 +290,37 @@ const styles = StyleSheet.create({
   },
   pointNumber: {
     fontSize: 15,
-    fontWeight: '800',
-    color: AppColors.tealDark,
-    width: 20,
+    fontWeight: '900',
   },
   pointBody: {
     flex: 1,
     fontSize: 14,
-    color: AppColors.inkSoft,
-    lineHeight: 22,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   boldText: {
     fontWeight: '800',
-    color: AppColors.ink,
   },
   bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
     paddingHorizontal: 24,
     paddingTop: 16,
-    paddingBottom: 36,
+    paddingBottom: 24,
     borderTopWidth: 1,
-    borderTopColor: '#E6E8F0',
-    flexDirection: 'row',
-    gap: 12,
   },
   acceptBtn: {
-    flex: 1,
-    backgroundColor: AppColors.tealDark,
-    borderRadius: 100,
-    paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    paddingVertical: 14,
+    borderRadius: 100,
   },
   acceptBtnDone: {
-    backgroundColor: AppColors.emerald,
+    backgroundColor: '#059669',
   },
   acceptBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    backgroundColor: '#E6E8F0',
-    borderRadius: 100,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AppColors.inkSoft,
+    fontWeight: '800',
   },
 });

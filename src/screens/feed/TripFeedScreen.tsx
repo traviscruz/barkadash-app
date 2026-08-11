@@ -129,13 +129,13 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
 
           if (currentY < 15) {
             onScrollDirection?.('up');
-          } else if (delta > 6) {
+          } else if (delta > 2) {
             onScrollDirection?.('down');
-          } else if (delta < -6) {
+          } else if (delta < -2) {
             onScrollDirection?.('up');
           }
         }}
-        scrollEventThrottle={8}
+        scrollEventThrottle={16}
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: bottomNavOffset, gap: sp.lg }}
         >

@@ -8,7 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Edit3, Settings, ShieldCheck, LogOut, Mail, AtSign, User as UserIcon } from 'lucide-react-native';
+import { ChevronLeft, Edit3, Settings, ShieldCheck, LogOut, Mail, AtSign, User as UserIcon, Users } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { AppColors } from '../../utils/colors';
@@ -18,6 +18,7 @@ interface ProfileScreenProps {
   onEditProfile?: () => void;
   onNavigateToSettings?: () => void;
   onNavigateToTerms?: () => void;
+  onNavigateToConnections?: () => void;
   onLogout?: () => void;
 }
 
@@ -26,6 +27,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onEditProfile,
   onNavigateToSettings,
   onNavigateToTerms,
+  onNavigateToConnections,
   onLogout,
 }) => {
   const { colors, isDark } = useTheme();
@@ -39,21 +41,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      {/* Apple-Style Minimalist Back Bar */}
-      <View style={styles.topNavRow}>
+      {/* Centered Top Header Bar */}
+      <View style={styles.headerBar}>
         <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={styles.backTouch}>
           <ChevronLeft size={24} color={colors.tealDark} />
           <Text style={[styles.backText, { color: colors.tealDark }]}>Back</Text>
         </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.ink }]}>Profile</Text>
+        <View style={{ width: 60 }} />
       </View>
 
       <ScrollView
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 48 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48 }}
       >
-        {/* Large Apple-Style Left-Aligned Title */}
-        <Text style={[styles.largeAppleTitle, { color: colors.ink }]}>Profile</Text>
         {/* Profile Card Header */}
         <View style={[styles.profileAvatarCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <View style={styles.profileAvatarCircle}>
@@ -103,6 +105,12 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         {/* Quick Menu Options */}
         <Text style={[styles.sectionTitle, { color: colors.inkSoft }]}>Quick Actions</Text>
         <View style={[styles.actionsCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <TouchableOpacity onPress={onNavigateToConnections} activeOpacity={0.7} style={[styles.actionRow, { borderBottomColor: colors.cardBorder }]}>
+            <Users size={18} color={colors.tealDark} />
+            <Text style={[styles.actionText, { color: colors.ink }]}>Following & Followers</Text>
+            <ChevronLeft size={16} color={colors.inkSoft} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+
           <TouchableOpacity onPress={onNavigateToSettings} activeOpacity={0.7} style={[styles.actionRow, { borderBottomColor: colors.cardBorder }]}>
             <Settings size={18} color={colors.tealDark} />
             <Text style={[styles.actionText, { color: colors.ink }]}>App Settings</Text>
@@ -141,23 +149,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: AppColors.paper,
   },
-  topNavRow: {
+  headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingVertical: 12,
   },
   backTouch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 6,
-    paddingRight: 12,
   },
   backText: {
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 2,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
   largeAppleTitle: {
     fontSize: 32,

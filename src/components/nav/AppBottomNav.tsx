@@ -92,26 +92,26 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
     Animated.parallel([
       Animated.timing(ovalOpacityAnim, {
         toValue: isExpanded ? 1 : 0,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        duration: 120,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }),
       Animated.timing(containerPaddingAnim, {
         toValue: isExpanded ? 10 : 18,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        duration: 120,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }),
       Animated.timing(scaleAnim, {
         toValue: isExpanded ? 1.0 : 0.88,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        duration: 120,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
         toValue: isExpanded ? 1.0 : 0.80,
-        duration: 200,
-        easing: Easing.out(Easing.quad),
+        duration: 120,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
@@ -123,7 +123,7 @@ export const AppBottomNav: React.FC<AppBottomNavProps> = ({
       const shouldBeExpanded = idx === currentIndex && isExpanded;
       Animated.timing(tabAnims[idx], {
         toValue: shouldBeExpanded ? 1 : 0,
-        duration: 220,
+        duration: 120,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       }).start();

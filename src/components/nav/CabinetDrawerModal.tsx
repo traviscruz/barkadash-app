@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  User,
+  Users,
   Settings,
   ShieldCheck,
   LogOut,
@@ -96,6 +96,7 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
   const handleMenuClick = (action: string) => {
     handleCloseAnimation(() => {
       if (action === 'profile') onNavigateToSubScreen('profile');
+      else if (action === 'connections') onNavigateToSubScreen('connections');
       else if (action === 'settings') onNavigateToSubScreen('settings');
       else if (action === 'privacy') onNavigateToSubScreen('terms');
       else if (action === 'logout' && onLogout) onLogout();
@@ -167,16 +168,16 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
             <View style={[styles.menuDivider, { backgroundColor: colors.cardBorder }]} />
 
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {/* 1. Profile */}
+              {/* 1. Squad Connections / Followers & Following */}
               <TouchableOpacity
-                onPress={() => handleMenuClick('profile')}
+                onPress={() => handleMenuClick('connections')}
                 activeOpacity={0.7}
                 style={styles.menuItem}
               >
                 <View style={[styles.menuIconBox, { backgroundColor: colors.paper }]}>
-                  <User size={18} color={colors.tealDark} />
+                  <Users size={18} color={colors.tealDark} />
                 </View>
-                <Text style={[styles.menuItemText, { color: colors.ink }]}>Profile</Text>
+                <Text style={[styles.menuItemText, { color: colors.ink }]}>Connections</Text>
               </TouchableOpacity>
 
               {/* 2. Settings */}
