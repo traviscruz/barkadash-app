@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Platform,
+  ActivityIndicator,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
@@ -21,6 +23,8 @@ import {
   Users,
   KeyRound,
   MapPin,
+  Trash2,
+  Pencil,
 } from 'lucide-react-native';
 
 interface TripSelectorModalProps {
@@ -30,6 +34,9 @@ interface TripSelectorModalProps {
   onClose: () => void;
   onSelectTrip: (tripId: string) => void;
   onOpenHostJoin: () => void;
+  currentUserId?: string;
+  onDeleteTrip?: (tripId: string) => Promise<boolean>;
+  onRenameTrip?: (tripId: string, newTitle: string) => Promise<boolean>;
 }
 
 export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
@@ -39,11 +46,41 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
   onClose,
   onSelectTrip,
   onOpenHostJoin,
+  currentUserId,
+  onDeleteTrip,
+  onRenameTrip,
 }) => {
   const { colors, isDark } = useTheme();
   const { sp, fs } = useResponsive();
+  const [deleteTarget, setDeleteTarget] = useState<Trip | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [editTarget, setEditTarget] = useState<Trip | null>(null);
+  const [editName, setEditName] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
+  const editNameRef = useRef<TextInput>(null);
 
   if (!visible) return null;
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || !onDeleteTrip) return;
+    setDeleting(true);
+    const ok = await onDeleteTrip(deleteTarget.id);
+    setDeleting(false);
+    if (ok) setDeleteTarget(null);
+  };
+
+  const openRename = (trip: Trip) => {
+    setEditTarget(trip);
+    setEditName(trip.title);
+  };
+
+  const saveRename = async () => {
+    if (!editTarget || !onRenameTrip) return;
+    setSavingRename(true);
+    const ok = await onRenameTrip(editTarget.id, editName);
+    setSavingRename(false);
+    if (ok) setEditTarget(null);
+  };
 
   return (
     <Modal
@@ -64,7 +101,7 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
                 Switch Barkada Trip
               </Text>
               <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}>
-                Select an active trip from your Supabase database.
+                Select an active trip.
               </Text>
             </View>
 
@@ -123,15 +160,57 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
                     </View>
 
                     <View
-                      style={[
-                        styles.checkCircle,
-                        {
-                          borderColor: isSelected ? colors.tealDark : colors.cardBorder,
-                          backgroundColor: isSelected ? colors.tealDark : 'transparent',
-                        },
-                      ]}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
                     >
-                      {isSelected && <Check size={12} color="#FFF" strokeWidth={3} />}
+                      {!!trip.hostId && trip.hostId === currentUserId && (
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => openRename(trip)}
+                            activeOpacity={0.8}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isDark ? '#2C2C2E' : colors.paper,
+                              borderWidth: 1,
+                              borderColor: isDark ? 'rgba(56,189,248,0.45)' : colors.cardBorder,
+                            }}
+                          >
+                            <Pencil size={13} color={colors.tealDark} strokeWidth={2.2} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => setDeleteTarget(trip)}
+                            activeOpacity={0.8}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isDark ? 'rgba(239,68,68,0.18)' : '#FCE8E6',
+                            }}
+                          >
+                            <Trash2 size={13} color="#EF4444" strokeWidth={2.2} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      <View
+                        style={[
+                          styles.checkCircle,
+                          {
+                            borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                            backgroundColor: isSelected ? colors.tealDark : 'transparent',
+                          },
+                        ]}
+                      >
+                        {isSelected && <Check size={12} color="#FFF" strokeWidth={3} />}
+                      </View>
                     </View>
                   </View>
 
@@ -174,6 +253,180 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
             </TouchableOpacity>
           </ScrollView>
         </View>
+
+        {/* Delete Trip Confirmation Modal */}
+        <Modal
+          transparent
+          visible={!!deleteTarget}
+          animationType="fade"
+          onRequestClose={() => setDeleteTarget(null)}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+            <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setDeleteTarget(null)} />
+            <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, alignItems: 'center', elevation: 12 }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                <Trash2 size={26} color="#EF4444" strokeWidth={2.2} />
+              </View>
+
+              <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+                Delete {deleteTarget?.title}?
+              </Text>
+
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', lineHeight: 18, marginBottom: 20 }}>
+                This permanently removes the trip, its polls, votes, and every member. This action cannot be undone.
+              </Text>
+
+              <View style={{ width: '100%', gap: 10 }}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={confirmDelete}
+                  disabled={deleting}
+                  style={{
+                    backgroundColor: '#EF4444',
+                    paddingVertical: 13,
+                    borderRadius: 100,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    shadowColor: '#EF4444',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}
+                >
+                  {deleting ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                      Yes, Delete Trip
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                    paddingVertical: 11,
+                    borderRadius: 100,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Edit Trip Name Modal */}
+        <Modal
+          transparent
+          visible={!!editTarget}
+          animationType="none"
+          onShow={() => editNameRef.current?.focus()}
+          onRequestClose={() => setEditTarget(null)}
+        >
+          <KeyboardAvoidingView
+            behavior="padding"
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}
+          >
+            <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setEditTarget(null)} />
+            <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, elevation: 12 }}>
+              <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(56,189,248,0.2)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center', marginBottom: 14, alignSelf: 'center' }}>
+                <Pencil size={26} color="#1F4E67" strokeWidth={2.2} />
+              </View>
+
+              <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+                Edit Trip Name
+              </Text>
+
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', marginBottom: 16 }}>
+                Rename "{editTarget?.title}" for your whole barkada.
+              </Text>
+
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 1.5,
+                borderColor: colors.tealDark,
+                borderRadius: 14,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F8FAFC',
+                marginBottom: 20,
+              }}>
+                <TextInput
+                  ref={editNameRef}
+                  style={{ flex: 1, fontWeight: '700', color: colors.ink, fontSize: 14, padding: 0 }}
+                  value={editName}
+                  onChangeText={setEditName}
+                  placeholder="Trip name"
+                  placeholderTextColor={colors.inkSoft}
+                  maxLength={60}
+                />
+                {!!editName && (
+                  <TouchableOpacity onPress={() => setEditName('')} hitSlop={8}>
+                    <X size={15} color={colors.inkSoft} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={{ width: '100%', gap: 10 }}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={saveRename}
+                  disabled={savingRename || !editName.trim()}
+                  style={{
+                    backgroundColor: colors.tealDark,
+                    paddingVertical: 13,
+                    borderRadius: 100,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    shadowColor: colors.tealDark,
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 8,
+                    elevation: 4,
+                    opacity: savingRename || !editName.trim() ? 0.5 : 1,
+                  }}
+                >
+                  {savingRename ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                      Save Name
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => setEditTarget(null)}
+                  disabled={savingRename}
+                  style={{
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                    paddingVertical: 11,
+                    borderRadius: 100,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
       </View>
     </Modal>
   );

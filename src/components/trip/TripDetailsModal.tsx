@@ -9,13 +9,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   Platform,
-  KeyboardAvoidingView,
   TextInput,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { useResponsive } from '../../utils/responsive';
 import { AppColors } from '../../utils/colors';
+import { SlideUpModal } from '../common/SlideUpModal';
 import { Trip } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import { ConnectionService, DBUserConnection } from '../../services/connectionService';
@@ -205,26 +205,16 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
     }
   };
 
-  if (!visible || !trip) return null;
+  if (!trip) return null;
 
   return (
-    <Modal
-      transparent
+    <SlideUpModal
       visible={visible}
-      animationType="fade"
-      onRequestClose={onClose}
+      onClose={onClose}
+      backdropOpacity={0.6}
+      useKeyboardAvoiding
     >
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
-      </View>
-
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        pointerEvents="box-none"
-        style={{ flex: 1, justifyContent: 'flex-end' }}
-      >
-
-        <View style={[styles.sheetCard, { backgroundColor: colors.paper }]}>
+      <View style={[styles.sheetCard, { backgroundColor: colors.paper }]}>
           {/* Handle bar */}
           <View style={styles.handleBarWrapper}>
             <View style={[styles.handleBar, { backgroundColor: isDark ? '#4B5563' : '#D1D5DB' }]} />
@@ -697,7 +687,6 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
             )}
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
 
       {/* Kick Member Confirmation Modal */}
       <Modal
@@ -840,7 +829,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
           </View>
         </View>
       </Modal>
-    </Modal>
+    </SlideUpModal>
   );
 };
 

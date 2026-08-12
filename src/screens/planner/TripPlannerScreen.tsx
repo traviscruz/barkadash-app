@@ -221,7 +221,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
       {/* HEADER - Editorial but App-Themed */}
-      <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.sm, paddingBottom: sp.lg, backgroundColor: COLORS.bgLight }}>
+      <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.sm, paddingBottom: sp.md, backgroundColor: COLORS.bgLight }}>
         
         {/* App Logo, Hamburger & Primary Trip Selector Dropdown */}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md }}>
@@ -271,123 +271,14 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           </TouchableOpacity>
         </View>
 
-        {/* ACTIVE TRIP HERO BANNER */}
-        <View
-          style={{
-            backgroundColor: colors.card,
-            borderRadius: 20,
-            padding: 16,
-            borderColor: colors.cardBorder,
-            borderWidth: 1,
-            marginBottom: sp.md,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.05,
-            shadowRadius: 10,
-            elevation: 2,
-          }}
-        >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <View style={{ flex: 1, marginRight: 10 }}>
-              <Text style={{ fontSize: 10, fontWeight: '800', color: colors.tealDark, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 2 }}>
-                {activeTrip?.title || 'Barkada Trip'}
-              </Text>
-              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: COLORS.textDark, letterSpacing: -0.5 }}>
-                {activeTrip?.destination || 'Planning Stage'}
-              </Text>
-              <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2 }}>
-                {activeTrip?.dateRange || 'Dates TBD'}
-              </Text>
-            </View>
-
-            {/* Today Date Badge */}
-            <View style={{ alignItems: 'center' }}>
-              <View style={{ 
-                width: 36, 
-                backgroundColor: colors.paper, 
-                borderRadius: 8, 
-                borderWidth: 1, 
-                borderColor: colors.cardBorder, 
-                overflow: 'hidden', 
-                alignItems: 'center',
-              }}>
-                <View style={{ width: '100%', backgroundColor: '#FF3B30', paddingVertical: 2, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 7, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>
-                    {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][new Date().getMonth()]}
-                  </Text>
-                </View>
-                <View style={{ paddingVertical: 2, alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ fontSize: 14, fontWeight: '900', color: COLORS.textDark }}>
-                    {new Date().getDate()}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Quick Action Pill */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
-            <TouchableOpacity
-              onPress={() => setTripDetailsVisible(true)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB',
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 100,
-              }}
-            >
-              <Users size={13} color={colors.tealDark} />
-              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>
-                View Members ({activeTrip?.memberCount || 0}) & Invite Code
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* TRIP VOTING POLLS SECTION */}
-        <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
-
-        {/* SECTION DIVIDER */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.md, gap: 10 }}>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
-          <Text style={{ fontSize: 9.5, fontWeight: '900', color: colors.inkSoft, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-            Trip Itinerary, Spots & AI Chat
+        {/* Page Title */}
+        <View style={{ marginBottom: sp.sm }}>
+          <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5 }}>
+            Trip Planner
           </Text>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
-        </View>
-
-        {/* Tab Switcher - Typographic with rounded active pill style */}
-        <View style={{ flexDirection: 'row', gap: sp.sm }}>
-          {(['Itinerary', 'Spots', 'AI Chat'] as const).map((tab) => {
-            const isSelected = activeSubTab === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => setActiveSubTab(tab)}
-                style={{
-                  paddingVertical: sp.sm,
-                  paddingHorizontal: sp.md,
-                  borderRadius: 100,
-                  backgroundColor: isSelected ? colors.tealDark : 'transparent',
-                  borderWidth: 1,
-                  borderColor: isSelected ? colors.tealDark : colors.cardBorder,
-                }}
-              >
-                <Text
-                  style={{
-                    fontSize: 12,
-                    fontWeight: '800',
-                    color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
-                  }}
-                >
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}>
+            Organize your barkada's next getaway
+          </Text>
         </View>
       </View>
 
@@ -412,6 +303,132 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: sp.lg, paddingTop: sp.md, paddingBottom: bottomNavOffset + 40 }}
         >
+          {/* ACTIVE TRIP HERO BANNER */}
+          <View
+            style={{
+              backgroundColor: colors.card,
+              borderRadius: 20,
+              padding: 16,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              marginBottom: sp.md,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.05,
+              shadowRadius: 10,
+              elevation: 2,
+            }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1, marginRight: 10 }}>
+                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.tealDark, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 2 }}>
+                  {activeTrip?.title || 'Barkada Trip'}
+                </Text>
+                <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: COLORS.textDark, letterSpacing: -0.5 }}>
+                  {activeTrip?.destination || 'Planning Stage'}
+                </Text>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2 }}>
+                  {activeTrip?.dateRange || 'Dates TBD'}
+                </Text>
+              </View>
+
+              {/* Today Date Badge */}
+              <View style={{ alignItems: 'center' }}>
+                <View style={{
+                  width: 36,
+                  backgroundColor: colors.paper,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  overflow: 'hidden',
+                  alignItems: 'center',
+                }}>
+                  <View style={{ width: '100%', backgroundColor: '#FF3B30', paddingVertical: 2, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 7, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>
+                      {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][new Date().getMonth()]}
+                    </Text>
+                  </View>
+                  <View style={{ paddingVertical: 2, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: COLORS.textDark }}>
+                      {new Date().getDate()}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'center', paddingBottom: 3 }}>
+                    <Text style={{ fontSize: 5.5, fontWeight: '900', color: COLORS.subtleDark, letterSpacing: 0.4 }}>
+                      TODAY
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Quick Action Pill */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+              <TouchableOpacity
+                onPress={() => setTripDetailsVisible(true)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 100,
+                }}
+              >
+                <Users size={13} color={colors.tealDark} />
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>
+                  View Members ({activeTrip?.memberCount || 0}) & Invite Code
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={{ marginBottom: sp.lg }}>
+            {/* TRIP VOTING POLLS SECTION */}
+            <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
+
+            {/* SECTION DIVIDER */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.md, gap: 10 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
+              <Text style={{ fontSize: 9.5, fontWeight: '900', color: colors.inkSoft, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+                Trip Itinerary, Spots & AI Chat
+              </Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
+            </View>
+
+            {/* Tab Switcher - Typographic with rounded active pill style */}
+            <View style={{ flexDirection: 'row', gap: sp.sm }}>
+              {(['Itinerary', 'Spots', 'AI Chat'] as const).map((tab) => {
+                const isSelected = activeSubTab === tab;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveSubTab(tab)}
+                    style={{
+                      paddingVertical: sp.sm,
+                      paddingHorizontal: sp.md,
+                      borderRadius: 100,
+                      backgroundColor: isSelected ? colors.tealDark : 'transparent',
+                      borderWidth: 1,
+                      borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: '800',
+                        color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
+                      }}
+                    >
+                      {tab}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
           {/* Pending Invitation Banner */}
           {currentInvite && (
             <View
@@ -794,6 +811,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         visible={showTripSelector}
         activeTripId={activeTrip.id}
         trips={allTrips}
+        currentUserId={profile?.id}
         onClose={() => setShowTripSelector(false)}
         onSelectTrip={(id) => {
           TripService.getInstance().setActiveTripId(id);
@@ -802,6 +820,22 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         onOpenHostJoin={() => {
           setModalInitialMode('choice');
           setHostJoinModalVisible(true);
+        }}
+        onDeleteTrip={async (tripId) => {
+          const ok = await TripService.getInstance().deleteTripDB(tripId, profile?.id);
+          if (ok) {
+            setActiveTrip(TripService.getInstance().getActiveTrip());
+            setAllTrips(TripService.getInstance().getTrips());
+          }
+          return ok;
+        }}
+        onRenameTrip={async (tripId, newTitle) => {
+          const ok = await TripService.getInstance().renameTripDB(tripId, newTitle, profile?.id);
+          if (ok) {
+            setActiveTrip(TripService.getInstance().getActiveTrip());
+            setAllTrips(TripService.getInstance().getTrips());
+          }
+          return ok;
         }}
       />
 

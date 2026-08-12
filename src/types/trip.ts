@@ -19,6 +19,10 @@ export interface DestinationPollOption {
   createdByUserId: string;
   createdByName: string;
   subtitle?: string;
+  placeId?: string;
+  placeName?: string;
+  placeAddress?: string;
+  photoReference?: string;
   imagePath?: any;
   leaderComment?: string;
   isVotedByMe?: boolean;
@@ -51,6 +55,8 @@ export interface Trip {
   inviteCode?: string;
   inviteLink?: string;
   hostName?: string;
+  hostId?: string;
+  votingDeadline?: string | null;
   planningStage?: 'DESTINATION_VOTING' | 'ITINERARY_BUILDING' | 'READY';
   invitedFriendIds?: string[];
 }

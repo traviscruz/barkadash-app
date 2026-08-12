@@ -26,6 +26,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService } from '../../services/notificationService';
 import { supabase } from '../../utils/supabase';
+import * as Location from 'expo-location';
 import { AppColors } from '../../utils/colors';
 import { SubScreenType } from '../../components/nav/MainAppContainer';
 import {
@@ -73,6 +74,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
   const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
+  const [currentLocation, setCurrentLocation] = useState('My Location');
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
@@ -144,6 +146,38 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [profile?.id]);
 
+  // Show the user's current location instead of a hardcoded city.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          if (!cancelled) setCurrentLocation('My Location');
+          return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const [place] = await Location.reverseGeocodeAsync({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        if (cancelled) return;
+        const name =
+          place?.city
+          || place?.subregion
+          || place?.region
+          || place?.name;
+        setCurrentLocation(name && name !== 'Apple Inc.' ? name : 'My Location');
+      } catch (e) {
+        if (!cancelled) setCurrentLocation('My Location');
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
@@ -188,7 +222,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </View>
               <Text style={[styles.weatherTempText, { color: colors.ink }]}>29°C</Text>
               <View style={[styles.weatherDivider, { backgroundColor: colors.cardBorder }]} />
-              <Text style={[styles.weatherLocText, { color: colors.inkSoft }]}>El Nido</Text>
+              <Text style={[styles.weatherLocText, { color: colors.inkSoft }]} numberOfLines={1}>{currentLocation}</Text>
             </View>
 
             {/* Notification Bell Button */}
@@ -400,6 +434,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#0F2A3C',
+    maxWidth: 90,
   },
   bellButton: {
     width: 36,

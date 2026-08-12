@@ -322,6 +322,8 @@ export class TripService {
           inviteCode: tripInserted.invite_code,
           inviteLink: `https://barkadash.app/join/${tripInserted.invite_code}`,
           hostName: 'You',
+          hostId: effectiveHostId,
+          votingDeadline: tripInserted.voting_deadline || null,
           planningStage: tripInserted.planning_stage || 'DESTINATION_VOTING',
           invitedFriendIds: friendIds,
           day1Itinerary: [
@@ -432,6 +434,8 @@ export class TripService {
           inviteCode: tripData.invite_code,
           inviteLink: `https://barkadash.app/join/${tripData.invite_code}`,
           hostName: 'Barkada Host',
+          hostId: tripData.host_id || undefined,
+          votingDeadline: tripData.voting_deadline || null,
           planningStage: tripData.planning_stage || 'DESTINATION_VOTING',
           day1Itinerary: [
             {
@@ -495,6 +499,7 @@ export class TripService {
             status,
             total_budget,
             spent_amount,
+            voting_deadline,
             created_at
           )
         `)
@@ -539,6 +544,8 @@ export class TripService {
             inviteCode: t.invite_code,
             inviteLink: `https://barkadash.app/join/${t.invite_code}`,
             hostName: p.role === 'host' ? 'You' : 'Barkada Host',
+            hostId: t.host_id || undefined,
+            votingDeadline: t.voting_deadline || null,
             planningStage: t.planning_stage || 'DESTINATION_VOTING',
             day1Itinerary: [],
           });
@@ -567,6 +574,8 @@ export class TripService {
               inviteCode: t.invite_code,
               inviteLink: `https://barkadash.app/join/${t.invite_code}`,
               hostName: 'You',
+              hostId: t.host_id || undefined,
+              votingDeadline: t.voting_deadline || null,
               planningStage: t.planning_stage || 'DESTINATION_VOTING',
               day1Itinerary: [],
             });
@@ -774,141 +783,359 @@ export class TripService {
     }
   }
 
-  // --- TRIP VOTING POLLS STORAGE & HANDLERS ---
-  private pollStore: Map<string, DestinationPollOption[]> = new Map();
+  // --- TRIP VOTING POLLS (SUPABASE-BACKED) ---
 
-  private getInitialPolls(tripId: string): DestinationPollOption[] {
-    if (this.pollStore.has(tripId)) {
-      return this.pollStore.get(tripId)!;
+  /**
+   * Fetch poll options for a trip from Supabase DB (with live vote counts).
+   * RLS ensures only accepted trip members can read them.
+   */
+  public async fetchTripPollsDB(tripId: string): Promise<DestinationPollOption[]> {
+    try {
+      const { data, error } = await supabase
+        .from('trip_poll_options')
+        .select(`
+          id,
+          trip_id,
+          type,
+          title,
+          subtitle,
+          place_id,
+          place_name,
+          place_address,
+          photo_reference,
+          created_by,
+          created_at,
+          trip_poll_votes ( user_id )
+        `)
+        .eq('trip_id', tripId)
+        .order('created_at', { ascending: true });
+
+      if (error || !data) {
+        console.warn('fetchTripPollsDB error:', error?.message);
+        return [];
+      }
+
+      const creatorIds = [...new Set(data.map((o: any) => o.created_by))];
+      const creatorNames: Record<string, string> = {};
+      if (creatorIds.length > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, first_name, last_name, username')
+          .in('id', creatorIds);
+        (profs || []).forEach((p: any) => {
+          creatorNames[p.id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.username || 'Barkada';
+        });
+      }
+
+      return data.map((row: any) => {
+        const votes = row.trip_poll_votes || [];
+        return {
+          id: row.id,
+          tripId: row.trip_id,
+          title: row.title,
+          type: row.type,
+          subtitle: row.subtitle || undefined,
+          placeId: row.place_id || undefined,
+          placeName: row.place_name || undefined,
+          placeAddress: row.place_address || undefined,
+          photoReference: row.photo_reference || undefined,
+          votes: votes.length,
+          votedUserIds: votes.map((v: any) => v.user_id),
+          createdByUserId: row.created_by,
+          createdByName: creatorNames[row.created_by] || 'Barkada',
+        };
+      });
+    } catch (err: any) {
+      console.warn('fetchTripPollsDB exception:', err?.message);
+      return [];
     }
-    const initial: DestinationPollOption[] = [
-      {
-        id: `poll_p1_${tripId}`,
-        tripId,
-        title: 'El Nido, Palawan',
-        type: 'place',
-        subtitle: 'Island Hopping & Lagoon Kayaking',
-        votes: 3,
-        votedUserIds: [],
-        createdByUserId: 'system',
-        createdByName: 'Host Recommendation',
-      },
-      {
-        id: `poll_p2_${tripId}`,
-        tripId,
-        title: 'Baguio City',
-        type: 'place',
-        subtitle: 'Cool weather, Strawberry Picking & Cafes',
-        votes: 1,
-        votedUserIds: [],
-        createdByUserId: 'system',
-        createdByName: 'Host Recommendation',
-      },
-      {
-        id: `poll_p3_${tripId}`,
-        tripId,
-        title: 'Boracay Island',
-        type: 'place',
-        subtitle: 'White Beach, Sunset Cruise & Nightlife',
-        votes: 2,
-        votedUserIds: [],
-        createdByUserId: 'system',
-        createdByName: 'Host Recommendation',
-      },
-      {
-        id: `poll_d1_${tripId}`,
-        tripId,
-        title: 'Aug 20 – 24, 2026',
-        type: 'date',
-        subtitle: '5 Days / 4 Nights (Long Weekend)',
-        votes: 4,
-        votedUserIds: [],
-        createdByUserId: 'system',
-        createdByName: 'Host Recommendation',
-      },
-      {
-        id: `poll_d2_${tripId}`,
-        tripId,
-        title: 'Sep 10 – 14, 2026',
-        type: 'date',
-        subtitle: '5 Days / 4 Nights',
-        votes: 2,
-        votedUserIds: [],
-        createdByUserId: 'system',
-        createdByName: 'Host Recommendation',
-      },
-    ];
-    this.pollStore.set(tripId, initial);
-    return initial;
   }
 
-  public getTripPolls(tripId: string): DestinationPollOption[] {
-    return this.getInitialPolls(tripId);
-  }
-
-  public addTripPollOption(params: {
+  /**
+   * Add a poll option to Supabase DB and auto-cast the creator's vote.
+   * RLS restricts to accepted trip members.
+   */
+  public async addTripPollOptionDB(params: {
     tripId: string;
     title: string;
     type: 'place' | 'date';
     subtitle?: string;
+    placeId?: string;
+    placeName?: string;
+    placeAddress?: string;
+    photoReference?: string;
     userId: string;
-    userName: string;
-  }): DestinationPollOption {
-    const list = this.getInitialPolls(params.tripId);
-    const newOption: DestinationPollOption = {
-      id: `poll_${Date.now()}`,
-      tripId: params.tripId,
-      title: params.title.trim(),
-      type: params.type,
-      subtitle: params.subtitle?.trim() || (params.type === 'place' ? 'Proposed Destination' : 'Proposed Date Range'),
-      votes: 1,
-      votedUserIds: [params.userId],
-      createdByUserId: params.userId,
-      createdByName: params.userName,
-    };
-    list.push(newOption);
-    this.pollStore.set(params.tripId, [...list]);
-    this.notify();
-    return newOption;
-  }
+  }): Promise<DestinationPollOption | null> {
+    try {
+      const { data, error } = await supabase
+        .from('trip_poll_options')
+        .insert({
+          trip_id: params.tripId,
+          type: params.type,
+          title: params.title.trim(),
+          subtitle: params.subtitle?.trim() || null,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          created_by: params.userId,
+        })
+        .select('id')
+        .single();
 
-  public toggleVoteTripPoll(pollId: string, tripId: string, userId: string): DestinationPollOption[] {
-    const list = this.getInitialPolls(tripId);
-    const target = list.find((p) => p.id === pollId);
-    if (target) {
-      const alreadyVoted = target.votedUserIds.includes(userId);
-      if (alreadyVoted) {
-        target.votedUserIds = target.votedUserIds.filter((id) => id !== userId);
-        target.votes = Math.max(0, target.votes - 1);
-      } else {
-        target.votedUserIds.push(userId);
-        target.votes += 1;
+      if (error || !data) {
+        console.warn('addTripPollOptionDB error:', error?.message);
+        return null;
       }
+
+      // Creator auto-votes for their proposal (single-vote trigger moves any prior vote)
+      // App-side: drop any prior vote the creator had in the SAME section first,
+      // so a place vote never steals a date vote (and vice versa).
+      const { data: sameTypeOptions } = await supabase
+        .from('trip_poll_options')
+        .select('id')
+        .eq('trip_id', params.tripId)
+        .eq('type', params.type);
+      const sameTypeIds = (sameTypeOptions || []).map((o: any) => o.id);
+      if (sameTypeIds.length > 0) {
+        await supabase
+          .from('trip_poll_votes')
+          .delete()
+          .in('option_id', sameTypeIds)
+          .eq('user_id', params.userId);
+      }
+      await supabase.from('trip_poll_votes').insert({ option_id: data.id, user_id: params.userId });
+
+      const list = await this.fetchTripPollsDB(params.tripId);
+      return list.find((o) => o.id === data.id) || null;
+    } catch (err: any) {
+      console.warn('addTripPollOptionDB exception:', err?.message);
+      return null;
     }
-    this.pollStore.set(tripId, [...list]);
-    this.notify();
-    return [...list];
   }
 
-  public updateTripPollOption(pollId: string, tripId: string, newTitle: string, newSubtitle?: string): boolean {
-    const list = this.getInitialPolls(tripId);
-    const target = list.find((p) => p.id === pollId);
-    if (target) {
-      target.title = newTitle.trim();
-      if (newSubtitle !== undefined) target.subtitle = newSubtitle.trim();
-      this.pollStore.set(tripId, [...list]);
+  /**
+   * Toggle the current user's vote on a poll option.
+   * One vote PER SECTION: voting for a date never removes your place vote
+   * (and vice versa). Picking a different option in the same section moves
+   * your vote there.
+   */
+  public async toggleVoteTripPollDB(pollId: string, tripId: string, userId: string): Promise<DestinationPollOption[]> {
+    try {
+      const { data: opt } = await supabase
+        .from('trip_poll_options')
+        .select('type')
+        .eq('id', pollId)
+        .maybeSingle();
+      const type = opt?.type as 'place' | 'date' | undefined;
+
+      const { data: existing } = await supabase
+        .from('trip_poll_votes')
+        .select('id')
+        .eq('option_id', pollId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        // Unvote the option they already voted for
+        await supabase.from('trip_poll_votes').delete().eq('option_id', pollId).eq('user_id', userId);
+      } else {
+        // Vote on a different option in this section → drop their prior same-section vote first
+        if (type) {
+          const { data: sameTypeOptions } = await supabase
+            .from('trip_poll_options')
+            .select('id')
+            .eq('trip_id', tripId)
+            .eq('type', type);
+          const sameTypeIds = (sameTypeOptions || []).map((o: any) => o.id);
+          if (sameTypeIds.length > 0) {
+            await supabase
+              .from('trip_poll_votes')
+              .delete()
+              .in('option_id', sameTypeIds)
+              .eq('user_id', userId);
+          }
+        }
+        await supabase.from('trip_poll_votes').insert({ option_id: pollId, user_id: userId });
+      }
+      return this.fetchTripPollsDB(tripId);
+    } catch (err: any) {
+      console.warn('toggleVoteTripPollDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Update a poll option's title/subtitle (creator only, enforced by RLS).
+   */
+  public async updateTripPollOptionDB(params: {
+    pollId: string;
+    tripId: string;
+    newTitle: string;
+    newSubtitle?: string;
+    placeId?: string;
+    placeName?: string;
+    placeAddress?: string;
+    photoReference?: string;
+  }): Promise<DestinationPollOption[]> {
+    try {
+      await supabase
+        .from('trip_poll_options')
+        .update({
+          title: params.newTitle.trim(),
+          subtitle: params.newSubtitle?.trim() || null,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', params.pollId);
+      return this.fetchTripPollsDB(params.tripId);
+    } catch (err: any) {
+      console.warn('updateTripPollOptionDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Delete a poll option (creator only, enforced by RLS). Cascades votes.
+   */
+  public async deleteTripPollOptionDB(pollId: string, tripId: string): Promise<DestinationPollOption[]> {
+    try {
+      await supabase.from('trip_poll_options').delete().eq('id', pollId);
+      return this.fetchTripPollsDB(tripId);
+    } catch (err: any) {
+      console.warn('deleteTripPollOptionDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch host + voting deadline for a trip (used to show host-only UI).
+   */
+  public async fetchTripSettingsDB(tripId: string): Promise<{ hostId: string | null; votingDeadline: string | null }> {
+    try {
+      const { data, error } = await supabase
+        .from('trips')
+        .select('host_id, voting_deadline')
+        .eq('id', tripId)
+        .maybeSingle();
+
+      if (error || !data) return { hostId: null, votingDeadline: null };
+      return { hostId: data.host_id || null, votingDeadline: data.voting_deadline || null };
+    } catch (err: any) {
+      console.warn('fetchTripSettingsDB exception:', err?.message);
+      return { hostId: null, votingDeadline: null };
+    }
+  }
+
+  /**
+   * Set or clear the host-only voting deadline on a trip.
+   */
+  public async setTripVotingDeadlineDB(tripId: string, deadline: string | null): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('trips')
+        .update({ voting_deadline: deadline, updated_at: new Date().toISOString() })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('setTripVotingDeadlineDB error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('setTripVotingDeadlineDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a trip permanently (host only, enforced by RLS).
+   * Removes participants, then the trip (poll options/votes cascade).
+   * Returns true on success and removes it from local state.
+   */
+  public async deleteTripDB(tripId: string, userId?: string): Promise<boolean> {
+    try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return false;
+
+      const { data: trip } = await supabase
+        .from('trips')
+        .select('host_id')
+        .eq('id', tripId)
+        .maybeSingle();
+
+      if (!trip || trip.host_id !== effectiveUserId) {
+        console.warn('deleteTripDB denied: only the host can delete this trip');
+        return false;
+      }
+
+      // Remove participants first (FK-safe), polls/votes cascade from trips
+      await supabase.from('trip_participants').delete().eq('trip_id', tripId);
+      const { error: delErr } = await supabase.from('trips').delete().eq('id', tripId);
+
+      if (delErr) {
+        console.warn('deleteTripDB error:', delErr.message);
+        return false;
+      }
+
+      this.trips = this.trips.filter((t) => t.id !== tripId);
+      if (this.activeTripId === tripId) {
+        this.activeTripId = this.trips.length > 0 ? this.trips[0].id : '';
+      }
       this.notify();
       return true;
+    } catch (err: any) {
+      console.warn('deleteTripDB exception:', err?.message);
+      return false;
     }
-    return false;
   }
 
-  public deleteTripPollOption(pollId: string, tripId: string): boolean {
-    const list = this.getInitialPolls(tripId);
-    const updated = list.filter((p) => p.id !== pollId);
-    this.pollStore.set(tripId, updated);
-    this.notify();
-    return true;
+  /**
+   * Rename a trip (host only, enforced by RLS). Updates local state on success.
+   */
+  public async renameTripDB(tripId: string, newTitle: string, userId?: string): Promise<boolean> {
+    try {
+      const title = newTitle.trim();
+      if (!title) return false;
+
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return false;
+
+      const { data: trip } = await supabase
+        .from('trips')
+        .select('host_id')
+        .eq('id', tripId)
+        .maybeSingle();
+      if (!trip || trip.host_id !== effectiveUserId) return false;
+
+      const { error } = await supabase
+        .from('trips')
+        .update({ title, updated_at: new Date().toISOString() })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('renameTripDB error:', error.message);
+        return false;
+      }
+
+      this.trips = this.trips.map((t) => (t.id === tripId ? { ...t, title } : t));
+      this.notify();
+      return true;
+    } catch (err: any) {
+      console.warn('renameTripDB exception:', err?.message);
+      return false;
+    }
   }
 
   private realtimeChannel: any = null;
