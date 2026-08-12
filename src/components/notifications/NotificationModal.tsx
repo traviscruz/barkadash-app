@@ -1,77 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { SlideUpModal } from '../common/SlideUpModal';
-import { X, Vote, Receipt, MapPin, Calendar, CheckCheck } from 'lucide-react-native';
+import { X, Vote, Receipt, MapPin, Calendar, CheckCheck, Sparkles, UserPlus } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
+import { NotificationService, AppNotification } from '../../services/notificationService';
 
 interface NotificationModalProps {
   visible: boolean;
   onClose: () => void;
+  onSelectInviteNotif?: () => void;
 }
-
-const INITIAL_NOTIFICATIONS = [
-  {
-    id: '1',
-    icon: Vote,
-    iconBgKey: 'lightOrangeBg',
-    iconColorKey: 'orangeAccent',
-    title: 'New Poll Vote',
-    message: 'Steven voted for Siargao Island in Destination Poll.',
-    time: '5m ago',
-    unread: true,
-  },
-  {
-    id: '2',
-    icon: Receipt,
-    iconBgKey: 'lightRedBg',
-    iconColorKey: 'redAccent',
-    title: 'New Ledger Expense',
-    message: 'Travis added ₱2,450 Seafood Dinner to the group expense.',
-    time: '25m ago',
-    unread: true,
-  },
-  {
-    id: '3',
-    icon: MapPin,
-    iconBgKey: 'lightGreenBg',
-    iconColorKey: 'tealDark',
-    title: 'Barkada Radar Alert',
-    message: 'Ahiah checked in at Twin Lagoon, El Nido.',
-    time: '1h ago',
-    unread: true,
-  },
-  {
-    id: '4',
-    icon: Calendar,
-    iconBgKey: 'lightBlueBg',
-    iconColorKey: 'sky',
-    title: 'Upcoming Activity',
-    message: 'Island Hopping Tour scheduled tomorrow at 8:00 AM.',
-    time: '3h ago',
-    unread: false,
-  },
-];
 
 export const NotificationModal: React.FC<NotificationModalProps> = ({
   visible,
   onClose,
+  onSelectInviteNotif,
 }) => {
   const { colors, isDark } = useTheme();
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const { profile } = useUser();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const markAllAsRead = () => {
+  useEffect(() => {
+    if (visible && profile?.id) {
+      setLoading(true);
+      NotificationService.fetchNotifications(profile.id).then((items) => {
+        setNotifications(items);
+        setLoading(false);
+      });
+    }
+  }, [visible, profile?.id]);
+
+  const markAllAsRead = async () => {
     setNotifications((prev) =>
-      prev.map((item) => ({ ...item, unread: false }))
+      prev.map((item) => ({ ...item, isRead: true }))
     );
+    if (profile?.id) {
+      await NotificationService.markAllAsRead(profile.id);
+    }
   };
 
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
     <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.45}>
@@ -106,38 +83,66 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
 
         {/* List */}
         <ScrollView showsVerticalScrollIndicator={false} style={styles.listScroll}>
-          <View style={styles.listContainer}>
-            {notifications.map((item) => {
-              const IconComp = item.icon;
-              const bg = (colors as any)[item.iconBgKey] || colors.subtleBg;
-              const fg = (colors as any)[item.iconColorKey] || colors.tealDark;
-              return (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.notificationItem,
-                    { backgroundColor: colors.card, borderColor: item.unread ? colors.tealDark : colors.cardBorder },
-                  ]}
-                >
-                  <View
-                    style={[styles.iconBox, { backgroundColor: bg }]}
+          {loading ? (
+            <ActivityIndicator style={{ paddingVertical: 20 }} color={colors.tealDark} />
+          ) : notifications.length === 0 ? (
+            <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+              <Text style={{ fontSize: 13, color: colors.inkSoft, fontWeight: '600' }}>
+                No notifications yet!
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.listContainer}>
+              {notifications.map((item) => {
+                const isInvite = item.type === 'trip_invite';
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (isInvite) {
+                        onClose();
+                        onSelectInviteNotif?.();
+                      }
+                    }}
+                    style={[
+                      styles.notificationItem,
+                      { backgroundColor: colors.card, borderColor: !item.isRead ? colors.tealDark : colors.cardBorder },
+                    ]}
                   >
-                    <IconComp size={18} color={fg} />
-                  </View>
-
-                  <View style={styles.itemContent}>
-                    <View style={styles.itemHeader}>
-                      <Text style={[styles.itemTitle, { color: colors.ink }]}>{item.title}</Text>
-                      <Text style={[styles.itemTime, { color: colors.inkSoft }]}>{item.time}</Text>
+                    <View
+                      style={[
+                        styles.iconBox,
+                        { backgroundColor: isInvite ? colors.lightOrangeBg : (isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB') },
+                      ]}
+                    >
+                      {isInvite ? (
+                        <Sparkles size={18} color={colors.orangeAccent} />
+                      ) : (
+                        <UserPlus size={18} color={colors.tealDark} />
+                      )}
                     </View>
-                    <Text style={[styles.itemMessage, { color: colors.inkSoft }]}>{item.message}</Text>
-                  </View>
 
-                  {item.unread && <View style={styles.unreadDot} />}
-                </View>
-              );
-            })}
-          </View>
+                    <View style={styles.itemContent}>
+                      <View style={styles.itemHeader}>
+                        <Text style={[styles.itemTitle, { color: colors.ink }]}>{item.title}</Text>
+                        <Text style={[styles.itemTime, { color: colors.inkSoft }]}>{item.timeAgo}</Text>
+                      </View>
+                      <Text style={[styles.itemMessage, { color: colors.inkSoft }]}>{item.message}</Text>
+
+                      {isInvite && (
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: colors.orangeAccent, marginTop: 4 }}>
+                          ✨ Tap to view invitation
+                        </Text>
+                      )}
+                    </View>
+
+                    {!item.isRead && <View style={styles.unreadDot} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </ScrollView>
       </View>
     </SlideUpModal>

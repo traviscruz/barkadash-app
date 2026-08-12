@@ -1,14 +1,22 @@
-import React from 'react';
-import { View, Text, SafeAreaView } from 'react-native';
+import React, { useState } from 'react';
+import { View, SafeAreaView, TouchableOpacity, Text } from 'react-native';
+import { HostJoinTripModal } from '../../components/trip/HostJoinTripModal';
+import { useTheme } from '../../context/ThemeContext';
 
-// TODO: Implement in later sprint
-export const CreateTripScreen: React.FC = () => {
+export const CreateTripScreen: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+  const { colors } = useTheme();
+  const [modalVisible, setModalVisible] = useState(true);
+
   return (
-    <SafeAreaView className="flex-1 bg-paper justify-center items-center p-6">
-      <Text className="text-xl font-bold text-ink mb-2">Create Trip Screen</Text>
-      <Text className="text-xs text-inkSoft text-center">
-        // STUB - Wizard for initializing new barkada trips.
-      </Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }}>
+      <HostJoinTripModal
+        visible={modalVisible}
+        onClose={() => {
+          setModalVisible(false);
+          onBack?.();
+        }}
+      />
     </SafeAreaView>
   );
 };
+

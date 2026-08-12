@@ -11,11 +11,17 @@ export interface ItineraryItem {
 
 export interface DestinationPollOption {
   id: string;
+  tripId: string;
   title: string;
-  imagePath: any;
+  type: 'place' | 'date';
   votes: number;
-  isVotedByMe: boolean;
-  leaderComment: string;
+  votedUserIds: string[];
+  createdByUserId: string;
+  createdByName: string;
+  subtitle?: string;
+  imagePath?: any;
+  leaderComment?: string;
+  isVotedByMe?: boolean;
 }
 
 export interface BarkadaActivity {
@@ -42,4 +48,9 @@ export interface Trip {
   nextActivityTitle: string;
   nextActivityTime: string;
   day1Itinerary: ItineraryItem[];
+  inviteCode?: string;
+  inviteLink?: string;
+  hostName?: string;
+  planningStage?: 'DESTINATION_VOTING' | 'ITINERARY_BUILDING' | 'READY';
+  invitedFriendIds?: string[];
 }

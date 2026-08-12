@@ -14,9 +14,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2 } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
+import { TripService } from '../../services/tripService';
+import { HostJoinTripModal } from '../../components/trip/HostJoinTripModal';
+import { TripDetailsModal } from '../../components/trip/TripDetailsModal';
+import { TripSelectorModal } from '../../components/trip/TripSelectorModal';
+import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
+import { TripVotingPollsSection } from '../../components/trip/TripVotingPollsSection';
+import { Trip } from '../../types/trip';
+
+import { useUser } from '../../context/UserContext';
 
 const { width } = Dimensions.get('window');
 
@@ -31,6 +40,7 @@ interface TripPlannerScreenProps {
 
 export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
   const { colors, isDark } = useTheme();
+  const { profile } = useUser();
   const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
   const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots' | 'AI Chat'>('Itinerary');
   const [selectedDay, setSelectedDay] = useState(1);
@@ -39,6 +49,49 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
   const lastOffsetY = useRef(0);
   const slideAnim = useRef(new Animated.Value(0)).current;
+
+  // Trip State & Host/Join / Details Modal State
+  const [activeTrip, setActiveTrip] = useState<Trip>(() => TripService.getInstance().getActiveTrip());
+  const [allTrips, setAllTrips] = useState<Trip[]>(() => TripService.getInstance().getTrips());
+  const [hostJoinModalVisible, setHostJoinModalVisible] = useState(false);
+  const [modalInitialMode, setModalInitialMode] = useState<'choice' | 'host' | 'join'>('choice');
+  const [showTripSelector, setShowTripSelector] = useState(false);
+  const [tripDetailsVisible, setTripDetailsVisible] = useState(false);
+  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
+
+  const checkPendingInvites = async () => {
+    if (profile?.id) {
+      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(profile.id);
+      if (invites.length > 0) {
+        setCurrentInvite(invites[0]);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const service = TripService.getInstance();
+    let unsubscribeRealtime = () => {};
+
+    service.fetchUserTripsDB(profile?.id).then(() => {
+      setActiveTrip(service.getActiveTrip());
+      setAllTrips(service.getTrips());
+    });
+
+    if (profile?.id) {
+      checkPendingInvites();
+      unsubscribeRealtime = service.subscribeRealtime(profile.id);
+    }
+
+    const unsubscribe = service.subscribe(() => {
+      setActiveTrip(service.getActiveTrip());
+      setAllTrips(service.getTrips());
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeRealtime();
+    };
+  }, [profile?.id]);
 
   useEffect(() => {
     Animated.spring(slideAnim, {
@@ -170,62 +223,140 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
       {/* HEADER - Editorial but App-Themed */}
       <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.sm, paddingBottom: sp.lg, backgroundColor: COLORS.bgLight }}>
         
-        {/* App Logo & Borderless Hamburger Match Home Screen */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
-          <TouchableOpacity
-            onPress={onOpenCabinet}
-            activeOpacity={0.7}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'transparent',
-            }}
-          >
-            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
-          </TouchableOpacity>
-          <BarkadashLogo height={32} />
-        </View>
-
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: sp.lg }}>
-          <View>
-            <Text style={{ fontSize: 10, color: AppColors.sky, fontWeight: '800', letterSpacing: 2, marginBottom: 4, textTransform: 'uppercase' }}>
-              El Nido Escape / Aug 14–17
-            </Text>
-            <Text style={{ fontSize: fs.xxl + 4, fontWeight: '900', color: COLORS.textDark, letterSpacing: -1 }}>
-              Trip Planner
-            </Text>
+        {/* App Logo, Hamburger & Primary Trip Selector Dropdown */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={onOpenCabinet}
+              activeOpacity={0.7}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <BarkadashLogo height={32} />
           </View>
-          <View style={{ alignItems: 'center', paddingBottom: 2 }}>
-            <Text style={{ fontSize: 8, fontWeight: '800', color: COLORS.subtleDark, letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>TODAY</Text>
-            <View style={{ 
-              width: 38, 
-              backgroundColor: colors.card, 
-              borderRadius: 6, 
-              borderWidth: 1, 
-              borderColor: colors.cardBorder, 
-              overflow: 'hidden', 
+
+          {/* Clean Trip Dropdown Picker Button */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setShowTripSelector(true)}
+            style={{
+              backgroundColor: colors.card,
+              borderColor: colors.cardBorder,
+              borderWidth: 1,
+              paddingHorizontal: 12,
+              paddingVertical: 7,
+              borderRadius: 100,
+              flexDirection: 'row',
               alignItems: 'center',
+              gap: 6,
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 2 },
               shadowOpacity: 0.05,
               shadowRadius: 4,
               elevation: 2,
-            }}>
-              <View style={{ width: '100%', backgroundColor: '#FF3B30', paddingVertical: 2, alignItems: 'center' }}>
-                <Text style={{ fontSize: 8, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>
-                  {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][new Date().getMonth()]}
-                </Text>
-              </View>
-              <View style={{ paddingVertical: 2, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 16, fontWeight: '900', color: COLORS.textDark }}>
-                  {new Date().getDate()}
-                </Text>
+            }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '800', color: colors.tealDark }} numberOfLines={1}>
+              {activeTrip?.title || 'Barkada Trip'}
+            </Text>
+            <ChevronDown size={14} color={colors.tealDark} strokeWidth={2.5} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ACTIVE TRIP HERO BANNER */}
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderRadius: 20,
+            padding: 16,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            marginBottom: sp.md,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.05,
+            shadowRadius: 10,
+            elevation: 2,
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: colors.tealDark, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 2 }}>
+                {activeTrip?.title || 'Barkada Trip'}
+              </Text>
+              <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: COLORS.textDark, letterSpacing: -0.5 }}>
+                {activeTrip?.destination || 'Planning Stage'}
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2 }}>
+                {activeTrip?.dateRange || 'Dates TBD'}
+              </Text>
+            </View>
+
+            {/* Today Date Badge */}
+            <View style={{ alignItems: 'center' }}>
+              <View style={{ 
+                width: 36, 
+                backgroundColor: colors.paper, 
+                borderRadius: 8, 
+                borderWidth: 1, 
+                borderColor: colors.cardBorder, 
+                overflow: 'hidden', 
+                alignItems: 'center',
+              }}>
+                <View style={{ width: '100%', backgroundColor: '#FF3B30', paddingVertical: 2, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 7, fontWeight: '900', color: '#FFFFFF', textTransform: 'uppercase' }}>
+                    {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][new Date().getMonth()]}
+                  </Text>
+                </View>
+                <View style={{ paddingVertical: 2, alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '900', color: COLORS.textDark }}>
+                    {new Date().getDate()}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
+
+          {/* Quick Action Pill */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
+            <TouchableOpacity
+              onPress={() => setTripDetailsVisible(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 100,
+              }}
+            >
+              <Users size={13} color={colors.tealDark} />
+              <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>
+                View Members ({activeTrip?.memberCount || 0}) & Invite Code
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* TRIP VOTING POLLS SECTION */}
+        <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
+
+        {/* SECTION DIVIDER */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.md, gap: 10 }}>
+          <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
+          <Text style={{ fontSize: 9.5, fontWeight: '900', color: colors.inkSoft, letterSpacing: 0.8, textTransform: 'uppercase' }}>
+            Trip Itinerary, Spots & AI Chat
+          </Text>
+          <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
         </View>
 
         {/* Tab Switcher - Typographic with rounded active pill style */}
@@ -281,6 +412,53 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: sp.lg, paddingTop: sp.md, paddingBottom: bottomNavOffset + 40 }}
         >
+          {/* Pending Invitation Banner */}
+          {currentInvite && (
+            <View
+              style={{
+                backgroundColor: colors.lightOrangeBg,
+                borderColor: colors.orangeAccent,
+                borderWidth: 1,
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: sp.lg,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Sparkles size={18} color={colors.orangeAccent} />
+                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.orangeAccent }}>
+                  PENDING TRIP INVITATION
+                </Text>
+              </View>
+
+              <Text style={{ fontSize: 14, fontWeight: '800', color: colors.ink, marginBottom: 4 }}>
+                {currentInvite.hostName} invited you to "{currentInvite.tripTitle}"
+              </Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginBottom: 12 }}>
+                Destination: {currentInvite.destination} • Dates: {currentInvite.dateRange}
+              </Text>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => checkPendingInvites()}
+                style={{
+                  backgroundColor: colors.tealDark,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  gap: 6,
+                }}
+              >
+                <CheckCircle2 size={16} color="#FFF" />
+                <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '900' }}>
+                  View Invitation Details & Accept
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* ================= ITINERARY ================= */}
           {activeSubTab === 'Itinerary' && (
             <View>
@@ -315,17 +493,18 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                     })
                   }]
                 }} />
-                {[
-                  { day: 1, date: 'AUG 14' },
-                  { day: 2, date: 'AUG 15' },
-                  { day: 3, date: 'AUG 16' },
-                  { day: 4, date: 'AUG 17' },
-                ].map((d) => {
-                  const isSelected = selectedDay === d.day;
+                {[0, 1, 2, 3].map((offset) => {
+                  const dayNum = offset + 1;
+                  const isSelected = selectedDay === dayNum;
+                  const dateObj = new Date();
+                  dateObj.setDate(dateObj.getDate() + offset);
+                  const monthStr = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][dateObj.getMonth()];
+                  const dateStr = `${monthStr} ${dateObj.getDate()}`;
+
                   return (
                     <TouchableOpacity
-                      key={d.day}
-                      onPress={() => setSelectedDay(d.day)}
+                      key={dayNum}
+                      onPress={() => setSelectedDay(dayNum)}
                       style={{
                         flex: 1,
                         paddingVertical: 12,
@@ -336,10 +515,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       }}
                     >
                       <Text style={{ fontSize: 9, fontWeight: '800', color: isSelected ? 'rgba(255,255,255,0.85)' : COLORS.subtleDark, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        DAY {d.day}
+                        {dayNum === 1 ? 'TODAY' : `DAY ${dayNum}`}
                       </Text>
                       <Text style={{ fontSize: 11, fontWeight: '900', color: isSelected ? '#FFFFFF' : COLORS.textDark, letterSpacing: 0.5 }}>
-                        {d.date}
+                        {dateStr}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -596,6 +775,67 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           )}
         </ScrollView>
       </View>
+
+      {/* Host / Join Trip Modal */}
+      <HostJoinTripModal
+        visible={hostJoinModalVisible}
+        initialMode={modalInitialMode}
+        onClose={() => setHostJoinModalVisible(false)}
+        onTripCreatedOrJoined={() => {
+          const newlyActive = TripService.getInstance().getActiveTrip();
+          setActiveTrip(newlyActive);
+          setAllTrips(TripService.getInstance().getTrips());
+          setTripDetailsVisible(true);
+        }}
+      />
+
+      {/* Trip Selector Modal */}
+      <TripSelectorModal
+        visible={showTripSelector}
+        activeTripId={activeTrip.id}
+        trips={allTrips}
+        onClose={() => setShowTripSelector(false)}
+        onSelectTrip={(id) => {
+          TripService.getInstance().setActiveTripId(id);
+          setActiveTrip(TripService.getInstance().getActiveTrip());
+        }}
+        onOpenHostJoin={() => {
+          setModalInitialMode('choice');
+          setHostJoinModalVisible(true);
+        }}
+      />
+
+      {/* Trip Details & Members Modal */}
+      <TripDetailsModal
+        visible={tripDetailsVisible}
+        trip={activeTrip}
+        onClose={() => setTripDetailsVisible(false)}
+        onTripUpdated={() => {
+          setActiveTrip(TripService.getInstance().getActiveTrip());
+          setAllTrips(TripService.getInstance().getTrips());
+        }}
+      />
+
+      {/* Pending Trip Invitation Modal */}
+      <TripInvitationModal
+        visible={!!currentInvite}
+        invite={currentInvite}
+        onClose={() => setCurrentInvite(null)}
+        onAccept={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().acceptTripInviteDB(tripId, profile.id);
+            setCurrentInvite(null);
+            setActiveTrip(TripService.getInstance().getActiveTrip());
+            setAllTrips(TripService.getInstance().getTrips());
+          }
+        }}
+        onDecline={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().declineTripInviteDB(tripId, profile.id);
+            setCurrentInvite(null);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 };

@@ -8,7 +8,7 @@ export interface AppNotification {
   actorHandle?: string;
   actorInitials?: string;
   actorAvatarBg?: string;
-  type: 'follow' | 'follow_back' | 'system';
+  type: 'follow' | 'follow_back' | 'system' | 'trip_invite';
   title: string;
   message: string;
   isRead: boolean;
@@ -174,6 +174,116 @@ export const NotificationService = {
       return true;
     } catch (err: any) {
       console.warn('NotificationService createFollowNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Send trip invitation notification to an invited user
+   */
+  async createTripInviteNotification(
+    hostId: string,
+    invitedUserId: string,
+    hostName: string,
+    tripTitle: string
+  ): Promise<boolean> {
+    if (!invitedUserId || hostId === invitedUserId) return false;
+    try {
+      const { error } = await supabase.from('notifications').insert({
+        user_id: invitedUserId,
+        actor_id: hostId,
+        type: 'trip_invite',
+        title: 'Trip Invitation',
+        message: `${hostName} is inviting you to join "${tripTitle}"!`,
+        is_read: false,
+      });
+
+      if (error) {
+        console.warn('Supabase createTripInviteNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService createTripInviteNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Send notification to trip host when a user accepts or declines their trip invitation
+   */
+  async createTripInviteResponseNotification(
+    userId: string,
+    tripId: string,
+    action: 'accepted' | 'declined'
+  ): Promise<boolean> {
+    try {
+      if (!userId || !tripId) return false;
+
+      // 1. Find Host user ID from trip_participants (role = 'host')
+      const { data: hostParticipant } = await supabase
+        .from('trip_participants')
+        .select('user_id')
+        .eq('trip_id', tripId)
+        .eq('role', 'host')
+        .maybeSingle();
+
+      let hostUserId = hostParticipant?.user_id;
+
+      // 2. Fallback: Find Host user ID from trips table (host_id column)
+      if (!hostUserId) {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('host_id')
+          .eq('id', tripId)
+          .maybeSingle();
+        hostUserId = tripData?.host_id;
+      }
+
+      // Do not notify if host is not found or if responder is the host
+      if (!hostUserId || hostUserId === userId) return false;
+
+      // 3. Fetch Trip title
+      const { data: tripInfo } = await supabase
+        .from('trips')
+        .select('title')
+        .eq('id', tripId)
+        .maybeSingle();
+
+      // 4. Fetch Responder Profile
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('first_name, last_name, username')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const userName = userProfile
+        ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}`.trim() || userProfile.username || 'Someone'
+        : 'Someone';
+
+      const tripTitle = tripInfo?.title || 'Barkada Trip';
+      const isAccepted = action === 'accepted';
+      const title = isAccepted ? 'Invitation Accepted' : 'Invitation Declined';
+      const message = isAccepted
+        ? `${userName} accepted your invitation to join "${tripTitle}"!`
+        : `${userName} declined your invitation to join "${tripTitle}".`;
+
+      const { error: insErr } = await supabase.from('notifications').insert({
+        user_id: hostUserId,
+        actor_id: userId,
+        type: isAccepted ? 'follow_back' : 'system',
+        title,
+        message,
+        is_read: false,
+      });
+
+      if (insErr) {
+        console.warn('createTripInviteResponseNotification insert error:', insErr.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService createTripInviteResponseNotification error:', err.message);
       return false;
     }
   },

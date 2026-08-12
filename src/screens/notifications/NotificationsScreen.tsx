@@ -10,19 +10,22 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck } from 'lucide-react-native';
+import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService, AppNotification } from '../../services/notificationService';
 import { ConnectionService } from '../../services/connectionService';
 import { supabase } from '../../utils/supabase';
+import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
+import { TripService } from '../../services/tripService';
 
 interface NotificationsScreenProps {
   onBack?: () => void;
+  onNavigateToTab?: (index: number) => void;
 }
 
-export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack }) => {
-  const { colors } = useTheme();
+export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack, onNavigateToTab }) => {
+  const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const currentUserId = profile?.id;
 
@@ -30,6 +33,32 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
   const [isFetching, setIsFetching] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [localFollowMap, setLocalFollowMap] = useState<Record<string, boolean>>({});
+  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
+  const [activeNotifId, setActiveNotifId] = useState<string | null>(null);
+  const [inviteStatusMap, setInviteStatusMap] = useState<Record<string, 'pending' | 'accepted' | 'declined'>>({});
+
+  const handleAcceptInviteNotification = async (notif: AppNotification) => {
+    if (!currentUserId) return;
+    setInviteStatusMap((prev) => ({ ...prev, [notif.id]: 'accepted' }));
+    
+    const invites = await TripService.getInstance().fetchPendingTripInvitesDB(currentUserId);
+    if (invites.length > 0) {
+      const tripId = invites[0].tripId;
+      await TripService.getInstance().acceptTripInviteDB(tripId, currentUserId);
+      onNavigateToTab?.(1);
+    }
+  };
+
+  const handleDeclineInviteNotification = async (notif: AppNotification) => {
+    if (!currentUserId) return;
+    setInviteStatusMap((prev) => ({ ...prev, [notif.id]: 'declined' }));
+
+    const invites = await TripService.getInstance().fetchPendingTripInvitesDB(currentUserId);
+    if (invites.length > 0) {
+      const tripId = invites[0].tripId;
+      await TripService.getInstance().declineTripInviteDB(tripId, currentUserId);
+    }
+  };
 
   const loadNotifications = useCallback(async () => {
     if (!currentUserId) {
@@ -41,6 +70,23 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
     try {
       const dbNotifs = await NotificationService.fetchNotifications(currentUserId);
       setNotifications(dbNotifs);
+
+      // Fetch pending invites for user
+      const pendingInvites = await TripService.getInstance().fetchPendingTripInvitesDB(currentUserId);
+      const hasPendingInvite = pendingInvites.length > 0;
+
+      // Ensure statuses are isolated per notification ID without bulk overwriting
+      setInviteStatusMap((prev) => {
+        const statusMap = { ...prev };
+        const inviteNotifs = dbNotifs.filter((n) => n.type === 'trip_invite');
+        if (inviteNotifs.length > 0) {
+          const latestNotifId = inviteNotifs[0].id;
+          if (hasPendingInvite && !statusMap[latestNotifId]) {
+            statusMap[latestNotifId] = 'pending';
+          }
+        }
+        return statusMap;
+      });
     } catch (err) {
       setNotifications([]);
     } finally {
@@ -48,6 +94,16 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
       setRefreshing(false);
     }
   }, [currentUserId]);
+
+  const handleOpenInviteModal = async (notifId?: string) => {
+    if (notifId) setActiveNotifId(notifId);
+    if (currentUserId) {
+      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(currentUserId);
+      if (invites.length > 0) {
+        setCurrentInvite(invites[0]);
+      }
+    }
+  };
 
   useEffect(() => {
     loadNotifications();
@@ -108,33 +164,33 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
     }
   };
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const isDarkBg = (colorStr: string) => {
+    return colorStr.toLowerCase() === '#1a1d2d' || colorStr.toLowerCase() === '#0f2a3c' || colorStr.toLowerCase() === '#090d16' || colorStr.toLowerCase() === '#000000';
+  };
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]} edges={['top']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      {/* Instagram Header */}
-      <View style={styles.headerBar}>
-        <TouchableOpacity onPress={onBack} activeOpacity={0.7} style={styles.backTouch}>
-          <ChevronLeft size={24} color={colors.tealDark} />
-          <Text style={[styles.backText, { color: colors.tealDark }]}>Back</Text>
+      {/* Top Bar */}
+      <View style={[styles.headerBar, { borderColor: colors.cardBorder }]}>
+        <TouchableOpacity onPress={onBack} style={styles.backTouch} activeOpacity={0.7}>
+          <ChevronLeft size={22} color={colors.ink} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.ink }]}>Notifications</Text>
-        {unreadCount > 0 ? (
+
+        {notifications.some((n) => !n.isRead) ? (
           <TouchableOpacity onPress={handleMarkAllRead} activeOpacity={0.7} style={styles.markReadBtn}>
             <CheckCheck size={18} color={colors.tealDark} />
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 44 }} />
+          <View style={{ width: 36 }} />
         )}
       </View>
 
-      {/* Uncarded Instagram Activity Feed */}
+      {/* Main List */}
       <ScrollView
-        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 0, paddingTop: 4, paddingBottom: 48 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -145,8 +201,9 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
             tintColor={colors.tealDark}
           />
         }
+        contentContainerStyle={{ paddingBottom: 40 }}
       >
-        {isFetching && !refreshing ? (
+        {isFetching ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator size="small" color={colors.tealDark} />
             <Text style={[styles.loadingText, { color: colors.inkSoft }]}>Loading activity...</Text>
@@ -156,31 +213,40 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
             <Bell size={40} color={colors.inkSoft} />
             <Text style={[styles.emptyTitle, { color: colors.ink }]}>No Notifications Yet</Text>
             <Text style={[styles.emptySub, { color: colors.inkSoft }]}>
-              When someone follows you or follows you back, your activity will show up here.
+              When someone follows you or invites you to a trip, your activity will show up here.
             </Text>
           </View>
         ) : (
-          notifications.map((item, idx) => {
+          notifications.map((item) => {
+            const isInvite = item.type === 'trip_invite';
             const isFollowingActor =
               item.actorId && localFollowMap[item.actorId] !== undefined
                 ? localFollowMap[item.actorId]
                 : item.isFollowingActor ?? false;
 
             return (
-              <View key={item.id}>
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={isInvite ? 0.8 : 1}
+                onPress={() => {
+                  if (isInvite) handleOpenInviteModal(item.id);
+                }}
+              >
                 <View
                   style={[
                     styles.notifRow,
                     !item.isRead ? { backgroundColor: isDarkBg(colors.paper) ? 'rgba(255,255,255,0.03)' : 'rgba(1,113,248,0.04)' } : null,
                   ]}
                 >
-                  {/* Left Avatar with subtle badge */}
+                  {/* Left Avatar with badge */}
                   <View style={{ position: 'relative' }}>
                     <View style={[styles.avatarCircle, { backgroundColor: item.actorAvatarBg }]}>
                       <Text style={styles.avatarText}>{item.actorInitials}</Text>
                     </View>
-                    <View style={[styles.typeBadgeCircle, { backgroundColor: colors.tealDark }]}>
-                      {item.type === 'follow_back' ? (
+                    <View style={[styles.typeBadgeCircle, { backgroundColor: isInvite ? '#FF9F1C' : colors.tealDark }]}>
+                      {isInvite ? (
+                        <Sparkles size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'follow_back' ? (
                         <UserCheck size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : (
                         <UserPlus size={9} color="#FFFFFF" strokeWidth={3} />
@@ -188,19 +254,48 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                     </View>
                   </View>
 
-                  {/* Middle Instagram Text Format */}
+                  {/* Middle Text */}
                   <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
                     <Text style={styles.igTextLine}>
                       <Text style={[styles.actorName, { color: colors.ink }]}>{item.actorName || 'Someone'} </Text>
                       <Text style={[styles.actionText, { color: colors.ink }]}>
-                        {item.type === 'follow_back' ? 'followed you back.' : 'started following you.'}{' '}
+                        {isInvite ? 'invited you to join a trip!' : item.type === 'follow_back' ? 'followed you back.' : 'started following you.'}{' '}
                       </Text>
                       <Text style={[styles.timeAgo, { color: colors.inkSoft }]}>{item.timeAgo}</Text>
                     </Text>
                   </View>
 
-                  {/* Right Instagram Action Button */}
-                  {item.actorId ? (
+                  {/* Right Button / Status Badge */}
+                  {isInvite ? (
+                    (() => {
+                      const currentStatus = inviteStatusMap[item.id] || 'pending';
+                      if (currentStatus === 'accepted') {
+                        return (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(16,185,129,0.15)' : '#E6F4EA', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100 }}>
+                            <CheckCircle2 size={12} color="#10B981" />
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#10B981' }}>Accepted</Text>
+                          </View>
+                        );
+                      }
+                      if (currentStatus === 'declined') {
+                        return (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100 }}>
+                            <XCircle size={12} color="#EF4444" />
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#EF4444' }}>Declined</Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <TouchableOpacity
+                          onPress={() => handleOpenInviteModal(item.id)}
+                          activeOpacity={0.85}
+                          style={[styles.igOvalBtn, { backgroundColor: colors.orangeAccent }]}
+                        >
+                          <Text style={[styles.followBackIgBtnText, { color: '#FFF' }]}>View Invitation</Text>
+                        </TouchableOpacity>
+                      );
+                    })()
+                  ) : item.actorId ? (
                     <TouchableOpacity
                       onPress={() => handleToggleFollowActor(item.actorId)}
                       activeOpacity={0.8}
@@ -220,22 +315,47 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                       )}
                     </TouchableOpacity>
                   ) : null}
-
-                  {/* Unread Blue Dot */}
-                  {!item.isRead && <View style={styles.unreadBlueDot} />}
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         )}
       </ScrollView>
+
+      {/* Trip Invitation Modal */}
+      <TripInvitationModal
+        visible={!!currentInvite}
+        invite={currentInvite}
+        onClose={() => {
+          setCurrentInvite(null);
+          setActiveNotifId(null);
+        }}
+        onAccept={async (tripId) => {
+          if (currentUserId) {
+            await TripService.getInstance().acceptTripInviteDB(tripId, currentUserId);
+            if (activeNotifId) {
+              setInviteStatusMap((prev) => ({ ...prev, [activeNotifId]: 'accepted' }));
+            }
+            setCurrentInvite(null);
+            setActiveNotifId(null);
+            onBack?.();
+            onNavigateToTab?.(1);
+          }
+        }}
+        onDecline={async (tripId) => {
+          if (currentUserId) {
+            await TripService.getInstance().declineTripInviteDB(tripId, currentUserId);
+            if (activeNotifId) {
+              setInviteStatusMap((prev) => ({ ...prev, [activeNotifId]: 'declined' }));
+            }
+            setCurrentInvite(null);
+            setActiveNotifId(null);
+          }
+        }}
+      />
     </SafeAreaView>
   );
 };
-
-function isDarkBg(colorString: string) {
-  return colorString.toLowerCase() === '#090d16' || colorString.toLowerCase() === '#000000';
-}
 
 const styles = StyleSheet.create({
   root: {
@@ -344,12 +464,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   igOvalBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 100,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 88,
+    minWidth: 92,
   },
   followingIgBtn: {
     backgroundColor: 'transparent',

@@ -42,6 +42,8 @@ import {
   X,
 } from 'lucide-react-native';
 
+import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
+
 interface HomeScreenProps {
   onNavigateToTab?: (index: number) => void;
   onNavigateToSubScreen?: (screen: SubScreenType) => void;
@@ -69,6 +71,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [polls, setPolls] = useState<DestinationPollOption[]>([]);
   const [pollModalVisible, setPollModalVisible] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
+  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
@@ -81,11 +85,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
+  const checkPendingInvites = async () => {
+    if (profile?.id) {
+      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(profile.id);
+      setPendingInvites(invites);
+      if (invites.length > 0) {
+        setCurrentInvite(invites[0]);
+      }
+    }
+  };
+
   useEffect(() => {
     const service = TripService.getInstance();
-    setActiveTrip(service.getActiveTrip());
+    service.fetchUserTripsDB(profile?.id).then(() => {
+      setActiveTrip(service.getActiveTrip());
+    });
+
     setActivities(service.getRecentActivities());
     setPolls(service.getPollOptions());
+
+    if (profile?.id) {
+      checkPendingInvites();
+    }
+
+    const unsubscribeTrip = service.subscribe(() => {
+      setActiveTrip(service.getActiveTrip());
+      setPolls(service.getPollOptions());
+    });
 
     fetchUnread();
 
@@ -102,17 +128,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           },
           () => {
             fetchUnread();
+            checkPendingInvites();
           }
         )
         .subscribe();
 
       return () => {
-        service.subscribe(() => {
-          setPolls(service.getPollOptions());
-        });
+        unsubscribeTrip();
         supabase.removeChannel(channel);
       };
     }
+
+    return () => {
+      unsubscribeTrip();
+    };
   }, [profile?.id]);
 
   return (
@@ -293,6 +322,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <PollDetailModal
         visible={pollModalVisible}
         onClose={() => setPollModalVisible(false)}
+      />
+
+      <TripInvitationModal
+        visible={!!currentInvite}
+        invite={currentInvite}
+        onClose={() => setCurrentInvite(null)}
+        onAccept={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().acceptTripInviteDB(tripId, profile.id);
+            setCurrentInvite(null);
+            onNavigateToTab?.(1); // Auto navigate to Planner tab on accept!
+          }
+        }}
+        onDecline={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().declineTripInviteDB(tripId, profile.id);
+            setCurrentInvite(null);
+          }
+        }}
       />
     </SafeAreaView>
   );
