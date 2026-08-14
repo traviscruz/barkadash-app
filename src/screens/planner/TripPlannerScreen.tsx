@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  TextInput,
   TouchableOpacity,
   Image,
   StatusBar,
@@ -47,10 +46,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
-  const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots' | 'AI Chat'>('Itinerary');
+  const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots'>('Itinerary');
   const [selectedDay, setSelectedDay] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState('DINING');
-  const [promptText, setPromptText] = useState('');
   const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
   const lastOffsetY = useRef(0);
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -126,42 +124,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     return res;
   };
   
-  const [chatMessages, setChatMessages] = useState<Array<{
-    id: string;
-    sender: string;
-    text: string;
-    time: string;
-    hasCard?: boolean;
-    spotTitle?: string;
-    spotMeta?: string;
-    rating?: string;
-    image?: any;
-  }>>([
-    {
-      id: '1',
-      sender: 'ai',
-      text: "Mabuhay. I am your Barkada AI. What shall we plan?",
-      time: '10:00 AM',
-    },
-    {
-      id: '2',
-      sender: 'user',
-      text: 'Best dinner spot for 5 people?',
-      time: '10:01 AM',
-    },
-    {
-      id: '3',
-      sender: 'ai',
-      text: "Based on your criteria, here is the top recommendation.",
-      time: '10:01 AM',
-      hasCard: true,
-      spotTitle: 'Altrove Trattoria',
-      spotMeta: 'Italian / Wine / ₱₱',
-      rating: '4.8',
-      image: bigLagoonImg,
-    },
-  ]);
-
   const itineraryItems = [
     {
       id: 'i1',
@@ -243,24 +205,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     const d = new Date();
     d.setDate(d.getDate() + offset);
     return d;
-  };
-
-  const handleSendMessage = () => {
-    if (!promptText.trim()) return;
-    const userMsg = {
-      id: Date.now().toString(),
-      sender: 'user',
-      text: promptText.trim(),
-      time: 'NOW',
-    };
-    const aiMsg = {
-      id: (Date.now() + 1).toString(),
-      sender: 'ai',
-      text: `Analyzing options for "${promptText.trim()}"... Stand by.`,
-      time: 'NOW',
-    };
-    setChatMessages((prev) => [...prev, userMsg, aiMsg]);
-    setPromptText('');
   };
 
   const toggleItemCompletion = (id: string) => {
@@ -523,7 +467,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
             {/* Tab Switcher - Typographic with rounded active pill style */}
             <View style={{ flexDirection: 'row', gap: sp.sm }}>
-              {(['Itinerary', 'Spots', 'AI Chat'] as const).map((tab) => {
+              {(['Itinerary', 'Spots'] as const).map((tab) => {
                 const isSelected = activeSubTab === tab;
                 const label = tab === 'Spots' ? 'Suggested Spots' : tab;
                 return (
@@ -847,115 +791,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   }}
                 >
                   <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>Add to Itinerary</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* ================= AI CHAT ================= */}
-          {activeSubTab === 'AI Chat' && (
-            <View style={{ flex: 1 }}>
-              <View style={{ gap: sp.lg, marginBottom: sp.xl }}>
-                {chatMessages.map((msg) => (
-                  <View
-                    key={msg.id}
-                    style={{
-                      flexDirection: 'column',
-                      alignItems: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                    }}
-                  >
-                    <Text style={{ fontSize: 9, fontWeight: '800', color: COLORS.subtleDark, marginBottom: 4, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                      {msg.sender === 'user' ? 'You' : 'Barkada AI'} — {msg.time}
-                    </Text>
-                    
-                    <View
-                      style={{
-                        maxWidth: '85%',
-                        backgroundColor: msg.sender === 'user' ? colors.tealDark : colors.card,
-                        padding: sp.md,
-                        borderRadius: 18,
-                        borderBottomRightRadius: msg.sender === 'user' ? 4 : 18,
-                        borderBottomLeftRadius: msg.sender === 'ai' ? 4 : 18,
-                        borderWidth: msg.sender === 'ai' ? 1 : 0,
-                        borderColor: colors.cardBorder,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: fs.sm,
-                          fontWeight: '600',
-                          lineHeight: 20,
-                          color: msg.sender === 'user' ? '#FFFFFF' : COLORS.textDark,
-                        }}
-                      >
-                        {msg.text}
-                      </Text>
-
-                      {msg.hasCard && (
-                        <View style={{ marginTop: sp.md, backgroundColor: colors.paper, padding: sp.sm, borderRadius: 12 }}>
-                          <ShimmerImage
-                            source={msg.image}
-                            style={{ height: 100, width: '100%', marginBottom: sp.sm }}
-                            borderRadius={8}
-                          />
-                          <Text style={{ fontSize: 12, fontWeight: '900', color: COLORS.textDark }}>{msg.spotTitle}</Text>
-                          <Text style={{ fontSize: 9, fontWeight: '700', color: COLORS.subtleDark, marginBottom: 6 }}>{msg.spotMeta}</Text>
-                          <View style={{ flexDirection: 'row', gap: sp.sm }}>
-                            <TouchableOpacity style={{ flex: 1, backgroundColor: AppColors.lightGreenBg, paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}>
-                              <Text style={{ color: AppColors.emerald, fontSize: 10, fontWeight: '800' }}>Accept</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={{ flex: 1, backgroundColor: AppColors.lightRedBg, paddingVertical: 8, borderRadius: 8, alignItems: 'center' }}>
-                              <Text style={{ color: AppColors.redAccent, fontSize: 10, fontWeight: '800' }}>Reject</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              {/* Quick Prompts */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: sp.md }}>
-                <View style={{ flexDirection: 'row', gap: sp.sm }}>
-                  {['Sunset Spots', 'Dinner for 5', 'Budget Fun'].map((prompt, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      onPress={() => setPromptText(prompt)}
-                      style={{
-                        backgroundColor: colors.card,
-                        borderWidth: 1,
-                        borderColor: colors.cardBorder,
-                        paddingHorizontal: sp.md,
-                        paddingVertical: 10,
-                        borderRadius: 100,
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, color: COLORS.textDark, fontWeight: '800' }}>{prompt}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-
-              {/* Chat Input */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: 100, paddingLeft: sp.lg, paddingRight: 6, paddingVertical: 6, borderWidth: 1, borderColor: colors.cardBorder }}>
-                <TextInput
-                  style={{ flex: 1, fontSize: 14, fontWeight: '600', color: COLORS.textDark, paddingVertical: 8 }}
-                  placeholder="Type message..."
-                  placeholderTextColor={COLORS.subtleDark}
-                  value={promptText}
-                  onChangeText={setPromptText}
-                />
-                <TouchableOpacity
-                  onPress={handleSendMessage}
-                  style={{
-                    backgroundColor: colors.tealDark,
-                    paddingHorizontal: sp.lg,
-                    paddingVertical: 10,
-                    borderRadius: 100,
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 }}>Send</Text>
                 </TouchableOpacity>
               </View>
             </View>

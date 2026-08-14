@@ -24,11 +24,13 @@ import { useUser } from '../../context/UserContext';
 import { NotificationService } from '../../services/notificationService';
 import { supabase } from '../../utils/supabase';
 import { getPlacePhotoUrl } from '../../services/googlePlaces';
+import { fetchWeather } from '../../services/weatherService';
 import * as Location from 'expo-location';
 import { AppColors } from '../../utils/colors';
 import { SubScreenType } from '../../components/nav/MainAppContainer';
 import {
   Sun,
+  Moon,
   Bell,
   ChevronRight,
   Clock,
@@ -60,6 +62,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [members, setMembers] = useState<TripMember[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [currentLocation, setCurrentLocation] = useState('My Location');
+  const [weatherTemp, setWeatherTemp] = useState<number | null>(null);
+  const [weatherIsDay, setWeatherIsDay] = useState(true);
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
@@ -160,7 +164,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [profile?.id]);
 
-  // Show the user's current location instead of a hardcoded city.
+  // Show the user's current location instead of a hardcoded city,
+  // and fetch live weather (°C) for that spot.
   useEffect(() => {
     let cancelled = false;
 
@@ -183,6 +188,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           || place?.region
           || place?.name;
         setCurrentLocation(name && name !== 'Apple Inc.' ? name : 'My Location');
+
+        const weather = await fetchWeather(loc.coords.latitude, loc.coords.longitude);
+        if (!cancelled && weather) {
+          setWeatherTemp(weather.tempC);
+          setWeatherIsDay(weather.isDay);
+        }
       } catch (e) {
         if (!cancelled) setCurrentLocation('My Location');
       }
@@ -233,11 +244,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Weather Badge */}
             <View style={[styles.weatherBadge, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <View style={styles.sunIconCircle}>
-                <Sun size={14} color="#D97706" />
+                {weatherTemp == null ? (
+                  <Sun size={14} color="#D97706" />
+                ) : weatherIsDay ? (
+                  <Sun size={14} color="#D97706" />
+                ) : (
+                  <Moon size={14} color="#60A5FA" />
+                )}
               </View>
-              <Text style={[styles.weatherTempText, { color: colors.ink }]}>29°C</Text>
+              <Text style={[styles.weatherTempText, { color: colors.ink }]}>
+                {weatherTemp == null ? '--' : `${weatherTemp}°C`}
+              </Text>
               <View style={[styles.weatherDivider, { backgroundColor: colors.cardBorder }]} />
-              <Text style={[styles.weatherLocText, { color: colors.inkSoft }]} numberOfLines={1}>{currentLocation}</Text>
+              <Text style={[styles.weatherLocText, { color: colors.inkSoft }]} numberOfLines={1}>
+                {currentLocation}
+              </Text>
             </View>
 
             {/* Notification Bell Button */}

@@ -25,6 +25,8 @@ import { TripService } from '../../services/tripService';
 import { NotificationService } from '../../services/notificationService';
 import { PushService } from '../../services/pushService';
 import { supabase } from '../../utils/supabase';
+import { FloatingAiButton } from '../ai/FloatingAiButton';
+import { AiChatModal } from '../ai/AiChatModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -46,6 +48,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
   const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
   const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
   const [bannerQueue, setBannerQueue] = useState<InAppNotifPayload[]>([]);
+  const [aiChatVisible, setAiChatVisible] = useState(false);
 
   const checkPendingInvites = useCallback(async () => {
     if (profile?.id) {
@@ -350,6 +353,17 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
           onExpand={() => setIsNavExpanded(true)}
         />
       ) : null}
+
+      {/* Floating draggable AI Assist button — accessible everywhere */}
+      {!aiChatVisible && (
+        <FloatingAiButton onPress={() => setAiChatVisible(true)} />
+      )}
+
+      {/* AI Chat (ChatGPT-style, with history) */}
+      <AiChatModal
+        visible={aiChatVisible}
+        onClose={() => setAiChatVisible(false)}
+      />
     </View>
   );
 };

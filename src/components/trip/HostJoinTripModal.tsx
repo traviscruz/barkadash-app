@@ -11,7 +11,6 @@ import {
   Dimensions,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
@@ -20,6 +19,7 @@ import { useResponsive } from '../../utils/responsive';
 import { AppColors } from '../../utils/colors';
 import { TripService } from '../../services/tripService';
 import { ConnectionService, DBUserConnection } from '../../services/connectionService';
+import { useKeyboardShift } from '../../hooks/useKeyboardShift';
 import {
   X,
   Plus,
@@ -73,6 +73,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
   // Bottom Sheet Slide & Fade Animation
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
+  const keyboardShift = useKeyboardShift(true);
 
   // Mode Fade Animation
   const modeFadeAnim = useRef(new Animated.Value(1)).current;
@@ -259,10 +260,8 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
         />
       </Animated.View>
 
-      {/* Keyboard Avoiding Container for Sheet */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
+      {/* Sheet container — sheet + keyboard shift move together on the native driver */}
+      <View
         pointerEvents="box-none"
         style={{ flex: 1, justifyContent: 'flex-end' }}
       >
@@ -273,7 +272,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
             styles.sheetCard,
             {
               backgroundColor: colors.paper,
-              transform: [{ translateY: sheetAnim }],
+              transform: [{ translateY: Animated.add(sheetAnim, keyboardShift) }],
             },
           ]}
         >
@@ -684,7 +683,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
             </ScrollView>
           </Animated.View>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 };

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme as useDeviceColorScheme, Appearance } from 'react-native';
+import { useColorScheme as useDeviceColorScheme, Appearance, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -130,12 +130,24 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
 
   useEffect(() => {
+    const syncSystemScheme = () => {
+      const current = Appearance.getColorScheme();
+      setDeviceColorScheme(current === 'dark' ? 'dark' : 'light');
+    };
+
     // Initial sync with OS Appearance
-    setDeviceColorScheme(getSystemScheme());
+    syncSystemScheme();
 
     // Listen for live OS theme changes
-    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+    const appearanceSub = Appearance.addChangeListener(({ colorScheme }) => {
       setDeviceColorScheme(colorScheme === 'dark' ? 'dark' : 'light');
+    });
+
+    // Listen for app coming back to foreground (e.g. after toggling dark mode in Control Center / Settings)
+    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        syncSystemScheme();
+      }
     });
 
     // Load persisted theme preference from AsyncStorage
@@ -147,7 +159,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       })
       .catch(() => {});
 
-    return () => subscription.remove();
+    return () => {
+      appearanceSub.remove();
+      appStateSub.remove();
+    };
   }, []);
 
   const setThemeMode = (mode: ThemeMode) => {

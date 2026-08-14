@@ -6,7 +6,7 @@ import {
   View,
   Dimensions,
   Easing,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   StyleSheet,
 } from 'react-native';
@@ -30,6 +30,7 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
 }) => {
   const [modalVisible, setModalVisible] = useState(visible);
   const animValue = useRef(new Animated.Value(0)).current;
+  const keyboardShift = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
@@ -54,6 +55,40 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
     }
   }, [visible, animValue]);
 
+  // Native-driver keyboard shift (iOS). On Android the window resizes itself
+  // (softwareKeyboardLayoutMode: resize), so the OS keeps the sheet above the
+  // keyboard without any JS work.
+  useEffect(() => {
+    if (!useKeyboardAvoiding) return;
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvt, (e: any) => {
+      if (Platform.OS === 'ios') {
+        Animated.timing(keyboardShift, {
+          toValue: -e.endCoordinates.height,
+          duration: e.duration ?? 250,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+    const hideSub = Keyboard.addListener(hideEvt, (e: any) => {
+      if (Platform.OS === 'ios') {
+        Animated.timing(keyboardShift, {
+          toValue: 0,
+          duration: e.duration ?? 250,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [useKeyboardAvoiding, keyboardShift]);
+
   if (!modalVisible) return null;
 
   const backdropAnimStyle = {
@@ -66,23 +101,16 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
   const sheetAnimStyle = {
     transform: [
       {
-        translateY: animValue.interpolate({
-          inputRange: [0, 1],
-          outputRange: [SCREEN_HEIGHT * 0.5, 0],
-        }),
+        translateY: Animated.add(
+          animValue.interpolate({
+            inputRange: [0, 1],
+            outputRange: [SCREEN_HEIGHT * 0.5, 0],
+          }),
+          keyboardShift
+        ),
       },
     ],
   };
-
-  const KeyboardWrapper = useKeyboardAvoiding ? KeyboardAvoidingView : View;
-  const keyboardProps = useKeyboardAvoiding
-    ? {
-        behavior: Platform.OS === 'ios' ? ('padding' as const) : ('height' as const),
-        style: { flex: 1, justifyContent: 'flex-end' as const },
-      }
-    : {
-        style: { flex: 1, justifyContent: 'flex-end' as const },
-      };
 
   return (
     <Modal
@@ -99,11 +127,11 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
         </TouchableWithoutFeedback>
 
         {/* Slide-up bottom sheet container */}
-        <KeyboardWrapper {...keyboardProps} pointerEvents="box-none">
+        <View style={{ flex: 1, justifyContent: 'flex-end' }} pointerEvents="box-none">
           <Animated.View style={[styles.sheetContainer, sheetAnimStyle]}>
             {children}
           </Animated.View>
-        </KeyboardWrapper>
+        </View>
       </View>
     </Modal>
   );

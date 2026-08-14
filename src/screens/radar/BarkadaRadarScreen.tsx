@@ -36,6 +36,7 @@ import {
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
+import { fetchWeather } from '../../services/weatherService';
 
 interface MemberStatus {
   id: string;
@@ -91,6 +92,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
   const viewHeight = screenDimensions.height;
 
   const [loadingLocation, setLoadingLocation] = useState<boolean>(true);
+  const [weatherTemp, setWeatherTemp] = useState<number | null>(null);
+  const [weatherIsDay, setWeatherIsDay] = useState(true);
   const [mapStyleOverride, setMapStyleOverride] = useState<'auto' | 'hybrid' | 'dark' | 'light'>('auto');
   const [selectedMemberId, setSelectedMemberId] = useState<string>('m1');
   const [locationStatus, setLocationStatus] = useState<string>('Acquiring GPS...');
@@ -231,6 +234,12 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
 
           setCenter({ lat, lng });
           setLocationStatus('Live GPS Active');
+
+          const weather = await fetchWeather(lat, lng);
+          if (isMounted && weather) {
+            setWeatherTemp(weather.tempC);
+            setWeatherIsDay(weather.isDay);
+          }
 
           const updatedMembers: MemberStatus[] = [
             {
@@ -705,9 +714,9 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             },
           ]}
         >
-          {isDark ? <Moon size={14} color="#60A5FA" /> : <Sun size={14} color="#D97706" />}
+          {weatherIsDay ? <Sun size={14} color="#D97706" /> : <Moon size={14} color="#60A5FA" />}
           <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>
-            {loadingLocation ? 'Locating...' : '29°C'}
+            {loadingLocation ? 'Locating...' : weatherTemp == null ? '--' : `${weatherTemp}°C`}
           </Text>
         </View>
       </View>
