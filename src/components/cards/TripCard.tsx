@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Trip } from '../../types/trip';
+import { TripMember } from '../trip/TripDetailsModal';
 import { formatCurrency } from '../../utils/formatters';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
@@ -8,13 +9,20 @@ import { Calendar, Users, Clock, Sparkles } from 'lucide-react-native';
 
 interface TripCardProps {
   trip: Trip;
+  members?: TripMember[];
   onPress?: () => void;
 }
 
-export const TripCard: React.FC<TripCardProps> = ({ trip, onPress }) => {
+export const TripCard: React.FC<TripCardProps> = ({ trip, members, onPress }) => {
   const { sp, fs, isTablet } = useResponsive();
   const { colors } = useTheme();
   const avatarSize = isTablet ? 34 : 30;
+
+  const acceptedMembers = (members || []).filter((m) => m.status === 'accepted');
+  const displayMembers = acceptedMembers.length > 0 ? acceptedMembers : (members || []);
+  const memberCount = displayMembers.length || trip.memberCount;
+  const shownAvatars = displayMembers.slice(0, 5);
+  const daysLeftLabel = trip.daysLeft == null || trip.daysLeft < 0 ? 'TBD' : `${trip.daysLeft} Days Left`;
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -58,7 +66,7 @@ export const TripCard: React.FC<TripCardProps> = ({ trip, onPress }) => {
             {/* Redesigned 5 Days Left Badge */}
             <View style={styles.daysCountPill}>
               <Clock size={13} color="#0F2A3C" />
-              <Text style={styles.daysCountText}>{trip.daysLeft} Days Left</Text>
+              <Text style={styles.daysCountText}>{daysLeftLabel}</Text>
             </View>
           </View>
 
@@ -87,32 +95,45 @@ export const TripCard: React.FC<TripCardProps> = ({ trip, onPress }) => {
             <View style={styles.avatarsWrapper}>
               <View style={styles.avatarLabelRow}>
                 <Users size={12} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.avatarGroupText}>5 On Trip</Text>
+                <Text style={styles.avatarGroupText}>
+                  {memberCount} On Trip
+                </Text>
               </View>
               <View style={styles.avatarsRow}>
-                {[
-                  { initial: 'T', bg: '#4F86C6' },
-                  { initial: 'S', bg: '#F5A65B' },
-                  { initial: 'H', bg: '#3B7A9E' },
-                  { initial: 'A', bg: '#00C9A7' },
-                  { initial: 'I', bg: '#E2604A' },
-                ].map((item, idx) => (
+                {shownAvatars.map((item, idx) => (
                   <View
-                    key={idx}
+                    key={item.id || idx}
                     style={[
                       styles.avatarCircle,
                       {
                         width: avatarSize,
                         height: avatarSize,
                         borderRadius: avatarSize / 2,
-                        backgroundColor: item.bg,
+                        backgroundColor: item.avatarBg,
                         marginLeft: idx > 0 ? -9 : 0,
                       },
                     ]}
                   >
-                    <Text style={styles.avatarText}>{item.initial}</Text>
+                    <Text style={styles.avatarText}>{item.initials}</Text>
                   </View>
                 ))}
+                {memberCount > shownAvatars.length && (
+                  <View
+                    style={[
+                      styles.avatarCircle,
+                      styles.avatarOverflow,
+                      {
+                        width: avatarSize,
+                        height: avatarSize,
+                        borderRadius: avatarSize / 2,
+                        marginLeft: -9,
+                        backgroundColor: '#F0A93E',
+                      },
+                    ]}
+                  >
+                    <Text style={styles.avatarText}>+{memberCount - shownAvatars.length}</Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
@@ -274,6 +295,9 @@ const styles = StyleSheet.create({
     borderColor: '#0F2A3C',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarOverflow: {
+    opacity: 0.95,
   },
   avatarText: {
     color: '#FFFFFF',

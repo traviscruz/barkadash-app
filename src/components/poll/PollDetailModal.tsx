@@ -6,6 +6,8 @@ import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ShimmerImage } from '../common/ShimmerImage';
 import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
+import { getPlacePhotoUrl } from '../../services/googlePlaces';
 import { X, CheckCircle2, MessageSquare } from 'lucide-react-native';
 
 interface PollDetailModalProps {
@@ -15,18 +17,50 @@ interface PollDetailModalProps {
 
 export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClose }) => {
   const { colors } = useTheme();
+  const { profile } = useUser();
   const [options, setOptions] = useState<DestinationPollOption[]>([]);
 
-  useEffect(() => {
+  const refresh = async () => {
     const service = TripService.getInstance();
-    setOptions(service.getPollOptions());
-    return service.subscribe(() => {
-      setOptions(service.getPollOptions());
-    });
+    const activeTrip = service.getActiveTrip();
+    if (!activeTrip) {
+      setOptions([]);
+      return;
+    }
+    const dbPolls = await service.fetchTripPollsDB(activeTrip.id);
+    setOptions(
+      dbPolls.map((p) => ({
+        ...p,
+        isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+        imagePath: p.photoReference
+          ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
+          : p.imagePath,
+      }))
+    );
+  };
+
+  useEffect(() => {
+    if (visible) {
+      refresh();
+    }
   }, [visible]);
 
-  const handleVote = (id: string) => {
-    TripService.getInstance().voteDestination(id);
+  const handleVote = async (id: string) => {
+    const service = TripService.getInstance();
+    const activeTrip = service.getActiveTrip();
+    if (!activeTrip) return;
+    const result = await service.toggleVoteTripPollDB(id, activeTrip.id, profile?.id || '');
+    if (result.length > 0) {
+      setOptions(
+        result.map((p) => ({
+          ...p,
+          isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+          imagePath: p.photoReference
+            ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
+            : p.imagePath,
+        }))
+      );
+    }
   };
 
   return (

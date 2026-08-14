@@ -19,8 +19,9 @@ import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { useResponsive } from '../../utils/responsive';
 import { TripService } from '../../services/tripService';
+import { supabase } from '../../utils/supabase';
 import { DestinationPollOption } from '../../types/trip';
-import { getPlacePhotoUrl, searchPlaces, getPlaceDetails, PlaceSelection, PlacePrediction, PlacePhoto } from '../../services/googlePlaces';
+import { getPlacePhotoUrl, searchPlaces, getPlaceDetails, PlaceSelection, PlacePrediction, PlacePhoto, PlaceSearchError } from '../../services/googlePlaces';
 import { ShimmerImage } from '../common/ShimmerImage';
 import {
   MapPin,
@@ -431,6 +432,7 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
+  const [searchError, setSearchError] = useState<PlaceSearchError>(null);
   const [moreScrollable, setMoreScrollable] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -441,6 +443,7 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
   const handleChange = (t: string) => {
     onChangeText(t);
     setSearchFailed(false);
+    setSearchError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (t.trim().length < 2) {
       setPredictions([]);
@@ -450,9 +453,10 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       const res = await searchPlaces(t.trim());
-      setPredictions(res);
+      setPredictions(res.predictions);
       setSearching(false);
-      setSearchFailed(res.length === 0);
+      setSearchFailed(res.predictions.length === 0);
+      setSearchError(res.error);
     }, 350);
   };
 
@@ -496,7 +500,11 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
 
       {searchFailed && predictions.length === 0 && value.trim().length >= 2 && (
         <Text style={{ fontSize: fs.xs, color: muted, marginTop: 6, fontWeight: '600' }}>
-          No places found. Double-check your key is set (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY).
+          {searchError === 'no-key'
+            ? 'Set your Google Places API key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) to search places.'
+            : searchError === 'api-error'
+            ? 'Places search failed. Make sure the Google Places API is enabled and your key is valid.'
+            : 'No places found — try a different search.'}
         </Text>
       )}
 
@@ -865,6 +873,33 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
     load();
     return () => { cancelled = true; };
   }, [tripId, userId]);
+
+  // Realtime: live-update polls as options & votes change (no reload needed)
+  useEffect(() => {
+    if (!tripId) return;
+    const channel = supabase
+      .channel(`poll-realtime:${tripId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_poll_options',
+          filter: `trip_id=eq.${tripId}`,
+        },
+        () => refresh()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_poll_votes' },
+        () => refresh()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [tripId, refresh]);
 
   const submitPlace = async () => {
     if (!placeInput.trim()) return;

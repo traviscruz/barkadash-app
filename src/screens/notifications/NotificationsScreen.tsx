@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,10 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle } from 'lucide-react-native';
+import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2 } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService, AppNotification } from '../../services/notificationService';
@@ -18,6 +19,7 @@ import { ConnectionService } from '../../services/connectionService';
 import { supabase } from '../../utils/supabase';
 import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
 import { TripService } from '../../services/tripService';
+import { SwipeableNotificationRow } from '../../components/notifications/SwipeableNotificationRow';
 
 interface NotificationsScreenProps {
   onBack?: () => void;
@@ -36,6 +38,10 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
   const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
   const [activeNotifId, setActiveNotifId] = useState<string | null>(null);
   const [inviteStatusMap, setInviteStatusMap] = useState<Record<string, 'pending' | 'accepted' | 'declined'>>({});
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [openRowId, setOpenRowId] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   const handleAcceptInviteNotification = async (notif: AppNotification) => {
     if (!currentUserId) return;
@@ -45,6 +51,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
     if (invites.length > 0) {
       const tripId = invites[0].tripId;
       await TripService.getInstance().acceptTripInviteDB(tripId, currentUserId);
+      NotificationService.createTripInviteResponseNotification(currentUserId, tripId, 'accepted');
       onNavigateToTab?.(1);
     }
   };
@@ -57,6 +64,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
     if (invites.length > 0) {
       const tripId = invites[0].tripId;
       await TripService.getInstance().declineTripInviteDB(tripId, currentUserId);
+      NotificationService.createTripInviteResponseNotification(currentUserId, tripId, 'declined');
     }
   };
 
@@ -139,6 +147,31 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
     }
   };
 
+  const handleDeleteNotification = async (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (currentUserId) {
+      await NotificationService.deleteNotification(id);
+    }
+  };
+
+  const handleDeleteAll = () => {
+    setShowDeleteAllModal(true);
+  };
+
+  const confirmDeleteAll = async () => {
+    if (!currentUserId || deletingAll) return;
+    setDeletingAll(true);
+    try {
+      await NotificationService.deleteAllNotifications(currentUserId);
+      setNotifications([]);
+      setInviteStatusMap({});
+      setLocalFollowMap({});
+    } finally {
+      setDeletingAll(false);
+      setShowDeleteAllModal(false);
+    }
+  };
+
   const handleToggleFollowActor = async (actorId?: string) => {
     if (!actorId || !currentUserId) return;
 
@@ -179,17 +212,25 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.ink }]}>Notifications</Text>
 
-        {notifications.some((n) => !n.isRead) ? (
-          <TouchableOpacity onPress={handleMarkAllRead} activeOpacity={0.7} style={styles.markReadBtn}>
-            <CheckCheck size={18} color={colors.tealDark} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 36 }} />
-        )}
+        <View style={styles.headerActions}>
+          {notifications.length > 0 && (
+            <TouchableOpacity onPress={handleDeleteAll} activeOpacity={0.7} style={styles.markReadBtn}>
+              <Trash2 size={18} color={colors.inkSoft} />
+            </TouchableOpacity>
+          )}
+          {notifications.some((n) => !n.isRead) ? (
+            <TouchableOpacity onPress={handleMarkAllRead} activeOpacity={0.7} style={styles.markReadBtn}>
+              <CheckCheck size={18} color={colors.tealDark} />
+            </TouchableOpacity>
+          ) : (
+            notifications.length === 0 && <View style={{ width: 36 }} />
+          )}
+        </View>
       </View>
 
       {/* Main List */}
       <ScrollView
+        ref={scrollRef}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -219,14 +260,27 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         ) : (
           notifications.map((item) => {
             const isInvite = item.type === 'trip_invite';
+            const isSocial = item.type === 'follow' || item.type === 'follow_back';
+            const isSystem = item.type === 'system' || item.type === 'poll_result';
+            const isInviteResponse = item.type === 'trip_invite_response';
+            const isAcceptedResp = isInviteResponse && item.title?.toLowerCase().includes('accepted');
+            const respTripTitle = isInviteResponse ? item.message.match(/"(.*?)"/)?.[1] : null;
             const isFollowingActor =
               item.actorId && localFollowMap[item.actorId] !== undefined
                 ? localFollowMap[item.actorId]
                 : item.isFollowingActor ?? false;
 
             return (
-              <TouchableOpacity
+              <SwipeableNotificationRow
                 key={item.id}
+                isOpen={openRowId === item.id}
+                onOpenChange={(open) => setOpenRowId(open ? item.id : null)}
+                onDelete={() => handleDeleteNotification(item.id)}
+                onDragStateChange={(dragging) =>
+                  scrollRef.current?.setNativeProps({ scrollEnabled: !dragging })
+                }
+              >
+              <TouchableOpacity
                 activeOpacity={isInvite ? 0.8 : 1}
                 onPress={() => {
                   if (isInvite) handleOpenInviteModal(item.id);
@@ -243,11 +297,19 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                     <View style={[styles.avatarCircle, { backgroundColor: item.actorAvatarBg }]}>
                       <Text style={styles.avatarText}>{item.actorInitials}</Text>
                     </View>
-                    <View style={[styles.typeBadgeCircle, { backgroundColor: isInvite ? '#FF9F1C' : colors.tealDark }]}>
+                    <View style={[styles.typeBadgeCircle, { backgroundColor: isInvite ? '#FF9F1C' : isInviteResponse ? (isAcceptedResp ? '#10B981' : '#EF4444') : colors.tealDark }]}>
                       {isInvite ? (
                         <Sparkles size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : isInviteResponse ? (
+                        isAcceptedResp ? (
+                          <CheckCircle2 size={9} color="#FFFFFF" strokeWidth={3} />
+                        ) : (
+                          <XCircle size={9} color="#FFFFFF" strokeWidth={3} />
+                        )
                       ) : item.type === 'follow_back' ? (
                         <UserCheck size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : isSystem ? (
+                        <Bell size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : (
                         <UserPlus size={9} color="#FFFFFF" strokeWidth={3} />
                       )}
@@ -256,13 +318,32 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
 
                   {/* Middle Text */}
                   <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                    <Text style={styles.igTextLine}>
-                      <Text style={[styles.actorName, { color: colors.ink }]}>{item.actorName || 'Someone'} </Text>
-                      <Text style={[styles.actionText, { color: colors.ink }]}>
-                        {isInvite ? 'invited you to join a trip!' : item.type === 'follow_back' ? 'followed you back.' : 'started following you.'}{' '}
+                    {isInviteResponse ? (
+                      <Text style={styles.igTextLine}>
+                        <Text style={[styles.actorName, { color: colors.ink }]}>{item.actorName || 'Someone'} </Text>
+                        <Text style={[styles.actionText, { color: colors.ink }]}>
+                          {isAcceptedResp ? 'accepted' : 'declined'} your invitation to join{' '}
+                        </Text>
+                        <Text style={[styles.actionText, { color: colors.tealDark, fontWeight: '800' }]}>
+                          "{respTripTitle || 'your trip'}"
+                        </Text>
+                        <Text style={[styles.timeAgo, { color: colors.inkSoft }]}>{' '}{item.timeAgo}</Text>
                       </Text>
-                      <Text style={[styles.timeAgo, { color: colors.inkSoft }]}>{item.timeAgo}</Text>
-                    </Text>
+                    ) : isSystem ? (
+                      <Text style={styles.igTextLine}>
+                        <Text style={[styles.actorName, { color: colors.ink }]}>{item.title || 'Barkadash'} </Text>
+                        <Text style={[styles.actionText, { color: colors.ink }]}>{item.message}{' '}</Text>
+                        <Text style={[styles.timeAgo, { color: colors.inkSoft }]}>{item.timeAgo}</Text>
+                      </Text>
+                    ) : (
+                      <Text style={styles.igTextLine}>
+                        <Text style={[styles.actorName, { color: colors.ink }]}>{item.actorName || 'Someone'} </Text>
+                        <Text style={[styles.actionText, { color: colors.ink }]}>
+                          {isInvite ? 'invited you to join a trip!' : item.type === 'follow_back' ? 'followed you back.' : 'started following you.'}{' '}
+                        </Text>
+                        <Text style={[styles.timeAgo, { color: colors.inkSoft }]}>{item.timeAgo}</Text>
+                      </Text>
+                    )}
                   </View>
 
                   {/* Right Button / Status Badge */}
@@ -295,7 +376,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                         </TouchableOpacity>
                       );
                     })()
-                  ) : item.actorId ? (
+                  ) : isSocial && item.actorId ? (
                     <TouchableOpacity
                       onPress={() => handleToggleFollowActor(item.actorId)}
                       activeOpacity={0.8}
@@ -317,6 +398,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                   ) : null}
                 </View>
               </TouchableOpacity>
+              </SwipeableNotificationRow>
             );
           })
         )}
@@ -333,6 +415,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         onAccept={async (tripId) => {
           if (currentUserId) {
             await TripService.getInstance().acceptTripInviteDB(tripId, currentUserId);
+            NotificationService.createTripInviteResponseNotification(currentUserId, tripId, 'accepted');
             if (activeNotifId) {
               setInviteStatusMap((prev) => ({ ...prev, [activeNotifId]: 'accepted' }));
             }
@@ -345,6 +428,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         onDecline={async (tripId) => {
           if (currentUserId) {
             await TripService.getInstance().declineTripInviteDB(tripId, currentUserId);
+            NotificationService.createTripInviteResponseNotification(currentUserId, tripId, 'declined');
             if (activeNotifId) {
               setInviteStatusMap((prev) => ({ ...prev, [activeNotifId]: 'declined' }));
             }
@@ -353,6 +437,77 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
           }
         }}
       />
+
+      {/* Delete All Notifications Confirmation Modal */}
+      <Modal
+        transparent
+        visible={showDeleteAllModal}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteAllModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowDeleteAllModal(false)} />
+          <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, alignItems: 'center', elevation: 12 }}>
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+              <Trash2 size={26} color="#EF4444" strokeWidth={2.2} />
+            </View>
+
+            <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+              Delete all notifications?
+            </Text>
+
+            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', lineHeight: 18, marginBottom: 20 }}>
+              This clears your entire activity list. This can't be undone.
+            </Text>
+
+            <View style={{ width: '100%', gap: 10 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmDeleteAll}
+                disabled={deletingAll}
+                style={{
+                  backgroundColor: '#EF4444',
+                  paddingVertical: 13,
+                  borderRadius: 100,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#EF4444',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}
+              >
+                {deletingAll ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                    Yes, Delete All
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setShowDeleteAllModal(false)}
+                disabled={deletingAll}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  paddingVertical: 11,
+                  borderRadius: 100,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -384,6 +539,10 @@ const styles = StyleSheet.create({
   },
   markReadBtn: {
     padding: 6,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   loadingBox: {
     flexDirection: 'row',

@@ -6,26 +6,24 @@ import {
   TouchableOpacity,
   StatusBar,
   StyleSheet,
-  Modal,
-  Animated,
-  TouchableWithoutFeedback,
-  Easing,
+  ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { TripService } from '../../services/tripService';
 import { DestinationPollOption, BarkadaActivity, Trip } from '../../types/trip';
 import { TripCard } from '../../components/cards/TripCard';
 import { AppCard } from '../../components/cards/AppCard';
 import { SectionHeader } from '../../components/common/SectionHeader';
-import { PollDetailModal } from '../../components/poll/PollDetailModal';
-import { NotificationModal } from '../../components/notifications/NotificationModal';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { PolaroidStack } from '../../components/home/PolaroidStack';
+import { NoTripWelcome } from '../../components/home/NoTripWelcome';
+import { TripMember } from '../../components/trip/TripDetailsModal';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService } from '../../services/notificationService';
 import { supabase } from '../../utils/supabase';
+import { getPlacePhotoUrl } from '../../services/googlePlaces';
 import * as Location from 'expo-location';
 import { AppColors } from '../../utils/colors';
 import { SubScreenType } from '../../components/nav/MainAppContainer';
@@ -36,14 +34,7 @@ import {
   ChevronRight,
   Clock,
   Menu,
-  User,
-  Settings,
-  ShieldCheck,
-  LogOut,
-  X,
 } from 'lucide-react-native';
-
-import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
 
 interface HomeScreenProps {
   onNavigateToTab?: (index: number) => void;
@@ -60,23 +51,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onLogout,
   onOpenCabinet,
 }) => {
-  const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
 
-  const userFullName = `${profile.firstName} ${profile.lastName}`.trim() || 'User';
-  const userHandle = profile.username ? `@${profile.username}` : '@user';
-  const userInitials = `${(profile.firstName[0] || '').toUpperCase()}${(profile.lastName[0] || '').toUpperCase()}` || 'U';
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activities, setActivities] = useState<BarkadaActivity[]>([]);
   const [polls, setPolls] = useState<DestinationPollOption[]>([]);
-  const [pollModalVisible, setPollModalVisible] = useState(false);
+  const [members, setMembers] = useState<TripMember[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
-  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
   const [currentLocation, setCurrentLocation] = useState('My Location');
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
+
+  const placePolls = polls.filter((p) => p.type === 'place');
 
   const fetchUnread = async () => {
     if (profile?.id) {
@@ -87,32 +75,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  const checkPendingInvites = async () => {
-    if (profile?.id) {
-      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(profile.id);
-      setPendingInvites(invites);
-      if (invites.length > 0) {
-        setCurrentInvite(invites[0]);
-      }
+  const refreshPolls = async (tripId: string | null) => {
+    if (!tripId) {
+      setPolls([]);
+      return;
     }
+    const dbPolls = await TripService.getInstance().fetchTripPollsDB(tripId);
+    setPolls(
+      dbPolls.map((p) => ({
+        ...p,
+        isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+        imagePath: p.photoReference
+          ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
+          : p.imagePath,
+      }))
+    );
+  };
+
+  const refreshMembers = async (tripId: string | null) => {
+    if (!tripId) {
+      setMembers([]);
+      return;
+    }
+    const dbMembers = await TripService.getInstance().fetchTripParticipantsDB(tripId);
+    setMembers(dbMembers);
+  };
+
+  const refreshFromService = () => {
+    const trip = TripService.getInstance().getActiveTrip();
+    setActiveTrip(trip);
+    refreshPolls(trip?.id || null);
+    refreshMembers(trip?.id || null);
   };
 
   useEffect(() => {
     const service = TripService.getInstance();
-    service.fetchUserTripsDB(profile?.id).then(() => {
-      setActiveTrip(service.getActiveTrip());
-    });
+    setLoading(true);
+    service.fetchUserTripsDB(profile?.id)
+      .then(() => {
+        refreshFromService();
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
 
     setActivities(service.getRecentActivities());
-    setPolls(service.getPollOptions());
-
-    if (profile?.id) {
-      checkPendingInvites();
-    }
 
     const unsubscribeTrip = service.subscribe(() => {
-      setActiveTrip(service.getActiveTrip());
-      setPolls(service.getPollOptions());
+      refreshFromService();
     });
 
     fetchUnread();
@@ -130,7 +139,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           },
           () => {
             fetchUnread();
-            checkPendingInvites();
           }
         )
         .subscribe();
@@ -202,7 +210,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         contentContainerStyle={{
           paddingHorizontal: sp.lg,
           paddingTop: sp.sm,
-          paddingBottom: bottomNavOffset + 20,
+          paddingBottom: bottomNavOffset + 40,
+          flexGrow: 1,
         }}
       >
         {/* App Header with Borderless Hamburger Button */}
@@ -241,141 +250,135 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </View>
         </View>
 
-        {/* Active Trip Card */}
-        {activeTrip && (
-          <TripCard
-            trip={activeTrip}
-            onPress={() => onNavigateToTab && onNavigateToTab(1)}
-          />
-        )}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.tealDark} />
+            <Text style={[styles.loadingText, { color: colors.inkSoft }]}>Rounding up your barkada…</Text>
+          </View>
+        ) : activeTrip ? (
+          <>
+            {/* Active Trip Card */}
+            <TripCard
+              trip={activeTrip}
+              members={members}
+              onPress={() => onNavigateToTab && onNavigateToTab(1)}
+            />
 
-        {/* Next Up Banner */}
-        {activeTrip && (
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => onNavigateToTab && onNavigateToTab(1)}
-            style={[styles.nextUpBanner, { backgroundColor: isDark ? colors.card : '#0F2A3C', borderColor: isDark ? colors.cardBorder : 'rgba(255,255,255,0.1)' }]}
-          >
-            <View style={styles.nextUpIconBox}>
-              <Clock size={icon.lg} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.nextUpLabel}>NEXT UP ON ITINERARY</Text>
-              <Text style={styles.nextUpTitle} numberOfLines={1}>
-                {activeTrip.nextActivityTitle}
-              </Text>
-              <Text style={styles.nextUpTime}>
-                {activeTrip.nextActivityTime}
-              </Text>
-            </View>
-            <ChevronRight size={icon.lg} color="#FFFFFF" />
-          </TouchableOpacity>
-        )}
-
-        {/* Destination Poll Widget */}
-        <View style={styles.pollQuickSection}>
-          <TouchableOpacity
-            activeOpacity={0.92}
-            onPress={() => setPollModalVisible(true)}
-            style={[styles.pollWidgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-          >
-            <View style={styles.pollWidgetHeader}>
-              <View style={[styles.pollTagPill, { backgroundColor: colors.lightOrangeBg }]}>
-                <Vote size={14} color={colors.orangeAccent} />
-                <Text style={[styles.pollTagText, { color: colors.orangeAccent }]}>QUICK ACCESS • DESTINATION POLL</Text>
+            {/* Next Up Banner */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => onNavigateToTab && onNavigateToTab(1)}
+              style={[styles.nextUpBanner, { backgroundColor: isDark ? colors.card : '#0F2A3C', borderColor: isDark ? colors.cardBorder : 'rgba(255,255,255,0.1)' }]}
+            >
+              <View style={styles.nextUpIconBox}>
+                <Clock size={icon.lg} color="#FFFFFF" />
               </View>
-            </View>
-
-            <View style={styles.pollWidgetBody}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.pollWidgetTitle, { color: colors.ink }]}>Where to Next?</Text>
-                <Text style={[styles.pollWidgetSub, { color: colors.inkSoft }]}>
-                  3 destinations competing • Tap to cast or change vote
+                <Text style={styles.nextUpLabel}>NEXT UP ON ITINERARY</Text>
+                <Text style={styles.nextUpTitle} numberOfLines={1}>
+                  {activeTrip.nextActivityTitle}
+                </Text>
+                <Text style={styles.nextUpTime}>
+                  {activeTrip.nextActivityTime}
                 </Text>
               </View>
+              <ChevronRight size={icon.lg} color="#FFFFFF" />
+            </TouchableOpacity>
 
-              <View style={[styles.castVoteButton, { backgroundColor: colors.tealDark }]}>
-                <Text style={styles.castVoteText}>Cast Vote</Text>
-                <ChevronRight size={14} color="#FFFFFF" />
+            {/* Destination Poll Widget */}
+            {placePolls.length > 0 && (
+              <View style={styles.pollQuickSection}>
+                <TouchableOpacity
+                  activeOpacity={0.92}
+                  onPress={() => onNavigateToTab && onNavigateToTab(1)}
+                  style={[styles.pollWidgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+                >
+                  <View style={styles.pollWidgetHeader}>
+                    <View style={[styles.pollTagPill, { backgroundColor: colors.lightOrangeBg }]}>
+                      <Vote size={14} color={colors.orangeAccent} />
+                      <Text style={[styles.pollTagText, { color: colors.orangeAccent }]}>QUICK ACCESS • DESTINATION POLL</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.pollWidgetBody}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.pollWidgetTitle, { color: colors.ink }]}>Where to Next?</Text>
+                      <Text style={[styles.pollWidgetSub, { color: colors.inkSoft }]}>
+                        {placePolls.length} {placePolls.length === 1 ? 'destination' : 'destinations'} competing • Vote in the Plan tab
+                      </Text>
+                    </View>
+
+                    <View style={[styles.castVoteButton, { backgroundColor: colors.tealDark }]}>
+                      <Text style={styles.castVoteText}>Cast Vote</Text>
+                      <ChevronRight size={14} color="#FFFFFF" />
+                    </View>
+                  </View>
+                </TouchableOpacity>
               </View>
-            </View>
-          </TouchableOpacity>
-        </View>
+            )}
 
-        {/* Polaroid Poll Gallery */}
-        <SectionHeader
-          title="WHERE TO NEXT? VOTE NOW"
-          actionText="View All Options"
-          onActionPress={() => setPollModalVisible(true)}
-        />
-
-        {polls && polls.length > 0 && (
-          <PolaroidStack
-            polls={polls}
-            onVotePress={() => setPollModalVisible(true)}
+            {/* Polaroid Poll Gallery */}
+            {placePolls.length > 0 && (
+              <>
+                <SectionHeader
+                  title="WHERE TO NEXT? VOTE NOW"
+                  actionText="View All Options"
+                  onActionPress={() => onNavigateToTab && onNavigateToTab(1)}
+                />
+                <PolaroidStack
+                  polls={placePolls}
+                  onVotePress={() => onNavigateToTab && onNavigateToTab(1)}
+                />
+              </>
+            )}
+          </>
+        ) : (
+          /* Empty state — landing page when no trip yet */
+          <NoTripWelcome
+            variant="landing"
+            onGetStarted={() => onNavigateToTab?.(1)}
           />
         )}
 
         {/* Live Barkada Updates */}
-        <SectionHeader title="LIVE BARKADA UPDATES" />
-        <View style={{ gap: sp.sm, marginBottom: sp.xl }}>
-          {activities.map((act) => (
-            <AppCard key={act.id} className="p-3">
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 17,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: sp.md,
-                    backgroundColor: act.avatarBgHex,
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs.xs }}>
-                    {act.memberName[0]}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: fs.xs, color: colors.ink }}>
-                    <Text style={{ fontWeight: '800', fontSize: fs.sm, color: colors.ink }}>{act.memberName}</Text>{' '}
-                    {act.action}
-                  </Text>
-                </View>
-                <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>
-                  {act.timeAgo}
-                </Text>
-              </View>
-            </AppCard>
-          ))}
-        </View>
+        {activities.length > 0 && (
+          <>
+            <SectionHeader title="LIVE BARKADA UPDATES" />
+            <View style={{ gap: sp.sm, marginBottom: sp.xl }}>
+              {activities.map((act) => (
+                <AppCard key={act.id} className="p-3">
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 17,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginRight: sp.md,
+                        backgroundColor: act.avatarBgHex,
+                      }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: fs.xs }}>
+                        {act.memberName[0]}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: fs.xs, color: colors.ink }}>
+                        <Text style={{ fontWeight: '800', fontSize: fs.sm, color: colors.ink }}>{act.memberName}</Text>{' '}
+                        {act.action}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '600' }}>
+                      {act.timeAgo}
+                    </Text>
+                  </View>
+                </AppCard>
+              ))}
+            </View>
+          </>
+        )}
       </ScrollView>
-
-      {/* MODALS */}
-      <PollDetailModal
-        visible={pollModalVisible}
-        onClose={() => setPollModalVisible(false)}
-      />
-
-      <TripInvitationModal
-        visible={!!currentInvite}
-        invite={currentInvite}
-        onClose={() => setCurrentInvite(null)}
-        onAccept={async (tripId) => {
-          if (profile?.id) {
-            await TripService.getInstance().acceptTripInviteDB(tripId, profile.id);
-            setCurrentInvite(null);
-            onNavigateToTab?.(1); // Auto navigate to Planner tab on accept!
-          }
-        }}
-        onDecline={async (tripId) => {
-          if (profile?.id) {
-            await TripService.getInstance().declineTripInviteDB(tripId, profile.id);
-            setCurrentInvite(null);
-          }
-        }}
-      />
     </SafeAreaView>
   );
 };
@@ -662,5 +665,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 360,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

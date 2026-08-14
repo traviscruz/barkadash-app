@@ -8,7 +8,7 @@ export interface AppNotification {
   actorHandle?: string;
   actorInitials?: string;
   actorAvatarBg?: string;
-  type: 'follow' | 'follow_back' | 'system' | 'trip_invite';
+  type: 'follow' | 'follow_back' | 'system' | 'trip_invite' | 'poll_result' | 'trip_invite_response';
   title: string;
   message: string;
   isRead: boolean;
@@ -265,13 +265,13 @@ export const NotificationService = {
       const isAccepted = action === 'accepted';
       const title = isAccepted ? 'Invitation Accepted' : 'Invitation Declined';
       const message = isAccepted
-        ? `${userName} accepted your invitation to join "${tripTitle}"!`
+        ? `${userName} accepted your invitation to join "${tripTitle}".`
         : `${userName} declined your invitation to join "${tripTitle}".`;
 
       const { error: insErr } = await supabase.from('notifications').insert({
         user_id: hostUserId,
         actor_id: userId,
-        type: isAccepted ? 'follow_back' : 'system',
+        type: 'trip_invite_response',
         title,
         message,
         is_read: false,
@@ -284,6 +284,41 @@ export const NotificationService = {
       return true;
     } catch (err: any) {
       console.warn('NotificationService createTripInviteResponseNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Delete a single notification (swipe-to-delete)
+   */
+  async deleteNotification(id: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('notifications').delete().eq('id', id);
+      if (error) {
+        console.warn('NotificationService deleteNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService deleteNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Delete every notification for a user ("delete all")
+   */
+  async deleteAllNotifications(userId: string): Promise<boolean> {
+    if (!userId) return false;
+    try {
+      const { error } = await supabase.from('notifications').delete().eq('user_id', userId);
+      if (error) {
+        console.warn('NotificationService deleteAllNotifications error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService deleteAllNotifications error:', err.message);
       return false;
     }
   },

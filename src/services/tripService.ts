@@ -1,124 +1,27 @@
-import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem } from '../types/trip';
+import { Trip, DestinationPollOption, BarkadaActivity } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
 import { NotificationService } from './notificationService';
 
-const elnidoImg = require('../../assets/images/elnido.jpg');
 const sagadaImg = require('../../assets/images/sagada.jpeg');
-const zambalesImg = require('../../assets/images/zambales.jpg');
-const bigLagoonImg = require('../../assets/images/biglagoon.jpg');
-const nacpanImg = require('../../assets/images/nacpan.jpg');
 const elnidoEscapeImg = require('../../assets/images/elnidoescape.jpg');
+
+const PLACEHOLDER_DESTINATIONS = ['Voting in Progress', 'Voting Phase', 'Destination Voting'];
+const PLACEHOLDER_DATE_RANGES = ['Dates TBD', 'Upcoming Dates', 'Upcoming'];
+
+const cleanInviteField = (value: string | null, placeholders: string[]): string => {
+  if (!value) return '';
+  return placeholders.includes(value) ? '' : value;
+};
 
 export class TripService {
   private static instance: TripService;
 
-  private trips: Trip[] = [
-    {
-      id: 'trip_1',
-      title: 'El Nido Escape',
-      destination: 'El Nido, Palawan',
-      dateRange: 'Aug 14–17 · 5 barkadas',
-      memberCount: 5,
-      status: 'Active',
-      imageUrl: elnidoEscapeImg,
-      totalBudget: 30000,
-      spentAmount: 18400,
-      daysLeft: 5,
-      weatherTemp: '29°C',
-      weatherCondition: 'Sunny',
-      nextActivityTitle: 'Island Hopping Tour A (Big Lagoon)',
-      nextActivityTime: 'Tomorrow, 8:00 AM',
-      inviteCode: '7X92K1',
-      inviteLink: 'https://barkadash.app/join/7X92K1',
-      hostName: 'You',
-      planningStage: 'READY',
-      day1Itinerary: [
-        {
-          id: 'i1',
-          time: '07:30 AM',
-          title: 'Assembly & Breakfast at Artcafe',
-          category: 'Dining',
-          location: 'El Nido Town Proper',
-          estCost: '₱350/pax',
-          note: 'Meet up at lobby by 7:15 AM sharp',
-          isCompleted: true,
-        },
-        {
-          id: 'i2',
-          time: '09:00 AM',
-          title: 'Island Hopping Tour A Kayaking',
-          category: 'Activity',
-          location: 'Big Lagoon',
-          estCost: '₱1,200/pax',
-          note: 'Includes environmental fee & kayak rental',
-          isCompleted: false,
-        },
-        {
-          id: 'i3',
-          time: '01:00 PM',
-          title: 'Seafood Buffet Lunch on Boat',
-          category: 'Dining',
-          location: 'Shimizu Island',
-          estCost: 'Included in Tour',
-          isCompleted: false,
-        },
-        {
-          id: 'i4',
-          time: '05:30 PM',
-          title: 'Sunset Cocktails & Chill',
-          category: 'Leisure',
-          location: 'Las Cabañas Beach',
-          estCost: '₱400/pax',
-          isCompleted: false,
-        },
-      ],
-    },
-  ];
+  private trips: Trip[] = [];
 
-  private activeTripId: string = 'trip_1';
+  private activeTripId: string = '';
 
-  private pollOptions: DestinationPollOption[] = [
-    {
-      id: 'p1',
-      tripId: 'trip_1',
-      type: 'place',
-      title: 'El Nido, Palawan',
-      imagePath: elnidoImg,
-      votes: 3,
-      votedUserIds: [],
-      createdByUserId: 'system',
-      createdByName: 'Harry',
-      isVotedByMe: true,
-      leaderComment: '"tara na sa El Nido!!" — Harry',
-    },
-    {
-      id: 'p2',
-      tripId: 'trip_1',
-      type: 'place',
-      title: 'Sagada Sunrise',
-      imagePath: sagadaImg,
-      votes: 1,
-      votedUserIds: [],
-      createdByUserId: 'system',
-      createdByName: 'Steven',
-      isVotedByMe: false,
-      leaderComment: '"chill weather & coffee vibes" — Steven',
-    },
-    {
-      id: 'p3',
-      tripId: 'trip_1',
-      type: 'place',
-      title: 'Zambales Beach Camp',
-      imagePath: zambalesImg,
-      votes: 1,
-      votedUserIds: [],
-      createdByUserId: 'system',
-      createdByName: 'Ahiah',
-      isVotedByMe: false,
-      leaderComment: '"near Manila & surfing!" — Ahiah',
-    },
-  ];
+  private pollOptions: DestinationPollOption[] = [];
 
   private listeners: (() => void)[] = [];
 
@@ -153,31 +56,9 @@ export class TripService {
     return [...this.trips];
   }
 
-  private fallbackTrip: Trip = {
-    id: 'empty_trip',
-    title: 'No Active Trip',
-    destination: 'Host or Join a Trip',
-    dateRange: 'Select or create a trip to get started',
-    memberCount: 0,
-    status: 'Active',
-    imageUrl: elnidoEscapeImg,
-    totalBudget: 0,
-    spentAmount: 0,
-    daysLeft: 0,
-    weatherTemp: '--',
-    weatherCondition: '--',
-    nextActivityTitle: 'Create or Join a Trip',
-    nextActivityTime: 'Now',
-    inviteCode: '',
-    inviteLink: '',
-    hostName: '',
-    planningStage: 'DESTINATION_VOTING',
-    day1Itinerary: [],
-  };
-
-  public getActiveTrip(): Trip {
+  public getActiveTrip(): Trip | null {
     const found = this.trips.find((t) => t.id === this.activeTripId);
-    return found || this.trips[0] || this.fallbackTrip;
+    return found || this.trips[0] || null;
   }
 
   public setActiveTripId(id: string) {
@@ -314,7 +195,7 @@ export class TripService {
           imageUrl: elnidoEscapeImg,
           totalBudget: Number(tripInserted.total_budget) || 15000,
           spentAmount: Number(tripInserted.spent_amount) || 0,
-          daysLeft: 14,
+          daysLeft: null,
           weatherTemp: '--',
           weatherCondition: 'Planning Phase',
           nextActivityTitle: 'Vote on Destination Poll',
@@ -426,7 +307,7 @@ export class TripService {
           imageUrl: sagadaImg,
           totalBudget: Number(tripData.total_budget) || 20000,
           spentAmount: Number(tripData.spent_amount) || 0,
-          daysLeft: 10,
+          daysLeft: null,
           weatherTemp: '28°C',
           weatherCondition: 'Sunny',
           nextActivityTitle: 'Join Destination Poll',
@@ -536,7 +417,7 @@ export class TripService {
             imageUrl: elnidoEscapeImg,
             totalBudget: Number(t.total_budget) || 15000,
             spentAmount: Number(t.spent_amount) || 0,
-            daysLeft: 14,
+            daysLeft: null,
             weatherTemp: '--',
             weatherCondition: 'Planning Phase',
             nextActivityTitle: 'Vote on Destination Poll',
@@ -566,7 +447,7 @@ export class TripService {
               imageUrl: elnidoEscapeImg,
               totalBudget: Number(t.total_budget) || 15000,
               spentAmount: Number(t.spent_amount) || 0,
-              daysLeft: 14,
+              daysLeft: null,
               weatherTemp: '--',
               weatherCondition: 'Planning Phase',
               nextActivityTitle: 'Vote on Destination Poll',
@@ -668,25 +549,42 @@ export class TripService {
 
       if (error || !data) return [];
 
-      return data
-        .filter((row: any) => row.trips)
-        .map((row: any) => {
-          const t = row.trips;
-          const hostProf = t.profiles || {};
-          const fn = hostProf.first_name || 'Barkada';
-          const ln = hostProf.last_name || 'Host';
-          const hostName = `${fn} ${ln}`.trim();
+      const rows = data.filter((row: any) => row.trips);
+      if (rows.length === 0) return [];
 
-          return {
-            tripId: t.id,
-            tripTitle: t.title,
-            destination: t.destination || 'Voting Phase',
-            dateRange: t.date_range || 'Upcoming Dates',
-            hostName: hostName,
-            inviteCode: t.invite_code || '',
-            memberCount: 3,
-          };
+      // Count members who have actually JOINED (status = accepted) per trip,
+      // so the invite shows the real number already in.
+      const tripIds = rows.map((r: any) => r.trip_id);
+      const { data: joinedRows } = await supabase
+        .from('trip_participants')
+        .select('trip_id')
+        .in('trip_id', tripIds)
+        .eq('status', 'accepted');
+
+      const joinedCount: Record<string, number> = {};
+      if (joinedRows) {
+        joinedRows.forEach((c: any) => {
+          joinedCount[c.trip_id] = (joinedCount[c.trip_id] || 0) + 1;
         });
+      }
+
+      return rows.map((row: any) => {
+        const t = row.trips;
+        const hostProf = t.profiles || {};
+        const fn = hostProf.first_name || 'Barkada';
+        const ln = hostProf.last_name || 'Host';
+        const hostName = `${fn} ${ln}`.trim();
+
+        return {
+          tripId: t.id,
+          tripTitle: t.title,
+          destination: cleanInviteField(t.destination, PLACEHOLDER_DESTINATIONS),
+          dateRange: cleanInviteField(t.date_range, PLACEHOLDER_DATE_RANGES),
+          hostName: hostName,
+          inviteCode: t.invite_code || '',
+          memberCount: joinedCount[t.id] || 1,
+        };
+      });
     } catch (err: any) {
       console.warn('fetchPendingTripInvitesDB error:', err?.message);
       return [];
@@ -1167,6 +1065,20 @@ export class TripService {
           this.fetchUserTripsDB(userId);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_poll_options' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_poll_votes' },
+        () => {
+          this.notify();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -1314,7 +1226,7 @@ export class TripService {
       imageUrl: elnidoEscapeImg,
       totalBudget: 15000,
       spentAmount: 0,
-      daysLeft: 14,
+      daysLeft: null,
       weatherTemp: '--',
       weatherCondition: 'Planning Phase',
       nextActivityTitle: 'Vote on Destination Poll',
@@ -1377,7 +1289,7 @@ export class TripService {
         imageUrl: sagadaImg,
         totalBudget: 20000,
         spentAmount: 0,
-        daysLeft: 10,
+        daysLeft: null,
         weatherTemp: '28°C',
         weatherCondition: 'Sunny',
         nextActivityTitle: 'Join Destination Poll',
@@ -1426,75 +1338,15 @@ export class TripService {
   }
 
   public getRecentActivities(): BarkadaActivity[] {
-    return [
-      {
-        id: 'act1',
-        memberName: 'Ahiah',
-        action: 'voted El Nido, Palawan in destination poll',
-        timeAgo: '10m ago',
-        avatarBgHex: '#3B7A9E',
-      },
-      {
-        id: 'act2',
-        memberName: 'Travis',
-        action: 'added ₱2,500 Grocery & Drinks expense',
-        timeAgo: '1h ago',
-        avatarBgHex: '#E2604A',
-      },
-      {
-        id: 'act3',
-        memberName: 'Harry',
-        action: 'confirmed RSVP for El Nido trip (Confidence 100%)',
-        timeAgo: '3h ago',
-        avatarBgHex: '#F0A93E',
-      },
-    ];
+    return [];
   }
 
   public getSpots(): SpotItem[] {
-    return [
-      {
-        id: 's1',
-        name: 'Secret Lagoon',
-        rating: '4.9 ★',
-        category: 'Nature',
-        imagePath: bigLagoonImg,
-        fallbackColor: '#CDE7DF',
-      },
-      {
-        id: 's2',
-        name: 'Nacpan Beach',
-        rating: '4.8 ★',
-        category: 'Sunset Spot',
-        imagePath: nacpanImg,
-        fallbackColor: '#FDEBD3',
-      },
-    ];
+    return [];
   }
 
   public getPlaces(): PlaceItem[] {
-    return [
-      {
-        id: 'pl1',
-        title: 'Sea Breeze Grill',
-        subtitle: 'Fresh Grill & Seafood · 0.4km away',
-        priceOrTime: '₱450-800',
-        unit: 'per head',
-        iconName: 'utensils',
-        iconBg: '#FDEBD3',
-        iconColor: '#F0A93E',
-      },
-      {
-        id: 'pl2',
-        title: 'Spin Designer Hostel',
-        subtitle: 'Boutique Stay · Town Center',
-        priceOrTime: '₱1,800',
-        unit: '/ night',
-        iconName: 'home',
-        iconBg: '#E4F0EA',
-        iconColor: '#3A8E71',
-      },
-    ];
+    return [];
   }
 }
 

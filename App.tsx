@@ -9,6 +9,7 @@ import { AppSplashScreen } from './src/components/common/AppSplashScreen';
 import { AuthFlowContainer } from './src/screens/auth/AuthFlowContainer';
 import { MainAppContainer } from './src/components/nav/MainAppContainer';
 import { supabase } from './src/utils/supabase';
+import { PushService } from './src/services/pushService';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -48,6 +49,10 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) {
+        await PushService.unregisterPushToken(user.id);
+      }
       await supabase.auth.signOut();
       await AsyncStorage.setItem('@barkadash_logged_in', 'false');
     } catch (e) {

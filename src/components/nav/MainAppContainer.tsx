@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { View, StyleSheet, StatusBar, Animated, Easing, Dimensions } from 'react-native';
 import { AppBottomNav } from './AppBottomNav';
 import { HomeScreen } from '../../screens/home/HomeScreen';
@@ -13,7 +13,18 @@ import { SettingsScreen } from '../../screens/settings/SettingsScreen';
 import { TermsPrivacyScreen } from '../../screens/auth/TermsPrivacyScreen';
 import { NotificationsScreen } from '../../screens/notifications/NotificationsScreen';
 import { CabinetDrawerModal } from './CabinetDrawerModal';
+import { PendingTripInvite } from '../trip/TripInvitationModal';
+import { TripInvitationBanner } from '../trip/TripInvitationBanner';
+import {
+  InAppNotificationBanner,
+  InAppNotifPayload,
+} from '../notifications/InAppNotificationBanner';
 import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
+import { TripService } from '../../services/tripService';
+import { NotificationService } from '../../services/notificationService';
+import { PushService } from '../../services/pushService';
+import { supabase } from '../../utils/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -30,6 +41,98 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
   const [isNavExpanded, setIsNavExpanded] = useState(true);
   const [cabinetVisible, setCabinetVisible] = useState(false);
   const { colors } = useTheme();
+  const { profile } = useUser();
+
+  const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
+  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
+  const [bannerQueue, setBannerQueue] = useState<InAppNotifPayload[]>([]);
+
+  const checkPendingInvites = useCallback(async () => {
+    if (profile?.id) {
+      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(profile.id);
+      setPendingInvites(invites);
+      setCurrentInvite((prev) => {
+        if (prev && invites.some((i) => i.tripId === prev.tripId)) return prev;
+        return invites.length > 0 ? invites[0] : null;
+      });
+    }
+  }, [profile?.id]);
+
+  const closeBanner = useCallback(() => {
+    setBannerQueue((prev) => prev.slice(1));
+  }, []);
+
+  const showBanner = useCallback((payload: InAppNotifPayload) => {
+    setBannerQueue((prev) => {
+      if (prev.some((b) => b.id === payload.id)) return prev;
+      return [...prev, payload];
+    });
+  }, []);
+
+  // Remember recently shown banner ids so realtime redeliveries don't double up
+  const shownBannerIds = useRef<Set<string>>(new Set());
+  const markBannerShown = useCallback((id: string) => {
+    shownBannerIds.current.add(id);
+    setTimeout(() => {
+      shownBannerIds.current.delete(id);
+    }, 15000);
+  }, []);
+
+  // Push token registration + tapping a push opens the Notifications screen
+  useEffect(() => {
+    if (profile?.id) {
+      PushService.registerPushToken(profile.id);
+    }
+    const unlisten = PushService.listenForPushResponses(() => {
+      handleOpenSubScreen('notifications');
+    });
+    return () => unlisten();
+  }, [profile?.id]);
+
+  useEffect(() => {
+    checkPendingInvites();
+
+    if (profile?.id) {
+      const channel = supabase
+        .channel(`app:invites:${profile.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${profile.id}`,
+          },
+          (payload: any) => {
+            checkPendingInvites();
+            const row = payload?.new;
+            // Invite banners render their own Accept/Decline — skip the generic
+            // banner for trip invites to avoid a doubled/redundant popup.
+            if (payload.eventType === 'INSERT' && row?.id && row?.type !== 'trip_invite') {
+              if (shownBannerIds.current.has(row.id)) return;
+              markBannerShown(row.id);
+              showBanner({
+                id: row.id,
+                title: row.title || 'Barkadash',
+                message: row.message || '',
+                type: row.type || 'system',
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [profile?.id, checkPendingInvites]);
+
+  const handleOpenInvitation = useCallback(() => {
+    if (pendingInvites.length > 0) {
+      setCurrentInvite(pendingInvites[0]);
+    }
+  }, [pendingInvites]);
 
   // Level 1 Sub-Screen Slide Animation (Profile, Settings, Terms, Connections)
   const rootSubAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
@@ -114,7 +217,12 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
             />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 1 ? 'flex' : 'none' }]}>
-            <TripPlannerScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
+            <TripPlannerScreen
+              onScrollDirection={handleScrollDirection}
+              onOpenCabinet={handleOpenCabinet}
+              pendingInvite={pendingInvites.length > 0 ? pendingInvites[0] : null}
+              onViewInvitation={handleOpenInvitation}
+            />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 2 ? 'flex' : 'none' }]}>
             <BarkadaRadarScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
@@ -200,6 +308,37 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
         onClose={() => setCabinetVisible(false)}
         onNavigateToSubScreen={(screen) => handleOpenSubScreen(screen)}
         onLogout={onLogout}
+      />
+
+      {/* Pending Trip Invitation Banner — dynamic-island style top popup */}
+      <TripInvitationBanner
+        invite={currentInvite}
+        onClose={() => setCurrentInvite(null)}
+        onAccept={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().acceptTripInviteDB(tripId, profile.id);
+            NotificationService.createTripInviteResponseNotification(profile.id, tripId, 'accepted');
+            setCurrentInvite(null);
+            await checkPendingInvites();
+            handleTabChange(1);
+          }
+        }}
+        onDecline={async (tripId) => {
+          if (profile?.id) {
+            await TripService.getInstance().declineTripInviteDB(tripId, profile.id);
+            NotificationService.createTripInviteResponseNotification(profile.id, tripId, 'declined');
+            setCurrentInvite(null);
+            await checkPendingInvites();
+          }
+        }}
+      />
+
+      {/* In-app notification banner (someone followed you, poll ended, etc.) */}
+      <InAppNotificationBanner
+        notification={bannerQueue[0] || null}
+        onPress={() => handleOpenSubScreen('notifications')}
+        onClose={closeBanner}
+        topOffset={currentInvite ? 225 : 0}
       />
 
       {/* Floating Bottom Glassmorphism Navbar (Only show when on main tabs) */}

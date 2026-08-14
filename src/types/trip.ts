@@ -46,7 +46,7 @@ export interface Trip {
   imageUrl: any;
   totalBudget: number;
   spentAmount: number;
-  daysLeft: number;
+  daysLeft: number | null;
   weatherTemp: string;
   weatherCondition: string;
   nextActivityTitle: string;

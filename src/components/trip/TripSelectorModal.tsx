@@ -509,8 +509,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   hostNewBtn: {
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 13,
+    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

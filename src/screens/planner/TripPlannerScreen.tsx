@@ -9,6 +9,7 @@ import {
   StatusBar,
   Dimensions,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
@@ -19,9 +20,10 @@ import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
 import { TripService } from '../../services/tripService';
 import { HostJoinTripModal } from '../../components/trip/HostJoinTripModal';
+import { NoTripWelcome } from '../../components/home/NoTripWelcome';
 import { TripDetailsModal } from '../../components/trip/TripDetailsModal';
 import { TripSelectorModal } from '../../components/trip/TripSelectorModal';
-import { TripInvitationModal, PendingTripInvite } from '../../components/trip/TripInvitationModal';
+import { PendingTripInvite } from '../../components/trip/TripInvitationModal';
 import { TripVotingPollsSection } from '../../components/trip/TripVotingPollsSection';
 import { Trip } from '../../types/trip';
 
@@ -36,9 +38,11 @@ const sagadaImg = require('../../../assets/images/sagada.jpeg');
 interface TripPlannerScreenProps {
   onScrollDirection?: (direction: 'up' | 'down') => void;
   onOpenCabinet?: () => void;
+  pendingInvite?: PendingTripInvite | null;
+  onViewInvitation?: () => void;
 }
 
-export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet, pendingInvite, onViewInvitation }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
@@ -51,34 +55,28 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const slideAnim = useRef(new Animated.Value(0)).current;
 
   // Trip State & Host/Join / Details Modal State
-  const [activeTrip, setActiveTrip] = useState<Trip>(() => TripService.getInstance().getActiveTrip());
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(() => TripService.getInstance().getActiveTrip());
   const [allTrips, setAllTrips] = useState<Trip[]>(() => TripService.getInstance().getTrips());
+  const [loading, setLoading] = useState(true);
   const [hostJoinModalVisible, setHostJoinModalVisible] = useState(false);
   const [modalInitialMode, setModalInitialMode] = useState<'choice' | 'host' | 'join'>('choice');
   const [showTripSelector, setShowTripSelector] = useState(false);
   const [tripDetailsVisible, setTripDetailsVisible] = useState(false);
-  const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
-
-  const checkPendingInvites = async () => {
-    if (profile?.id) {
-      const invites = await TripService.getInstance().fetchPendingTripInvitesDB(profile.id);
-      if (invites.length > 0) {
-        setCurrentInvite(invites[0]);
-      }
-    }
-  };
 
   useEffect(() => {
     const service = TripService.getInstance();
     let unsubscribeRealtime = () => {};
 
-    service.fetchUserTripsDB(profile?.id).then(() => {
-      setActiveTrip(service.getActiveTrip());
-      setAllTrips(service.getTrips());
-    });
+    setLoading(true);
+    service.fetchUserTripsDB(profile?.id)
+      .then(() => {
+        setActiveTrip(service.getActiveTrip());
+        setAllTrips(service.getTrips());
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
 
     if (profile?.id) {
-      checkPendingInvites();
       unsubscribeRealtime = service.subscribeRealtime(profile.id);
     }
 
@@ -284,6 +282,29 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
       {/* MAIN CONTENT BODY */}
       <View style={{ flex: 1, backgroundColor: COLORS.bgLight }}>
+        {loading ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <ActivityIndicator size="large" color={colors.tealDark} />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.inkSoft }}>Rounding up your barkada…</Text>
+          </View>
+        ) : !activeTrip ? (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1, paddingHorizontal: sp.lg, paddingBottom: bottomNavOffset + 40 }}
+          >
+            <NoTripWelcome
+              firstName={profile?.firstName}
+              onHostPress={() => {
+                setModalInitialMode('host');
+                setHostJoinModalVisible(true);
+              }}
+              onJoinPress={() => {
+                setModalInitialMode('join');
+                setHostJoinModalVisible(true);
+              }}
+            />
+          </ScrollView>
+        ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
           onScroll={(e) => {
@@ -430,7 +451,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           </View>
 
           {/* Pending Invitation Banner */}
-          {currentInvite && (
+          {pendingInvite && (
             <View
               style={{
                 backgroundColor: colors.lightOrangeBg,
@@ -449,15 +470,20 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
 
               <Text style={{ fontSize: 14, fontWeight: '800', color: colors.ink, marginBottom: 4 }}>
-                {currentInvite.hostName} invited you to "{currentInvite.tripTitle}"
+                {pendingInvite.hostName} invited you to "{pendingInvite.tripTitle}"
               </Text>
               <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginBottom: 12 }}>
-                Destination: {currentInvite.destination} • Dates: {currentInvite.dateRange}
+                {[
+                  pendingInvite.destination ? `Destination: ${pendingInvite.destination}` : null,
+                  pendingInvite.dateRange ? `Dates: ${pendingInvite.dateRange}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' • ') || 'Place & dates — voting soon'}
               </Text>
 
               <TouchableOpacity
                 activeOpacity={0.85}
-                onPress={() => checkPendingInvites()}
+                onPress={onViewInvitation}
                 style={{
                   backgroundColor: colors.tealDark,
                   paddingVertical: 10,
@@ -791,6 +817,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             </View>
           )}
         </ScrollView>
+        )}
       </View>
 
       {/* Host / Join Trip Modal */}
@@ -809,7 +836,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
       {/* Trip Selector Modal */}
       <TripSelectorModal
         visible={showTripSelector}
-        activeTripId={activeTrip.id}
+        activeTripId={activeTrip?.id || ''}
         trips={allTrips}
         currentUserId={profile?.id}
         onClose={() => setShowTripSelector(false)}
@@ -850,26 +877,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         }}
       />
 
-      {/* Pending Trip Invitation Modal */}
-      <TripInvitationModal
-        visible={!!currentInvite}
-        invite={currentInvite}
-        onClose={() => setCurrentInvite(null)}
-        onAccept={async (tripId) => {
-          if (profile?.id) {
-            await TripService.getInstance().acceptTripInviteDB(tripId, profile.id);
-            setCurrentInvite(null);
-            setActiveTrip(TripService.getInstance().getActiveTrip());
-            setAllTrips(TripService.getInstance().getTrips());
-          }
-        }}
-        onDecline={async (tripId) => {
-          if (profile?.id) {
-            await TripService.getInstance().declineTripInviteDB(tripId, profile.id);
-            setCurrentInvite(null);
-          }
-        }}
-      />
     </SafeAreaView>
   );
 };
