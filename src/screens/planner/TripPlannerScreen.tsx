@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2 } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
 import { TripService } from '../../services/tripService';
@@ -25,6 +25,7 @@ import { TripDetailsModal } from '../../components/trip/TripDetailsModal';
 import { TripSelectorModal } from '../../components/trip/TripSelectorModal';
 import { PendingTripInvite } from '../../components/trip/TripInvitationModal';
 import { TripVotingPollsSection } from '../../components/trip/TripVotingPollsSection';
+import { EditTourModal } from '../../components/trip/EditTourModal';
 import { Trip } from '../../types/trip';
 
 import { useUser } from '../../context/UserContext';
@@ -62,6 +63,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const [modalInitialMode, setModalInitialMode] = useState<'choice' | 'host' | 'join'>('choice');
   const [showTripSelector, setShowTripSelector] = useState(false);
   const [tripDetailsVisible, setTripDetailsVisible] = useState(false);
+  const [editTourVisible, setEditTourVisible] = useState(false);
+
+  const isHost = !!profile?.id && activeTrip?.hostId === profile.id;
+  const isLocked = activeTrip?.planningStage === 'READY' || activeTrip?.planningStage === 'ITINERARY_BUILDING';
 
   useEffect(() => {
     const service = TripService.getInstance();
@@ -99,6 +104,27 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
       speed: 12,
     }).start();
   }, [selectedDay, slideAnim]);
+
+  // When the tour just got locked, everyone lands on the itinerary page once.
+  // Do NOT re-force on every tab change — members can switch freely after.
+  const wasLockedRef = useRef(false);
+  useEffect(() => {
+    if (isLocked && !wasLockedRef.current) {
+      setActiveSubTab('Itinerary');
+      wasLockedRef.current = true;
+    }
+    if (!isLocked) {
+      wasLockedRef.current = false;
+    }
+  }, [isLocked]);
+
+  const handleEditTourSave = async (deadline: string) => {
+    const res = await TripService.getInstance().reactivateTripVotingDB(activeTrip?.id || '', deadline, profile?.id);
+    if (res.success) {
+      setEditTourVisible(false);
+    }
+    return res;
+  };
   
   const [chatMessages, setChatMessages] = useState<Array<{
     id: string;
@@ -174,6 +200,50 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
       note: 'Low tide access only',
     },
   ];
+
+  // Parse the locked trip's date range (e.g. "Mar 1, 2026 – Mar 5, 2026")
+  // into actual day pills so the itinerary reflects the real dates.
+  const parseTripDates = (range?: string): { start: Date; end: Date } | null => {
+    if (!range) return null;
+    const monthMap: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+      january: 0, february: 1, march: 2, april: 3, june: 5, july: 6,
+      august: 7, september: 8, october: 9, november: 10, december: 11,
+    };
+    const parse = (text: string): Date | null => {
+      const m = text.match(/([A-Za-z]+)\s+(\d{1,2})(?:,)?\s+(\d{4})/);
+      if (!m) return null;
+      const month = monthMap[m[1].toLowerCase()];
+      if (month === undefined) return null;
+      const d = new Date(Number(m[3]), month, Number(m[2]));
+      if (isNaN(d.getTime())) return null;
+      return d;
+    };
+    const tokens = range.split(/\s*[-–—]\s*| to |\s+-\s+/).map((t) => t.trim()).filter(Boolean);
+    const start = parse(tokens[0] || '');
+    if (!start) return null;
+    const end = tokens.length >= 2 ? parse(tokens[tokens.length - 1]) : start;
+    if (!end) return null;
+    return { start, end };
+  };
+
+  const tripDates = parseTripDates(activeTrip?.dateRange);
+  const hasTripDates = !!tripDates;
+  const tripDayCount = tripDates
+    ? Math.min(Math.max(Math.round((tripDates.end.getTime() - tripDates.start.getTime()) / 86400000) + 1, 1), 7)
+    : 4;
+  const dayOffsets = Array.from({ length: tripDayCount }, (_, i) => i);
+  const pillWidth = (width - (sp.lg * 2) - 12) / tripDayCount;
+
+  const getDayDate = (offset: number): Date => {
+    if (tripDates) {
+      return new Date(tripDates.start.getTime() + offset * 86400000);
+    }
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d;
+  };
 
   const handleSendMessage = () => {
     if (!promptText.trim()) return;
@@ -332,7 +402,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               padding: 16,
               borderColor: colors.cardBorder,
               borderWidth: 1,
-              marginBottom: sp.md,
+              marginBottom: isLocked ? sp.sm : sp.md,
               shadowColor: '#000',
               shadowOffset: { width: 0, height: 4 },
               shadowOpacity: 0.05,
@@ -402,26 +472,60 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   View Members ({activeTrip?.memberCount || 0}) & Invite Code
                 </Text>
               </TouchableOpacity>
+
+              {isHost && isLocked && (
+                <TouchableOpacity
+                  onPress={() => setEditTourVisible(true)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    backgroundColor: isDark ? 'rgba(240,169,62,0.18)' : '#FEF6E7',
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 100,
+                  }}
+                >
+                  <Pencil size={13} color={colors.orangeAccent} />
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.orangeAccent }}>
+                    Edit Tour
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
-          <View style={{ marginBottom: sp.lg }}>
-            {/* TRIP VOTING POLLS SECTION */}
-            <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
+          <View style={{ marginBottom: isLocked ? 0 : sp.lg }}>
+            {!isLocked && (
+              <>
+                {/* TRIP VOTING POLLS SECTION */}
+                <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
+              </>
+            )}
 
-            {/* SECTION DIVIDER */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.md, gap: 10 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
-              <Text style={{ fontSize: 9.5, fontWeight: '900', color: colors.inkSoft, letterSpacing: 0.8, textTransform: 'uppercase' }}>
-                Trip Itinerary, Spots & AI Chat
-              </Text>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder }} />
+            {/* SECTION DIVIDER - fancy */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: sp.md }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
+              <View style={{
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(59,122,158,0.35)' : 'rgba(59,122,158,0.25)',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <MapPin size={15} color={colors.tealDark} strokeWidth={2.5} />
+              </View>
+              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
             </View>
 
             {/* Tab Switcher - Typographic with rounded active pill style */}
             <View style={{ flexDirection: 'row', gap: sp.sm }}>
               {(['Itinerary', 'Spots', 'AI Chat'] as const).map((tab) => {
                 const isSelected = activeSubTab === tab;
+                const label = tab === 'Spots' ? 'Suggested Spots' : tab;
                 return (
                   <TouchableOpacity
                     key={tab}
@@ -442,7 +546,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                         color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
                       }}
                     >
-                      {tab}
+                      {label}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -502,6 +606,45 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             </View>
           )}
 
+          {/* Locked-in note: place & dates are set, start planning */}
+          {isLocked && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
+                borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
+                borderWidth: 1,
+                borderRadius: 18,
+                padding: 14,
+                marginTop: sp.lg,
+                marginBottom: sp.lg,
+              }}
+            >
+              <View
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#10B981',
+                }}
+              >
+                <CheckCircle2 size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.ink }}>
+                  Place & dates locked in!
+                </Text>
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, lineHeight: 16 }}>
+                  Your barkada's set on {activeTrip?.destination} ({activeTrip?.dateRange}). Now you can plan your itinerary.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* ================= ITINERARY ================= */}
           {activeSubTab === 'Itinerary' && (
             <View>
@@ -526,21 +669,20 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   top: 6,
                   bottom: 6,
                   left: 6,
-                  width: (width - (sp.lg * 2) - 12) / 4,
+                  width: pillWidth,
                   backgroundColor: colors.tealDark,
                   borderRadius: 100,
                   transform: [{
                     translateX: slideAnim.interpolate({
-                      inputRange: [0, 1, 2, 3],
-                      outputRange: [0, (width - (sp.lg * 2) - 12) / 4, ((width - (sp.lg * 2) - 12) / 4) * 2, ((width - (sp.lg * 2) - 12) / 4) * 3]
+                      inputRange: dayOffsets,
+                      outputRange: dayOffsets.map((o) => pillWidth * o),
                     })
                   }]
                 }} />
-                {[0, 1, 2, 3].map((offset) => {
+                {dayOffsets.map((offset) => {
                   const dayNum = offset + 1;
                   const isSelected = selectedDay === dayNum;
-                  const dateObj = new Date();
-                  dateObj.setDate(dateObj.getDate() + offset);
+                  const dateObj = getDayDate(offset);
                   const monthStr = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][dateObj.getMonth()];
                   const dateStr = `${monthStr} ${dateObj.getDate()}`;
 
@@ -558,7 +700,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       }}
                     >
                       <Text style={{ fontSize: 9, fontWeight: '800', color: isSelected ? 'rgba(255,255,255,0.85)' : COLORS.subtleDark, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        {dayNum === 1 ? 'TODAY' : `DAY ${dayNum}`}
+                        {dayNum === 1 ? (hasTripDates ? 'DAY 1' : 'TODAY') : `DAY ${dayNum}`}
                       </Text>
                       <Text style={{ fontSize: 11, fontWeight: '900', color: isSelected ? '#FFFFFF' : COLORS.textDark, letterSpacing: 0.5 }}>
                         {dateStr}
@@ -571,10 +713,12 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               {/* Day Summary */}
               <View style={{ marginBottom: sp.xl, paddingLeft: 12, borderLeftWidth: 4, borderLeftColor: AppColors.emerald }}>
                 <Text style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark }}>
-                  Island Hopping + Lagoons
+                  {activeTrip?.destination || 'Island Hopping + Lagoons'}
                 </Text>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: COLORS.subtleDark, marginTop: 4, letterSpacing: 0.5 }}>
-                  4 activities / ₱1,500 est.
+                  {hasTripDates && tripDates
+                    ? `Day ${selectedDay} · ${getDayDate(selectedDay - 1).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+                    : '4 activities / ₱1,500 est.'}
                 </Text>
               </View>
 
@@ -875,6 +1019,14 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           setActiveTrip(TripService.getInstance().getActiveTrip());
           setAllTrips(TripService.getInstance().getTrips());
         }}
+      />
+
+      {/* Edit Tour (host-only) — reopen voting + new mandatory deadline */}
+      <EditTourModal
+        visible={editTourVisible}
+        currentDeadline={activeTrip?.votingDeadline || null}
+        onClose={() => setEditTourVisible(false)}
+        onSave={handleEditTourSave}
       />
 
     </SafeAreaView>

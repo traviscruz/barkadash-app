@@ -22,7 +22,28 @@ export const TripCard: React.FC<TripCardProps> = ({ trip, members, onPress }) =>
   const displayMembers = acceptedMembers.length > 0 ? acceptedMembers : (members || []);
   const memberCount = displayMembers.length || trip.memberCount;
   const shownAvatars = displayMembers.slice(0, 5);
-  const daysLeftLabel = trip.daysLeft == null || trip.daysLeft < 0 ? 'TBD' : `${trip.daysLeft} Days Left`;
+  const isLocked = trip.planningStage === 'READY' || trip.planningStage === 'ITINERARY_BUILDING';
+  const hasRealDates = !!trip.dateRange && trip.dateRange !== 'Dates TBD';
+
+  const lockedDateLabel = (() => {
+    if (!hasRealDates) return 'TBD';
+    const m = trip.dateRange.match(/([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})/);
+    if (!m) return 'TBD';
+    const start = new Date(`${m[1]} ${m[2]}, ${m[3]}`);
+    if (isNaN(start.getTime())) return 'TBD';
+    const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
+    const today = new Date();
+    const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const diff = Math.round((startDay - todayDay) / 86400000);
+    if (diff > 0) return diff === 1 ? '1 Day Left' : `${diff} Days Left`;
+    return `Day ${Math.abs(diff) + 1}`;
+  })();
+
+  const daysLeftLabel = isLocked
+    ? lockedDateLabel
+    : trip.daysLeft == null || trip.daysLeft < 0
+      ? 'TBD'
+      : `${trip.daysLeft} Days Left`;
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
 

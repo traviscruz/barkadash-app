@@ -30,7 +30,6 @@ import { SubScreenType } from '../../components/nav/MainAppContainer';
 import {
   Sun,
   Bell,
-  Vote,
   ChevronRight,
   Clock,
   Menu,
@@ -65,6 +64,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
   const placePolls = polls.filter((p) => p.type === 'place');
+  const isTripLocked = !!activeTrip && (activeTrip.planningStage === 'READY' || activeTrip.planningStage === 'ITINERARY_BUILDING');
+  const winnerPlace = placePolls.length > 0
+    ? placePolls.slice().sort((a, b) => {
+        if (b.votes !== a.votes) return b.votes - a.votes;
+        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      })[0]
+    : null;
 
   const fetchUnread = async () => {
     if (profile?.id) {
@@ -285,49 +291,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <ChevronRight size={icon.lg} color="#FFFFFF" />
             </TouchableOpacity>
 
-            {/* Destination Poll Widget */}
-            {placePolls.length > 0 && (
-              <View style={styles.pollQuickSection}>
-                <TouchableOpacity
-                  activeOpacity={0.92}
-                  onPress={() => onNavigateToTab && onNavigateToTab(1)}
-                  style={[styles.pollWidgetCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-                >
-                  <View style={styles.pollWidgetHeader}>
-                    <View style={[styles.pollTagPill, { backgroundColor: colors.lightOrangeBg }]}>
-                      <Vote size={14} color={colors.orangeAccent} />
-                      <Text style={[styles.pollTagText, { color: colors.orangeAccent }]}>QUICK ACCESS • DESTINATION POLL</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.pollWidgetBody}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.pollWidgetTitle, { color: colors.ink }]}>Where to Next?</Text>
-                      <Text style={[styles.pollWidgetSub, { color: colors.inkSoft }]}>
-                        {placePolls.length} {placePolls.length === 1 ? 'destination' : 'destinations'} competing • Vote in the Plan tab
-                      </Text>
-                    </View>
-
-                    <View style={[styles.castVoteButton, { backgroundColor: colors.tealDark }]}>
-                      <Text style={styles.castVoteText}>Cast Vote</Text>
-                      <ChevronRight size={14} color="#FFFFFF" />
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Polaroid Poll Gallery */}
-            {placePolls.length > 0 && (
+            {/* Polaroid Winner Gallery */}
+            {winnerPlace && (
               <>
                 <SectionHeader
-                  title="WHERE TO NEXT? VOTE NOW"
-                  actionText="View All Options"
+                  title={isTripLocked ? `PICKED TRIP · ${activeTrip?.title?.toUpperCase() || 'LOCKED'}` : 'TOP PICK DESTINATION'}
+                  actionText="View Trip"
                   onActionPress={() => onNavigateToTab && onNavigateToTab(1)}
                 />
                 <PolaroidStack
-                  polls={placePolls}
-                  onVotePress={() => onNavigateToTab && onNavigateToTab(1)}
+                  polls={[winnerPlace]}
+                  isLocked={isTripLocked}
                 />
               </>
             )}
@@ -599,72 +573,6 @@ const styles = StyleSheet.create({
   nextUpTime: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.7)',
-  },
-  pollQuickSection: {
-    marginBottom: 24,
-  },
-  pollWidgetCard: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#EAE4D7',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  pollWidgetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  pollTagPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FDEBD3',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  pollTagText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#B8791E',
-    letterSpacing: 0.8,
-  },
-  pollWidgetBody: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  pollWidgetTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#1A1D2D',
-  },
-  pollWidgetSub: {
-    fontSize: 11,
-    color: '#6E738A',
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  castVoteButton: {
-    backgroundColor: '#1F4E67',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  castVoteText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
   },
   loadingContainer: {
     flex: 1,

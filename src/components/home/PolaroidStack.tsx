@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Animated,
@@ -14,16 +13,16 @@ import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { HandwrittenText } from '../common/HandwrittenText';
 import { ShimmerImage } from '../common/ShimmerImage';
-import { Vote, RotateCw, Layers } from 'lucide-react-native';
+import { RotateCw } from 'lucide-react-native';
 
 interface PolaroidStackProps {
   polls: DestinationPollOption[];
-  onVotePress?: (poll: DestinationPollOption) => void;
+  isLocked?: boolean;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress }) => {
+export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, isLocked }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const { fs, isTablet } = useResponsive();
@@ -126,20 +125,25 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.headerRow}>
-        <View style={[styles.badgePill, { backgroundColor: colors.lightGreenBg }]}>
-          <Layers size={14} color={colors.tealDark} />
-          <Text style={[styles.badgeText, { color: colors.tealDark }]}>
-            POLAROID STACK ({activeIndex + 1}/{stackSize})
-          </Text>
-        </View>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={handleNextCard}
-          style={styles.shuffleBtn}
-        >
-          <RotateCw size={12} color="#B45309" />
-          <Text style={styles.shuffleText}>Tap to Shuffle</Text>
-        </TouchableOpacity>
+        {isLocked ? (
+          <View style={{ flex: 1 }} />
+        ) : (
+          <View style={[styles.badgePill, { backgroundColor: colors.lightGreenBg }]}>
+            <Text style={[styles.badgeText, { color: colors.tealDark }]}>
+              TOP DESTINATION
+            </Text>
+          </View>
+        )}
+        {!isLocked && (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={handleNextCard}
+            style={styles.shuffleBtn}
+          >
+            <RotateCw size={12} color="#B45309" />
+            <Text style={styles.shuffleText}>Tap to Shuffle</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stack */}
@@ -236,16 +240,6 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                     resizeMode="cover"
                     borderRadius={0}
                   />
-                  <View style={styles.photoOverlayHeader}>
-                    {poll.votes >= 3 && (
-                      <View style={styles.leadingBadge}>
-                        <Text style={styles.leadingBadgeText}>LEADING</Text>
-                      </View>
-                    )}
-                    <View style={styles.votesBadge}>
-                      <Text style={styles.votesBadgeText}>{poll.votes} Votes</Text>
-                    </View>
-                  </View>
                 </View>
 
                 {/* Caption */}
@@ -254,14 +248,6 @@ export const PolaroidStack: React.FC<PolaroidStackProps> = ({ polls, onVotePress
                     <Text style={[styles.destinationTitle, { color: colors.ink }]} numberOfLines={1}>
                       {poll.title}
                     </Text>
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => onVotePress && onVotePress(poll)}
-                      style={[styles.voteBtn, { backgroundColor: colors.tealDark }]}
-                    >
-                      <Vote size={14} color="#FFFFFF" />
-                      <Text style={styles.voteBtnText}>Vote</Text>
-                    </TouchableOpacity>
                   </View>
                   {poll.leaderComment ? (
                     <HandwrittenText
@@ -371,38 +357,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  photoOverlayHeader: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  leadingBadge: {
-    backgroundColor: '#F5A65B',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  leadingBadgeText: {
-    color: '#1A1D2D',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  votesBadge: {
-    backgroundColor: 'rgba(15, 42, 60, 0.8)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  votesBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
   polaroidCaptionArea: {
     paddingTop: 10,
     paddingHorizontal: 2,
@@ -418,19 +372,5 @@ const styles = StyleSheet.create({
     color: '#1A1D2D',
     flex: 1,
     marginRight: 8,
-  },
-  voteBtn: {
-    backgroundColor: '#1F4E67',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  voteBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
   },
 });

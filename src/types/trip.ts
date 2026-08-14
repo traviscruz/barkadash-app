@@ -18,6 +18,7 @@ export interface DestinationPollOption {
   votedUserIds: string[];
   createdByUserId: string;
   createdByName: string;
+  createdAt?: string;
   subtitle?: string;
   placeId?: string;
   placeName?: string;

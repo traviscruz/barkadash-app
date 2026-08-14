@@ -809,7 +809,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   const [loading, setLoading] = useState(true);
   const [isMember, setIsMember] = useState(false);
   const [isHost, setIsHost] = useState(false);
-  const [tripSettings, setTripSettings] = useState<{ hostId: string | null; votingDeadline: string | null }>({ hostId: null, votingDeadline: null });
+  const [tripSettings, setTripSettings] = useState<{ hostId: string | null; votingDeadline: string | null; planningStage: string | null }>({ hostId: null, votingDeadline: null, planningStage: null });
 
   // Add place
   const [showAddPlace, setShowAddPlace] = useState(false);
@@ -836,6 +836,10 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
 
   // Deadline
   const [deadlineVisible, setDeadlineVisible] = useState(false);
+
+  // Lock tour (host)
+  const [lockVisible, setLockVisible] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   const accent = colors.tealDark;
   const paper = colors.paper;
@@ -1008,6 +1012,19 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
     refresh();
   };
 
+  const confirmLockTour = async () => {
+    setLocking(true);
+    const res = await TripService.getInstance().lockTripDB(tripId, userId);
+    setLocking(false);
+    setLockVisible(false);
+    if (res.success) {
+      setTripSettings((s) => ({ ...s, planningStage: 'READY' }));
+      refresh();
+    } else {
+      console.warn('lockTripDB failed:', res.message);
+    }
+  };
+
   const filtered = polls.filter(p => p.type === activeTab);
   const maxVotes = Math.max(...filtered.map(p => p.votes), 0);
 
@@ -1150,6 +1167,33 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
           </Text>
         )}
       </View>
+
+      {/* Lock Tour (host only) — shown once there are votes to finalize */}
+      {isHost && polls.length > 0 && (
+        <View style={{ marginHorizontal: 14, marginTop: 12 }}>
+          <TouchableOpacity
+            onPress={() => setLockVisible(true)}
+            activeOpacity={0.9}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              backgroundColor: colors.tealDark,
+              borderRadius: 14,
+              paddingVertical: 13,
+            }}
+          >
+            <Lock size={16} color="#FFFFFF" strokeWidth={2.4} />
+            <Text style={{ color: '#FFFFFF', fontSize: 13.5, fontWeight: '900', letterSpacing: 0.3 }}>
+              Lock Tour & Set Final Place & Dates
+            </Text>
+          </TouchableOpacity>
+          <Text style={{ fontSize: 10, color: muted, marginTop: 6, paddingHorizontal: 2 }}>
+            Locks the most-voted destination & date range. Members will see the itinerary.
+          </Text>
+        </View>
+      )}
 
       {/* Tab + Add */}
       <View style={{ marginHorizontal: 14, marginTop: 16, marginBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -1722,6 +1766,52 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
         isDark={isDark}
         fs={fs}
       />
+
+      {/* ── Lock Tour Confirm Modal (host only) ── */}
+      <Modal visible={lockVisible} transparent animationType="fade" onRequestClose={() => setLockVisible(false)}>
+        <Pressable style={S.backdrop} onPress={() => setLockVisible(false)}>
+          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 400 }]} onPress={() => {}}>
+            <View style={S.sheetHead}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={{ fontSize: fs.md, fontWeight: '900', color: ink }}>Lock the Tour?</Text>
+                <Text style={{ fontSize: fs.xs, color: muted, marginTop: 2 }}>
+                  Finalizes the most-voted destination & date range.
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setLockVisible(false)} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }}>
+                <X size={18} color={muted} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 12, borderRadius: 12, backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4', borderWidth: 1, borderColor: withAlpha('#10B981', 0.35) }}>
+              <Lock size={16} color="#10B981" strokeWidth={2} />
+              <Text style={{ flex: 1, fontSize: fs.xs, color: muted, lineHeight: 16 }}>
+                Once locked, voting closes and everyone sees the itinerary page. You can still reopen voting anytime with "Edit Tour".
+              </Text>
+            </View>
+
+            <View style={[S.actions, { marginTop: 18 }]}>
+              <TouchableOpacity
+                onPress={() => setLockVisible(false)}
+                style={[pillStyle(muted), { backgroundColor: 'transparent', borderWidth: 1, borderColor: border }]}
+              >
+                <Text style={{ color: muted, fontWeight: '700', fontSize: fs.sm }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmLockTour}
+                disabled={locking}
+                style={[pillStyle(colors.tealDark), locking && { opacity: 0.6 }]}
+              >
+                {locking ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '900', fontSize: fs.sm }}>Lock Tour</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };

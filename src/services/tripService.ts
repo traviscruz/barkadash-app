@@ -732,6 +732,7 @@ export class TripService {
           tripId: row.trip_id,
           title: row.title,
           type: row.type,
+          createdAt: row.created_at || undefined,
           subtitle: row.subtitle || undefined,
           placeId: row.place_id || undefined,
           placeName: row.place_name || undefined,
@@ -912,19 +913,23 @@ export class TripService {
   /**
    * Fetch host + voting deadline for a trip (used to show host-only UI).
    */
-  public async fetchTripSettingsDB(tripId: string): Promise<{ hostId: string | null; votingDeadline: string | null }> {
+  public async fetchTripSettingsDB(tripId: string): Promise<{ hostId: string | null; votingDeadline: string | null; planningStage: string | null }> {
     try {
       const { data, error } = await supabase
         .from('trips')
-        .select('host_id, voting_deadline')
+        .select('host_id, voting_deadline, planning_stage')
         .eq('id', tripId)
         .maybeSingle();
 
-      if (error || !data) return { hostId: null, votingDeadline: null };
-      return { hostId: data.host_id || null, votingDeadline: data.voting_deadline || null };
+      if (error || !data) return { hostId: null, votingDeadline: null, planningStage: null };
+      return {
+        hostId: data.host_id || null,
+        votingDeadline: data.voting_deadline || null,
+        planningStage: data.planning_stage || null,
+      };
     } catch (err: any) {
       console.warn('fetchTripSettingsDB exception:', err?.message);
-      return { hostId: null, votingDeadline: null };
+      return { hostId: null, votingDeadline: null, planningStage: null };
     }
   }
 
@@ -946,6 +951,118 @@ export class TripService {
     } catch (err: any) {
       console.warn('setTripVotingDeadlineDB exception:', err?.message);
       return false;
+    }
+  }
+
+  /**
+   * Host-only: lock the tour by finalizing the winning destination (place poll)
+   * and date range (date poll). Winners = most votes, ties broken by earliest
+   * proposal. Sets planning_stage to 'READY' and persists destination/date_range.
+   * Returns true on success.
+   */
+  public async lockTripDB(tripId: string, userId?: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return { success: false, message: 'Not signed in.' };
+
+      const settings = await this.fetchTripSettingsDB(tripId);
+      if (!settings.hostId || settings.hostId !== effectiveUserId) {
+        return { success: false, message: 'Only the trip host can lock the tour.' };
+      }
+
+      const polls = await this.fetchTripPollsDB(tripId);
+      const pickWinner = (list: DestinationPollOption[]) =>
+        list.slice().sort((a, b) => {
+          if (b.votes !== a.votes) return b.votes - a.votes;
+          return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        })[0];
+
+      const placeWinner = pickWinner(polls.filter((p) => p.type === 'place'));
+      const dateWinner = pickWinner(polls.filter((p) => p.type === 'date'));
+
+      const destination = placeWinner?.title || '';
+      const dateRange = dateWinner?.title || '';
+
+      const { error } = await supabase
+        .from('trips')
+        .update({
+          destination,
+          date_range: dateRange,
+          planning_stage: 'READY',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('lockTripDB error:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      this.trips = this.trips.map((t) =>
+        t.id === tripId
+          ? { ...t, destination, dateRange, planningStage: 'READY' as Trip['planningStage'] }
+          : t
+      );
+
+      this.notify();
+      return { success: true };
+    } catch (err: any) {
+      console.warn('lockTripDB exception:', err?.message);
+      return { success: false, message: err?.message };
+    }
+  }
+
+  /**
+   * Host-only: reactivate the tour's voting (planning_stage back to
+   * DESTINATION_VOTING) and set a new mandatory voting deadline.
+   */
+  public async reactivateTripVotingDB(
+    tripId: string,
+    deadline: string,
+    userId?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return { success: false, message: 'Not signed in.' };
+
+      const settings = await this.fetchTripSettingsDB(tripId);
+      if (!settings.hostId || settings.hostId !== effectiveUserId) {
+        return { success: false, message: 'Only the trip host can edit the tour.' };
+      }
+
+      const { error } = await supabase
+        .from('trips')
+        .update({
+          planning_stage: 'DESTINATION_VOTING',
+          voting_deadline: deadline,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('reactivateTripVotingDB error:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      this.trips = this.trips.map((t) =>
+        t.id === tripId
+          ? { ...t, planningStage: 'DESTINATION_VOTING' as Trip['planningStage'] }
+          : t
+      );
+
+      this.notify();
+      return { success: true };
+    } catch (err: any) {
+      console.warn('reactivateTripVotingDB exception:', err?.message);
+      return { success: false, message: err?.message };
     }
   }
 
