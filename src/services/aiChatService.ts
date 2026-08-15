@@ -1,11 +1,13 @@
 // AI Chat Service - session history persisted to AsyncStorage
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { generateReply, ChatToolResult } from './geminiService';
 
 export interface AiChatMessage {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   time: string;
+  tools?: ChatToolResult[];
 }
 
 export interface AiChatSession {
@@ -14,6 +16,12 @@ export interface AiChatSession {
   createdAt: number;
   updatedAt: number;
   messages: AiChatMessage[];
+}
+
+export interface TripContextParam {
+  title?: string;
+  destination?: string;
+  dateRange?: string;
 }
 
 const STORAGE_KEY = '@barkadash_ai_chat_sessions';
@@ -26,32 +34,9 @@ const makeId = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 const welcomeMessage = (): AiChatMessage => ({
   id: makeId(),
   sender: 'ai',
-  text: "Mabuhay! I'm Navi, your barkada trip navigator. Ask me about spots, food, budgets, or how to plan your barkada trip.",
+  text: "Mabuhay! I'm Navi, your barkada trip navigator. Ask me about spots, food, weather, or how to plan your barkada trip.",
   time: nowTime(),
 });
-
-const respondTo = (prompt: string): string => {
-  const p = prompt.toLowerCase();
-  if (/(food|eat|dinner|lunch|restaurant|cafe|kainan)/.test(p)) {
-    return "For a barkada meal, I'd suggest a shared-plate spot — try a local grill or a 'dampa' style seafood place where everyone can pick their own. For El Nido, beachside buffets near the cove are great for groups of 5+.";
-  }
-  if (/(beach|island|lagoon|tour|island hopping)/.test(p)) {
-    return 'El Nido island hopping is the move! Tour A covers Big Lagoon, Secret Lagoon, and Shimizu Island — start early (before 8am) to beat the crowds. Budget around ₱1,200–₱2,000 per head including eco-tour fee.';
-  }
-  if (/(budget|money|cost|price|peso|₱|mahal|mura)/.test(p)) {
-    return 'Here’s a rough barkada budget per head for a 3-day El Nido trip: island hopping ₱2,000, food ₱1,500, tricycle transfers ₱400, and lodging ₱3,000/night. Total ≈ ₱12,000. Split everything via the Expense Ledger to keep it transparent!';
-  }
-  if (/(plan|itinerary|day 1|schedule|what to do)/.test(p)) {
-    return "Here's a quick 3-day flow: Day 1 – Town + Nacpan Beach sunset. Day 2 – Island Hopping Tour A. Day 3 – Las Cabanas cliff jump + lazy beach day. Want me to break a specific day into a timeline?";
-  }
-  if (/(hello|hi|hey|kamusta|mabuhay)/.test(p)) {
-    return "Kumusta! Ready to plan something fun? Ask me about spots, food, or budgets — or tap a quick prompt below.";
-  }
-  if (/(thank|salamat|thanks)/.test(p)) {
-    return "Walang anuman! Say the word when you need more trip ideas. 🏝️";
-  }
-  return "Great question! For your barkada, I'd consider the vibe you're after — chill vs. adventure. Tell me a bit more (budget, number of people, or a specific spot) and I'll tailor a plan for you.";
-};
 
 export class AiChatService {
   private static instance: AiChatService;
@@ -138,7 +123,7 @@ export class AiChatService {
     this.notify();
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, trip?: TripContextParam | null): Promise<void> {
     const session = this.getCurrentSession();
     if (!session) return;
     const trimmed = text.trim();
@@ -159,20 +144,24 @@ export class AiChatService {
     this.notify();
     await this.persist();
 
-    setTimeout(async () => {
-      const current = this.getCurrentSession();
-      if (current && current.id === session.id) {
-        current.messages.push({
-          id: makeId(),
-          sender: 'ai',
-          text: respondTo(trimmed),
-          time: nowTime(),
-        });
-        current.updatedAt = Date.now();
-        this.notify();
-        await this.persist();
-      }
-    }, 800);
+    const reply = await generateReply(
+      session.messages.map(({ sender, text: msgText }) => ({ sender, text: msgText })),
+      trip ?? undefined
+    );
+
+    const current = this.getCurrentSession();
+    if (current && current.id === session.id) {
+      current.messages.push({
+        id: makeId(),
+        sender: 'ai',
+        text: reply.text,
+        tools: reply.tools.length > 0 ? reply.tools : undefined,
+        time: nowTime(),
+      });
+      current.updatedAt = Date.now();
+      this.notify();
+      await this.persist();
+    }
   }
 
   private async persist() {

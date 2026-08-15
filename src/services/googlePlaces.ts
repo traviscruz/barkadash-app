@@ -117,6 +117,63 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceSelection |
   }
 }
 
+export interface NearbyPlace {
+  placeId: string;
+  name: string;
+  address: string;
+  rating: number | null;
+  userRatingsTotal: number | null;
+  priceLevel: number | null;
+  photoReference?: string;
+}
+
+export interface NearbyPlacesResult {
+  places: NearbyPlace[];
+  error: PlaceSearchError;
+}
+
+/**
+ * Find real spots (restaurants, hotels, cafes, activities…) around a place
+ * via the Google Places (legacy) Text Search API. Used by the AI chatbot to
+ * back its suggestions with real, up-to-date data.
+ */
+export async function searchPlacesNear(query: string, location?: string): Promise<NearbyPlacesResult> {
+  if (!API_KEY) {
+    console.warn('searchPlacesNear: EXPO_PUBLIC_GOOGLE_PLACES_API_KEY is not set');
+    return { places: [], error: 'no-key' };
+  }
+  try {
+    const fullQuery = location && location.trim() ? `${query} in ${location}` : query;
+    const params = new URLSearchParams({
+      query: fullQuery,
+      key: API_KEY,
+      language: 'en',
+    });
+    const res = await fetch(`https://maps.googleapis.com/maps/api/place/textsearch/json?${params.toString()}`);
+    const json = await res.json();
+    if (json.status !== 'OK' || !Array.isArray(json.results)) {
+      console.warn('searchPlacesNear error:', json.status, json.error_message || '');
+      return { places: [], error: 'api-error' };
+    }
+    const places = json.results
+      .slice(0, 5)
+      .map((r: any) => ({
+        placeId: r.place_id || '',
+        name: r.name || '',
+        address: r.formatted_address || '',
+        rating: r.rating ?? null,
+        userRatingsTotal: r.user_ratings_total ?? null,
+        priceLevel: r.price_level ?? null,
+        photoReference: r.photos?.[0]?.photo_reference,
+      }))
+      .filter((p: NearbyPlace) => p.name);
+    return { places, error: null };
+  } catch (err: any) {
+    console.warn('searchPlacesNear exception:', err?.message);
+    return { places: [], error: 'api-error' };
+  }
+}
+
 /**
  * Build a Google Place Photo URL from a stored photo reference.
  * The API key rides along in the query string (client-side key).

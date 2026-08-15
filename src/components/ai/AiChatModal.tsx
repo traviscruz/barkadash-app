@@ -21,6 +21,7 @@ import { TripService } from '../../services/tripService';
 import { Trip } from '../../types/trip';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
+import { RichNaviMessage } from './RichNaviMessage';
 
 const PLACEHOLDER_DESTINATIONS = ['Voting in Progress', 'Voting Phase', 'Destination Voting', 'Planning Stage'];
 const PLACEHOLDER_DATES = ['Dates TBD', 'Upcoming', 'Upcoming Dates'];
@@ -163,7 +164,7 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
     if (!text || sending) return;
     setDraft('');
     setSending(true);
-    await service.sendMessage(text);
+    await service.sendMessage(text, activeTrip);
     setSending(false);
   };
 
@@ -232,19 +233,26 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
                   },
                 ]}
               >
-                <View style={[styles.tripBarAccent, { backgroundColor: colors.tealDark }]} />
-                <View style={{ flex: 1, gap: 3 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <MapPin size={13} color={colors.tealDark} />
-                    <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '800', color: colors.ink }}>
+                <View style={styles.tripChips}>
+                  <View style={[styles.locationChip, { backgroundColor: colors.tealDark }]}>
+                    <MapPin size={12} color="#FFFFFF" strokeWidth={2.4} />
+                    <Text numberOfLines={1} style={styles.locationChipText}>
                       {PLACEHOLDER_DESTINATIONS.includes(activeTrip.destination) && activeTrip.title
                         ? activeTrip.title
                         : activeTrip.destination}
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                    <CalendarDays size={12} color={colors.inkSoft} />
-                    <Text numberOfLines={1} style={{ fontSize: 10.5, fontWeight: '600', color: colors.inkSoft }}>
+                  <View
+                    style={[
+                      styles.dateChip,
+                      {
+                        backgroundColor: isDark ? 'rgba(96,165,250,0.16)' : colors.lightBlueBg,
+                        borderColor: isDark ? 'rgba(96,165,250,0.35)' : 'rgba(79,134,198,0.25)',
+                      },
+                    ]}
+                  >
+                    <CalendarDays size={11.5} color={isDark ? '#60A5FA' : colors.sky} strokeWidth={2.2} />
+                    <Text numberOfLines={1} style={[styles.dateChipText, { color: isDark ? '#BFDBFE' : colors.skyDeep }]}>
                       {PLACEHOLDER_DATES.includes(activeTrip.dateRange) ? 'Dates TBD' : cleanDateRange(activeTrip.dateRange)}
                     </Text>
                   </View>
@@ -271,40 +279,42 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
                     style={{
                       flexDirection: 'row',
                       justifyContent: isUser ? 'flex-end' : 'flex-start',
-                      alignItems: 'flex-end',
+                      alignItems: isUser ? 'flex-end' : 'flex-start',
                       gap: 8,
                     }}
                   >
                     {!isUser && (
-                      <Image source={aiMascotImg} style={styles.msgAvatar} resizeMode="contain" />
+                      <Image source={aiMascotImg} style={[styles.msgAvatar, { marginTop: 16 }]} resizeMode="contain" />
                     )}
-                    <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start', maxWidth: '78%' }}>
+                    <View style={{ alignItems: isUser ? 'flex-end' : 'flex-start', maxWidth: isUser ? '78%' : '86%' }}>
                       <Text style={{ fontSize: 9, fontWeight: '800', color: colors.inkSoft, marginBottom: 3, letterSpacing: 0.4, textTransform: 'uppercase' }}>
                         {isUser ? 'You' : 'Navi'} · {msg.time}
                       </Text>
-                      <View
-                        style={[
-                          styles.bubble,
-                          {
-                            backgroundColor: isUser ? colors.tealDark : colors.card,
-                            borderBottomRightRadius: isUser ? 4 : 18,
-                            borderBottomLeftRadius: isUser ? 18 : 4,
-                            borderWidth: isUser ? 0 : 1,
-                            borderColor: colors.cardBorder,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            fontSize: fs.sm,
-                            fontWeight: '600',
-                            lineHeight: 20,
-                            color: isUser ? '#FFFFFF' : colors.ink,
-                          }}
+                      {isUser ? (
+                        <View
+                          style={[
+                            styles.bubble,
+                            {
+                              backgroundColor: colors.tealDark,
+                              borderBottomRightRadius: 4,
+                              borderBottomLeftRadius: 18,
+                            },
+                          ]}
                         >
-                          {msg.text}
-                        </Text>
-                      </View>
+                          <Text
+                            style={{
+                              fontSize: fs.sm,
+                              fontWeight: '600',
+                              lineHeight: 20,
+                              color: '#FFFFFF',
+                            }}
+                          >
+                            {msg.text}
+                          </Text>
+                        </View>
+                      ) : (
+                        <RichNaviMessage message={msg} colors={colors} isDark={isDark} />
+                      )}
                     </View>
                   </View>
                 );
@@ -583,17 +593,43 @@ const styles = StyleSheet.create({
     height: 40,
   },
   tripBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
     paddingHorizontal: 16,
-    paddingVertical: 9,
+    paddingVertical: 10,
     borderBottomWidth: 1,
   },
-  tripBarAccent: {
-    width: 4,
-    height: 34,
-    borderRadius: 2,
+  tripChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  locationChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 100,
+    flexShrink: 1,
+  },
+  locationChipText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  dateChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 100,
+    borderWidth: 1,
+    flexShrink: 1,
+  },
+  dateChipText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   msgAvatar: {
     width: 26,
