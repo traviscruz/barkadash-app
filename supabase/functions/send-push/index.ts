@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { notification_id, user_id, title, message, type } = body;
+    const { notification_id, user_id, title, message, type, trip_id, itinerary_item_id } = body;
 
     if (!user_id || !title) {
       return new Response(JSON.stringify({ ok: false, reason: 'missing user_id or title' }), {
@@ -60,6 +60,8 @@ Deno.serve(async (req) => {
           data: {
             notificationId: notification_id,
             type: type || 'system',
+            tripId: trip_id || null,
+            itineraryItemId: itinerary_item_id || null,
             screen: 'notifications',
           },
         },

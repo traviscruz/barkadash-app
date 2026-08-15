@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, TextStyle, Linking } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, TextStyle, Linking, ActivityIndicator } from 'react-native';
 import {
   MapPin,
   Star,
@@ -14,6 +14,8 @@ import {
   Wind,
   Droplets,
   ThermometerSun,
+  Check,
+  X,
 } from 'lucide-react-native';
 import { AiChatMessage } from '../../services/aiChatService';
 import { ChatToolResult, WeatherToolData, PlaceToolData } from '../../services/geminiService';
@@ -25,6 +27,7 @@ interface Props {
   message: AiChatMessage;
   colors: ThemeColors;
   isDark: boolean;
+  onAcceptPlace?: (place: PlaceToolData) => Promise<boolean>;
 }
 
 const mapsLinkFor = (place: PlaceToolData): string => {
@@ -42,14 +45,28 @@ const openMaps = (place: PlaceToolData) => {
   });
 };
 
-// ---- Inline markdown: **bold** ----
+// ---- Inline markdown: **bold**, *bold*, ***bold*** ----
 const renderInline = (text: string, base: TextStyle) => {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  const parts = text.split(/(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return parts.map((p, i) => {
+    if (p.startsWith('***') && p.endsWith('***') && p.length > 6) {
+      return (
+        <Text key={i} style={[base, { fontWeight: '800' }]}>
+          {p.slice(3, -3)}
+        </Text>
+      );
+    }
     if (p.startsWith('**') && p.endsWith('**') && p.length > 4) {
       return (
         <Text key={i} style={[base, { fontWeight: '800' }]}>
           {p.slice(2, -2)}
+        </Text>
+      );
+    }
+    if (p.startsWith('*') && p.endsWith('*') && p.length > 2) {
+      return (
+        <Text key={i} style={[base, { fontWeight: '800' }]}>
+          {p.slice(1, -1)}
         </Text>
       );
     }
@@ -177,80 +194,186 @@ const WeatherCard: React.FC<{ weather: WeatherToolData; colors: ThemeColors; isD
   );
 };
 
-const PlaceCard: React.FC<{ place: PlaceToolData; colors: ThemeColors; isDark: boolean }> = ({ place, colors, isDark }) => {
+const PlaceCard: React.FC<{
+  place: PlaceToolData;
+  colors: ThemeColors;
+  isDark: boolean;
+  onAccept?: () => Promise<boolean>;
+}> = ({ place, colors, isDark, onAccept }) => {
   const [imgFailed, setImgFailed] = useState(false);
+  const [state, setState] = useState<'idle' | 'busy' | 'accepted' | 'declined'>('idle');
   const photoUri =
     place.photoReference && !imgFailed ? getPlacePhotoUrl(place.photoReference, 800) : '';
 
+  const handleAccept = async () => {
+    if (!onAccept || state === 'busy') return;
+    setState('busy');
+    const ok = await onAccept();
+    setState(ok ? 'accepted' : 'idle');
+  };
+
+  const dimmed = state === 'declined';
+
   return (
-    <TouchableOpacity
-      onPress={() => openMaps(place)}
-      activeOpacity={0.85}
+    <View
       style={{
         borderRadius: 16,
         overflow: 'hidden',
         borderWidth: 1,
         borderColor: colors.cardBorder,
         backgroundColor: colors.card,
+        opacity: dimmed ? 0.45 : 1,
       }}
     >
-      {/* Photo block — poll-style full-width cover */}
-      <View style={{ height: 104, backgroundColor: isDark ? '#10283A' : '#1B3A4D' }}>
-        {photoUri ? (
-          <ShimmerImage
-            containerStyle={{ ...StyleSheet.absoluteFillObject }}
-            source={{ uri: photoUri }}
-            resizeMode="cover"
-            onError={() => setImgFailed(true)}
-          />
-        ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <MapPin size={34} color={isDark ? 'rgba(96,165,250,0.4)' : 'rgba(255,255,255,0.55)'} strokeWidth={1.6} />
-          </View>
-        )}
-      </View>
-
-      {/* Body */}
-      <View style={{ padding: 12, gap: 5 }}>
-        <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>
-          {place.name}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          {place.rating != null && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              <Star size={12} color={colors.sun} fill={colors.sun} />
-              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.ink }}>
-                {place.rating}
-              </Text>
+      <TouchableOpacity
+        onPress={() => openMaps(place)}
+        activeOpacity={0.85}
+      >
+        {/* Photo block — poll-style full-width cover */}
+        <View style={{ height: 104, backgroundColor: isDark ? '#10283A' : '#1B3A4D' }}>
+          {photoUri ? (
+            <ShimmerImage
+              containerStyle={{ ...StyleSheet.absoluteFillObject }}
+              source={{ uri: photoUri }}
+              resizeMode="cover"
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <MapPin size={34} color={isDark ? 'rgba(96,165,250,0.4)' : 'rgba(255,255,255,0.55)'} strokeWidth={1.6} />
             </View>
           )}
-          {place.priceLevel != null && place.priceLevel > 0 && (
-            <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.tealAccent }}>
-              {'₱'.repeat(Math.min(place.priceLevel, 4))}
+        </View>
+
+        {/* Body */}
+        <View style={{ padding: 12, gap: 5 }}>
+          <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>
+            {place.name}
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {place.rating != null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Star size={12} color={colors.sun} fill={colors.sun} />
+                <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.ink }}>
+                  {place.rating}
+                </Text>
+              </View>
+            )}
+            {place.priceLevel != null && place.priceLevel > 0 && (
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.tealAccent }}>
+                {'₱'.repeat(Math.min(place.priceLevel, 4))}
+              </Text>
+            )}
+          </View>
+          {!!place.address && (
+            <Text numberOfLines={1} style={{ fontSize: 10.5, fontWeight: '600', color: colors.inkSoft }}>
+              {place.address}
             </Text>
           )}
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}
+            pointerEvents="none"
+          >
+            <MapPin size={12} color={colors.tealAccent} strokeWidth={2.2} />
+            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealAccent }}>
+              View on Google Maps
+            </Text>
+            <ExternalLink size={10} color={colors.tealAccent} />
+          </View>
         </View>
-        {!!place.address && (
-          <Text numberOfLines={1} style={{ fontSize: 10.5, fontWeight: '600', color: colors.inkSoft }}>
-            {place.address}
-          </Text>
-        )}
+      </TouchableOpacity>
+
+      {/* Accept / Decline actions */}
+      {state === 'accepted' ? (
         <View
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}
-          pointerEvents="none"
+          style={{
+            marginHorizontal: 12,
+            marginBottom: 12,
+            paddingVertical: 9,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'row',
+            gap: 6,
+            backgroundColor: isDark ? 'rgba(16,185,129,0.2)' : '#E6F4EA',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(16,185,129,0.4)' : 'rgba(16,185,129,0.45)',
+          }}
         >
-          <MapPin size={12} color={colors.tealAccent} strokeWidth={2.2} />
-          <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealAccent }}>
-            View on Google Maps
+          <Check size={14} color="#10B981" strokeWidth={3} />
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#10B981' }}>
+            Added to Itinerary
           </Text>
-          <ExternalLink size={10} color={colors.tealAccent} />
         </View>
-      </View>
-    </TouchableOpacity>
+      ) : state === 'declined' ? (
+        <View
+          style={{
+            marginHorizontal: 12,
+            marginBottom: 12,
+            paddingVertical: 9,
+            borderRadius: 12,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'row',
+            gap: 6,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+          }}
+        >
+          <X size={14} color={colors.inkSoft} strokeWidth={2.6} />
+          <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.inkSoft }}>
+            Declined
+          </Text>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 12 }}>
+          <TouchableOpacity
+            onPress={handleAccept}
+            disabled={state === 'busy'}
+            activeOpacity={0.85}
+            style={{
+              flex: 1,
+              paddingVertical: 9,
+              borderRadius: 100,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: colors.tealDark,
+              opacity: state === 'busy' ? 0.6 : 1,
+            }}
+          >
+            {state === 'busy' ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' }}>
+                Accept
+              </Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setState('declined')}
+            disabled={state === 'busy'}
+            activeOpacity={0.8}
+            style={{
+              flex: 1,
+              paddingVertical: 9,
+              borderRadius: 100,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
+            }}
+          >
+            <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.inkSoft }}>
+              Decline
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
   );
 };
 
-export const RichNaviMessage: React.FC<Props> = ({ message, colors, isDark }) => {
+export const RichNaviMessage: React.FC<Props> = ({ message, colors, isDark, onAcceptPlace }) => {
   const textStyle: TextStyle = {
     fontSize: 13.5,
     fontWeight: '500',
@@ -268,7 +391,13 @@ export const RichNaviMessage: React.FC<Props> = ({ message, colors, isDark }) =>
         ) : tool.type === 'places' ? (
           <View key={`p${i}`} style={{ marginTop: 16, gap: 20 }}>
             {tool.places.map((p, j) => (
-              <PlaceCard key={`${i}-${j}`} place={p} colors={colors} isDark={isDark} />
+              <PlaceCard
+                key={`${i}-${j}`}
+                place={p}
+                colors={colors}
+                isDark={isDark}
+                onAccept={onAcceptPlace ? () => onAcceptPlace(p) : undefined}
+              />
             ))}
           </View>
         ) : null

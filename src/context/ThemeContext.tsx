@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme as useDeviceColorScheme, Appearance, AppState } from 'react-native';
+import { Appearance, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -125,7 +125,6 @@ const getSystemScheme = (): 'light' | 'dark' => {
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const hookScheme = useDeviceColorScheme();
   const [deviceColorScheme, setDeviceColorScheme] = useState<'light' | 'dark'>(getSystemScheme());
   const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
 
@@ -170,9 +169,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     AsyncStorage.setItem(STORAGE_KEY, mode).catch(() => {});
   };
 
-  const detectedOsMode = (hookScheme === 'dark' || hookScheme === 'light')
-    ? hookScheme
-    : (deviceColorScheme || getSystemScheme());
+  // NOTE: rely on the live `Appearance` + AppState listeners (deviceColorScheme)
+  // instead of useColorScheme(). When a full-screen Modal (e.g. the AI chat) is
+  // presented, useColorScheme() can stay frozen on the previous scheme, which
+  // would leave the chat page on the wrong theme until the app restarts.
+  const detectedOsMode = deviceColorScheme || getSystemScheme();
 
   const isDark =
     themeMode === 'dark' || (themeMode === 'system' && detectedOsMode === 'dark');

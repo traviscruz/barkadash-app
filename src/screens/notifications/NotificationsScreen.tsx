@@ -11,7 +11,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2 } from 'lucide-react-native';
+import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2, MapPin, ThumbsUp } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService, AppNotification } from '../../services/notificationService';
@@ -24,9 +24,10 @@ import { SwipeableNotificationRow } from '../../components/notifications/Swipeab
 interface NotificationsScreenProps {
   onBack?: () => void;
   onNavigateToTab?: (index: number) => void;
+  onNavigateToConnections?: () => void;
 }
 
-export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack, onNavigateToTab }) => {
+export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack, onNavigateToTab, onNavigateToConnections }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const currentUserId = profile?.id;
@@ -111,6 +112,30 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         setCurrentInvite(invites[0]);
       }
     }
+  };
+
+  const handleOpenNotification = async (item: AppNotification) => {
+    // Mark as read (no highlight) regardless of destination
+    if (!item.isRead) {
+      setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)));
+      await NotificationService.markAsRead(item.id);
+    }
+
+    if (item.type === 'trip_invite') {
+      handleOpenInviteModal(item.id);
+      return;
+    }
+    if (item.type === 'follow' || item.type === 'follow_back') {
+      onBack?.();
+      onNavigateToConnections?.();
+      return;
+    }
+    if (item.type === 'itinerary_added' || item.type === 'itinerary_reaction' || item.type === 'poll_result') {
+      onBack?.();
+      onNavigateToTab?.(1);
+      return;
+    }
+    // system notifications have nowhere to go — stay put
   };
 
   useEffect(() => {
@@ -210,7 +235,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
         <TouchableOpacity onPress={onBack} style={styles.backTouch} activeOpacity={0.7}>
           <ChevronLeft size={22} color={colors.ink} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.ink }]}>Notifications</Text>
+        <Text pointerEvents="none" style={[styles.headerTitle, { color: colors.ink }]}>Notifications</Text>
 
         <View style={styles.headerActions}>
           {notifications.length > 0 && (
@@ -261,7 +286,11 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
           notifications.map((item) => {
             const isInvite = item.type === 'trip_invite';
             const isSocial = item.type === 'follow' || item.type === 'follow_back';
-            const isSystem = item.type === 'system' || item.type === 'poll_result';
+            const isSystem =
+              item.type === 'system' ||
+              item.type === 'poll_result' ||
+              item.type === 'itinerary_added' ||
+              item.type === 'itinerary_reaction';
             const isInviteResponse = item.type === 'trip_invite_response';
             const isAcceptedResp = isInviteResponse && item.title?.toLowerCase().includes('accepted');
             const respTripTitle = isInviteResponse ? item.message.match(/"(.*?)"/)?.[1] : null;
@@ -281,10 +310,8 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                 }
               >
               <TouchableOpacity
-                activeOpacity={isInvite ? 0.8 : 1}
-                onPress={() => {
-                  if (isInvite) handleOpenInviteModal(item.id);
-                }}
+                activeOpacity={isInvite ? 0.8 : 0.7}
+                onPress={() => handleOpenNotification(item)}
               >
                 <View
                   style={[
@@ -308,6 +335,10 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                         )
                       ) : item.type === 'follow_back' ? (
                         <UserCheck size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'itinerary_added' ? (
+                        <MapPin size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'itinerary_reaction' ? (
+                        <ThumbsUp size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : isSystem ? (
                         <Bell size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : (
@@ -536,6 +567,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.3,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
   },
   markReadBtn: {
     padding: 6,

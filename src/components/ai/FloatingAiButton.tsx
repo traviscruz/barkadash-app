@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   Animated,
   PanResponder,
@@ -7,6 +7,7 @@ import {
   Image,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 
@@ -15,6 +16,11 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const BUBBLE_SIZE = 60;
 
 const aiMascotImg = require('../../../assets/mascot/ai_mascot.png');
+
+// In-session memory of the last resting spot, so the bubble doesn't snap back
+// to a default corner when the chat modal (which unmounts it) opens and closes.
+let lastPos: { x: number; y: number } | null = null;
+const POS_STORAGE_KEY = '@barkadash_ai_bubble_pos';
 
 interface FloatingAiButtonProps {
   onPress: () => void;
@@ -27,14 +33,35 @@ export const FloatingAiButton: React.FC<FloatingAiButtonProps> = ({ onPress }) =
   // NOTE: translate/scale/pulse MUST use the JS driver (useNativeDriver: false)
   // so we can call setValue() during drags — native-driven values get frozen
   // and throw "attempted to set the key `_value`" errors.
-  const translateX = useRef(new Animated.Value(SCREEN_W - BUBBLE_SIZE - sp.md)).current;
-  const translateY = useRef(new Animated.Value(SCREEN_H * 0.55)).current;
+  const clampX = (x: number) => Math.max(sp.md, Math.min(SCREEN_W - BUBBLE_SIZE - sp.md, x));
+  const clampY = (y: number) => Math.max(sp.md, Math.min(SCREEN_H - BUBBLE_SIZE - sp.md, y));
+
+  const initial = lastPos ?? { x: SCREEN_W - BUBBLE_SIZE - sp.md, y: SCREEN_H * 0.55 };
+  const translateX = useRef(new Animated.Value(clampX(initial.x))).current;
+  const translateY = useRef(new Animated.Value(clampY(initial.y))).current;
   const scale = useRef(new Animated.Value(1)).current;
   const pulse = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(0)).current;
 
   const dragOffset = useRef({ x: 0, y: 0 });
   const dragging = useRef(false);
+
+  // Restore the persisted position after a fresh app launch too.
+  useEffect(() => {
+    AsyncStorage.getItem(POS_STORAGE_KEY).then((raw) => {
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw);
+        if (saved && typeof saved.x === 'number' && typeof saved.y === 'number') {
+          lastPos = { x: saved.x, y: saved.y };
+          translateX.setValue(clampX(saved.x));
+          translateY.setValue(clampY(saved.y));
+        }
+      } catch {
+        // ignore corrupt stored value
+      }
+    });
+  }, [translateX, translateY]);
 
   // Gentle idle pulse so it feels alive
   React.useEffect(() => {
@@ -121,6 +148,11 @@ export const FloatingAiButton: React.FC<FloatingAiButtonProps> = ({ onPress }) =
         const snapLeft = currentX < SCREEN_W / 2 - BUBBLE_SIZE / 2;
         const targetX = snapLeft ? margin : SCREEN_W - BUBBLE_SIZE - margin;
         const clampedY = Math.max(margin, Math.min(SCREEN_H - BUBBLE_SIZE - margin, currentY));
+
+        // Remember the resting spot so the bubble stays put across remounts
+        // (chat open/close) and even after the app relaunches.
+        lastPos = { x: targetX, y: clampedY };
+        AsyncStorage.setItem(POS_STORAGE_KEY, JSON.stringify(lastPos)).catch(() => {});
 
         Animated.spring(translateX, {
           toValue: targetX,

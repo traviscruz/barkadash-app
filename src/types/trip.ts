@@ -1,3 +1,15 @@
+export type ItineraryTag = 'TRANSPORT' | 'ACTIVITY' | 'FOOD' | 'MEETUP';
+
+export interface ItineraryReaction {
+  id: string;
+  itemId: string;
+  userId: string;
+  reaction: 'like' | 'dislike';
+  userFirstName?: string;
+  userLastName?: string;
+  userInitials?: string;
+}
+
 export interface ItineraryItem {
   id: string;
   time: string;
@@ -7,6 +19,21 @@ export interface ItineraryItem {
   estCost: string;
   note?: string;
   isCompleted?: boolean;
+  dayNumber?: number;
+  tag?: ItineraryTag;
+  placeId?: string;
+  placeName?: string;
+  placeAddress?: string;
+  photoReference?: string;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedByName?: string;
+  reactions?: ItineraryReaction[];
+  likeCount?: number;
+  dislikeCount?: number;
+  myReaction?: 'like' | 'dislike' | null;
 }
 
 export interface DestinationPollOption {

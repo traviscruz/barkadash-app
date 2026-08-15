@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TripService } from '../../services/tripService';
-import { DestinationPollOption, BarkadaActivity, Trip } from '../../types/trip';
+import { DestinationPollOption, BarkadaActivity, Trip, ItineraryItem } from '../../types/trip';
+import { parseTripDateRange, tripDayCount } from '../../utils/tripDates';
 import { TripCard } from '../../components/cards/TripCard';
 import { AppCard } from '../../components/cards/AppCard';
 import { SectionHeader } from '../../components/common/SectionHeader';
@@ -35,6 +36,7 @@ import {
   ChevronRight,
   Clock,
   Menu,
+  MapPin,
 } from 'lucide-react-native';
 
 interface HomeScreenProps {
@@ -44,6 +46,54 @@ interface HomeScreenProps {
   onLogout?: () => void;
   onOpenCabinet?: () => void;
 }
+
+/** "8:00 AM" / "14:30" → minutes since midnight (used to pick the next-up item). */
+const timeToMinutes = (t?: string | null): number => {
+  if (!t) return 0;
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return 0;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (m[3] && /pm/i.test(m[3]) && h < 12) h += 12;
+  if (m[3] && /am/i.test(m[3]) && h === 12) h = 0;
+  return h * 60 + min;
+};
+
+/**
+ * Pick the next-up itinerary item while the trip is happening: the earliest
+ * item on today's itinerary day (or a later day) whose time is at/after the
+ * given time. dayNumber is 1-based and aligned with trip start. Returns null
+ * when every item has already passed (nothing left upcoming).
+ */
+const findNextUp = (items: ItineraryItem[], now: Date, tripStart: Date): ItineraryItem | null => {
+  if (items.length === 0) return null;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const dayDiff = Math.floor((now.getTime() - new Date(tripStart).setHours(0, 0, 0, 0)) / 86400000);
+  const todayDayNum = dayDiff + 1;
+
+  const upcoming = items
+    .filter((i) => {
+      const d = i.dayNumber || 1;
+      return d > todayDayNum || (d === todayDayNum && timeToMinutes(i.time) >= nowMin);
+    })
+    .sort((a, b) => {
+      const da = a.dayNumber || 1;
+      const db = b.dayNumber || 1;
+      if (da !== db) return da - db;
+      return timeToMinutes(a.time) - timeToMinutes(b.time);
+    });
+  return upcoming.length > 0 ? upcoming[0] : null;
+};
+
+/** Is the trip currently happening (today is within its date range)? */
+const isTripHappening = (dateRange?: string): boolean => {
+  const range = parseTripDateRange(dateRange);
+  if (!range) return false;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return today >= new Date(range.start.getFullYear(), range.start.getMonth(), range.start.getDate())
+    && today <= new Date(range.end.getFullYear(), range.end.getMonth(), range.end.getDate());
+};
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigateToTab,
@@ -64,11 +114,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [currentLocation, setCurrentLocation] = useState('My Location');
   const [weatherTemp, setWeatherTemp] = useState<number | null>(null);
   const [weatherIsDay, setWeatherIsDay] = useState(true);
+  const [nextUpItem, setNextUpItem] = useState<ItineraryItem | null>(null);
+  const [nextUpLoaded, setNextUpLoaded] = useState(false);
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
   const placePolls = polls.filter((p) => p.type === 'place');
   const isTripLocked = !!activeTrip && (activeTrip.planningStage === 'READY' || activeTrip.planningStage === 'ITINERARY_BUILDING');
+  const tripHappening = isTripHappening(activeTrip?.dateRange);
+  const hasNextUp = !!activeTrip && isTripLocked && tripHappening && !!nextUpItem;
+  const nextUpDay = hasNextUp && nextUpItem
+    ? Math.min((nextUpItem.dayNumber || 1), tripDayCount(activeTrip?.dateRange))
+    : null;
   const winnerPlace = placePolls.length > 0
     ? placePolls.slice().sort((a, b) => {
         if (b.votes !== a.votes) return b.votes - a.votes;
@@ -118,6 +175,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     refreshMembers(trip?.id || null);
   };
 
+  // Load the next-up itinerary item so the home banner shows real data. The
+  // banner shows the live next item only while the trip is happening; a future
+  // trip instead invites members to view the itinerary and react (like/dislike).
+  const loadNextUp = useCallback(async (trip: Trip | null) => {
+    if (!trip?.id) {
+      setNextUpItem(null);
+      setNextUpLoaded(true);
+      return;
+    }
+    const tripDates = parseTripDateRange(trip.dateRange);
+    if (!tripDates || !isTripHappening(trip.dateRange)) {
+      setNextUpItem(null);
+      setNextUpLoaded(true);
+      return;
+    }
+    const items = await TripService.getInstance().fetchTripItineraryDB(trip.id);
+    const next = findNextUp(items, new Date(), tripDates.start);
+    setNextUpItem(next);
+    setNextUpLoaded(true);
+  }, []);
+
   useEffect(() => {
     const service = TripService.getInstance();
     setLoading(true);
@@ -163,6 +241,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       unsubscribeTrip();
     };
   }, [profile?.id]);
+
+  // Refresh the next-up banner whenever the active trip changes.
+  useEffect(() => {
+    loadNextUp(activeTrip);
+  }, [activeTrip?.id, activeTrip?.dateRange, loadNextUp]);
 
   // Show the user's current location instead of a hardcoded city,
   // and fetch live weather (°C) for that spot.
@@ -298,16 +381,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               style={[styles.nextUpBanner, { backgroundColor: isDark ? colors.card : '#0F2A3C', borderColor: isDark ? colors.cardBorder : 'rgba(255,255,255,0.1)' }]}
             >
               <View style={styles.nextUpIconBox}>
-                <Clock size={icon.lg} color="#FFFFFF" />
+                {hasNextUp
+                  ? <Clock size={icon.lg} color="#FFFFFF" />
+                  : <MapPin size={icon.lg} color="#FFFFFF" />}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.nextUpLabel}>NEXT UP ON ITINERARY</Text>
-                <Text style={styles.nextUpTitle} numberOfLines={1}>
-                  {activeTrip.nextActivityTitle}
-                </Text>
-                <Text style={styles.nextUpTime}>
-                  {activeTrip.nextActivityTime}
-                </Text>
+                {hasNextUp ? (
+                  <>
+                    <Text style={styles.nextUpLabel}>NEXT UP ON ITINERARY</Text>
+                    <Text style={styles.nextUpTitle} numberOfLines={1}>
+                      {nextUpItem!.title}
+                    </Text>
+                    <Text style={styles.nextUpTime}>
+                      {nextUpItem!.time}
+                      {nextUpDay && nextUpDay > 1 ? ` · Day ${nextUpDay}` : ''}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.nextUpLabel}>VIEW ITINERARY</Text>
+                    <Text style={styles.nextUpTitle} numberOfLines={1}>
+                      See the plan, react to each spot
+                    </Text>
+                    <Text style={styles.nextUpTime}>
+                      Tap like or dislike to share your vote
+                    </Text>
+                  </>
+                )}
               </View>
               <ChevronRight size={icon.lg} color="#FFFFFF" />
             </TouchableOpacity>

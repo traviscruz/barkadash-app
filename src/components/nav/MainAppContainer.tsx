@@ -81,13 +81,20 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
     }, 15000);
   }, []);
 
-  // Push token registration + tapping a push opens the Notifications screen
+  // Push token registration + tapping a push opens the applicable screen
   useEffect(() => {
     if (profile?.id) {
       PushService.registerPushToken(profile.id);
     }
-    const unlisten = PushService.listenForPushResponses(() => {
-      handleOpenSubScreen('notifications');
+    const unlisten = PushService.listenForPushResponses((data) => {
+      const type = data?.type;
+      if (type === 'follow' || type === 'follow_back') {
+        handleOpenSubScreen('connections');
+      } else if (type === 'itinerary_added' || type === 'itinerary_reaction' || type === 'poll_result') {
+        handleTabChange(1);
+      } else {
+        handleOpenSubScreen('notifications');
+      }
     });
     return () => unlisten();
   }, [profile?.id]);
@@ -113,6 +120,13 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
             // banner for trip invites to avoid a doubled/redundant popup.
             if (payload.eventType === 'INSERT' && row?.id && row?.type !== 'trip_invite') {
               if (shownBannerIds.current.has(row.id)) return;
+              // Only banner genuinely-new notifications. Realtime can replay the
+              // most recent row when a channel connects (login / reconnect),
+              // which would otherwise re-pop old "following you" banners.
+              if (row.created_at) {
+                const ageMs = Date.now() - new Date(row.created_at).getTime();
+                if (ageMs > 15000) return;
+              }
               markBannerShown(row.id);
               showBanner({
                 id: row.id,
@@ -136,6 +150,19 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
       setCurrentInvite(pendingInvites[0]);
     }
   }, [pendingInvites]);
+
+  const handleBannerPress = useCallback(() => {
+    const notif = bannerQueue[0];
+    if (!notif) return;
+    if (notif.type === 'follow' || notif.type === 'follow_back') {
+      handleOpenSubScreen('connections');
+    } else if (notif.type === 'itinerary_added' || notif.type === 'itinerary_reaction' || notif.type === 'poll_result') {
+      handleTabChange(1);
+    } else {
+      handleOpenSubScreen('notifications');
+    }
+    closeBanner();
+  }, [bannerQueue]);
 
   // Level 1 Sub-Screen Slide Animation (Profile, Settings, Terms, Connections)
   const rootSubAnim = useRef(new Animated.Value(SCREEN_WIDTH)).current;
@@ -280,6 +307,8 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
             <View style={[styles.subScreenContainer, { display: activeSubScreen === 'notifications' ? 'flex' : 'none' }]}>
               <NotificationsScreen
                 onBack={handleBackRootSub}
+                onNavigateToTab={handleTabChange}
+                onNavigateToConnections={() => handleOpenSubScreen('connections')}
               />
             </View>
 
@@ -339,7 +368,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
       {/* In-app notification banner (someone followed you, poll ended, etc.) */}
       <InAppNotificationBanner
         notification={bannerQueue[0] || null}
-        onPress={() => handleOpenSubScreen('notifications')}
+        onPress={handleBannerPress}
         onClose={closeBanner}
         topOffset={currentInvite ? 225 : 0}
       />

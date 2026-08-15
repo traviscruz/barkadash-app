@@ -8,13 +8,23 @@ export interface AppNotification {
   actorHandle?: string;
   actorInitials?: string;
   actorAvatarBg?: string;
-  type: 'follow' | 'follow_back' | 'system' | 'trip_invite' | 'poll_result' | 'trip_invite_response';
+  type:
+    | 'follow'
+    | 'follow_back'
+    | 'system'
+    | 'trip_invite'
+    | 'poll_result'
+    | 'trip_invite_response'
+    | 'itinerary_added'
+    | 'itinerary_reaction';
   title: string;
   message: string;
   isRead: boolean;
   createdAt: string;
   timeAgo: string;
   isFollowingActor?: boolean;
+  tripId?: string;
+  itineraryItemId?: string;
 }
 
 const AVATAR_BG_COLORS = [
@@ -56,6 +66,8 @@ export const NotificationService = {
           message,
           is_read,
           created_at,
+          trip_id,
+          itinerary_item_id,
           profiles:actor_id (
             first_name,
             last_name,
@@ -85,7 +97,7 @@ export const NotificationService = {
         }
       }
 
-      return data.map((n: any) => {
+      const mapped = data.map((n: any) => {
         const actor = n.profiles || {};
         const firstName = actor.first_name || 'Someone';
         const lastName = actor.last_name || '';
@@ -109,7 +121,21 @@ export const NotificationService = {
           createdAt: n.created_at,
           timeAgo: formatTimeAgo(n.created_at),
           isFollowingActor: n.actor_id ? followingSet.has(n.actor_id) : false,
+          tripId: n.trip_id || undefined,
+          itineraryItemId: n.itinerary_item_id || undefined,
         };
+      });
+
+      // Collapse redundant "started following you" duplicates (same actor, same
+      // follow type) down to the latest one, so logging in / stale rows don't
+      // flood the notification page with repeats.
+      const seenFollowActors = new Set<string>();
+      return mapped.filter((n) => {
+        if (n.type === 'follow' || n.type === 'follow_back') {
+          if (!n.actorId || seenFollowActors.has(n.actorId)) return false;
+          seenFollowActors.add(n.actorId);
+        }
+        return true;
       });
     } catch (err: any) {
       console.warn('NotificationService fetchNotifications error:', err.message);
@@ -284,6 +310,121 @@ export const NotificationService = {
       return true;
     } catch (err: any) {
       console.warn('NotificationService createTripInviteResponseNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the other members of a trip that someone added an itinerary item.
+   */
+  async createItineraryAddedNotification(
+    actorId: string,
+    tripId: string,
+    actorName: string,
+    itemTitle: string,
+    itineraryItemId: string,
+    tripTitle: string
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        type: 'itinerary_added',
+        title: 'New Itinerary Spot',
+        message: `${actorName} added "${itemTitle}" to the ${tripTitle} itinerary — check it out!`,
+        is_read: false,
+        trip_id: tripId,
+        itinerary_item_id: itineraryItemId,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createItineraryAddedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService createItineraryAddedNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the creator of an itinerary item when another member likes or
+   * dislikes their spot.
+   */
+  async createItineraryReactionNotification(
+    actorId: string,
+    itemCreatorId: string,
+    actorName: string,
+    itemTitle: string,
+    itineraryItemId: string,
+    tripId: string,
+    tripTitle: string,
+    reaction: 'like' | 'dislike'
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !itemCreatorId || actorId === itemCreatorId) return false;
+
+      const { error } = await supabase.from('notifications').insert({
+        user_id: itemCreatorId,
+        actor_id: actorId,
+        type: 'itinerary_reaction',
+        title: reaction === 'like' ? 'Spot Liked' : 'Spot Disliked',
+        message:
+          reaction === 'like'
+            ? `${actorName} liked "${itemTitle}" in your ${tripTitle} itinerary.`
+            : `${actorName} disliked "${itemTitle}" in your ${tripTitle} itinerary — maybe consider swapping it.`,
+        is_read: false,
+        trip_id: tripId,
+        itinerary_item_id: itineraryItemId,
+      });
+
+      if (error) {
+        console.warn('createItineraryReactionNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService createItineraryReactionNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Fetch the accepted member ids of a trip (used to fan out notifications).
+   */
+  async fetchAcceptedTripMemberIds(tripId: string): Promise<string[]> {
+    try {
+      const { data } = await supabase
+        .from('trip_participants')
+        .select('user_id')
+        .eq('trip_id', tripId)
+        .eq('status', 'accepted');
+      return (data || []).map((row: any) => row.user_id);
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * Mark a single notification as read.
+   */
+  async markAsRead(id: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id);
+      if (error) {
+        console.warn('NotificationService markAsRead error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('NotificationService markAsRead error:', err.message);
       return false;
     }
   },

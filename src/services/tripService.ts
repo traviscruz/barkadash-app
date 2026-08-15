@@ -1,4 +1,4 @@
-import { Trip, DestinationPollOption, BarkadaActivity } from '../types/trip';
+import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
 import { NotificationService } from './notificationService';
@@ -911,6 +911,332 @@ export class TripService {
   }
 
   /**
+   * Fetch the itinerary items for a trip (optionally for one day) from Supabase,
+   * with like/dislike reactions and creator/editor names attached.
+   */
+  public async fetchTripItineraryDB(tripId: string, dayNumber?: number): Promise<ItineraryItem[]> {
+    try {
+      let query = supabase
+        .from('trip_itinerary_items')
+        .select(`
+          id,
+          trip_id,
+          day_number,
+          title,
+          time,
+          tag,
+          location,
+          est_cost,
+          note,
+          is_completed,
+          place_id,
+          place_name,
+          place_address,
+          photo_reference,
+          created_by,
+          created_at,
+          updated_at,
+          updated_by,
+          creator_profile:created_by ( first_name, last_name ),
+          editor_profile:updated_by ( first_name, last_name ),
+          reactions:trip_itinerary_reactions (
+            id,
+            user_id,
+            reaction,
+            user_profile:user_id ( first_name, last_name )
+          )
+        `)
+        .eq('trip_id', tripId);
+      if (dayNumber) query = query.eq('day_number', dayNumber);
+      const { data, error } = await query.order('time', { ascending: true });
+
+      if (error || !data) {
+        console.warn('fetchTripItineraryDB error:', error?.message);
+        return [];
+      }
+
+      const me = (await supabase.auth.getUser()).data?.user?.id;
+
+      return data.map((row: any) => {
+        const reactions: ItineraryReaction[] = (row.reactions || []).map((r: any) => {
+          const prof = r.user_profile || {};
+          const fn = prof.first_name || '';
+          const ln = prof.last_name || '';
+          return {
+            id: r.id,
+            itemId: row.id,
+            userId: r.user_id,
+            reaction: r.reaction,
+            userFirstName: fn,
+            userLastName: ln,
+            userInitials: `${(fn[0] || '').toUpperCase()}${(ln[0] || '').toUpperCase()}` || 'U',
+          };
+        });
+        const likeCount = reactions.filter((r) => r.reaction === 'like').length;
+        const dislikeCount = reactions.filter((r) => r.reaction === 'dislike').length;
+        const mine = reactions.find((r) => r.userId === me)?.reaction || null;
+
+        const creator = row.creator_profile || {};
+        const editor = row.editor_profile || {};
+
+        return {
+          id: row.id,
+          time: row.time || '',
+          title: row.title,
+          category: row.tag || 'ACTIVITY',
+          location: row.place_name || row.location || row.place_address || '',
+          estCost: row.est_cost || '',
+          note: row.note || undefined,
+          isCompleted: !!row.is_completed,
+          dayNumber: row.day_number,
+          tag: row.tag,
+          placeId: row.place_id || undefined,
+          placeName: row.place_name || undefined,
+          placeAddress: row.place_address || undefined,
+          photoReference: row.photo_reference || undefined,
+          createdBy: row.created_by,
+          createdByName: `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || 'Barkada',
+          createdAt: row.created_at || undefined,
+          updatedAt: row.updated_at || undefined,
+          updatedByName: editor.first_name
+            ? `${editor.first_name} ${editor.last_name || ''}`.trim()
+            : undefined,
+          reactions,
+          likeCount,
+          dislikeCount,
+          myReaction: mine as 'like' | 'dislike' | null,
+        };
+      });
+    } catch (err: any) {
+      console.warn('fetchTripItineraryDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Add an itinerary item to a trip (creator auto-set). Fans out "New
+   * Itinerary Spot" notifications to the other members.
+   */
+  public async addItineraryItemDB(params: {
+    tripId: string;
+    dayNumber: number;
+    title: string;
+    time?: string;
+    tag?: ItineraryTag;
+    location?: string;
+    estCost?: string;
+    note?: string;
+    placeId?: string;
+    placeName?: string;
+    placeAddress?: string;
+    photoReference?: string;
+    userId: string;
+  }): Promise<ItineraryItem | null> {
+    try {
+      const { data, error } = await supabase
+        .from('trip_itinerary_items')
+        .insert({
+          trip_id: params.tripId,
+          day_number: params.dayNumber,
+          title: params.title.trim(),
+          time: params.time?.trim() || null,
+          tag: params.tag || 'ACTIVITY',
+          location: params.location?.trim() || null,
+          est_cost: params.estCost?.trim() || null,
+          note: params.note?.trim() || null,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          created_by: params.userId,
+          updated_by: params.userId,
+        })
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        console.warn('addItineraryItemDB error:', error?.message);
+        return null;
+      }
+
+      // Notify the other members
+      let actorName = 'Someone';
+      if (params.userId) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', params.userId)
+          .maybeSingle();
+        if (prof?.first_name) actorName = `${prof.first_name} ${prof.last_name || ''}`.trim();
+      }
+      let tripTitle = 'Barkada Trip';
+      if (params.tripId) {
+        const { data: tripRow } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', params.tripId)
+          .maybeSingle();
+        if (tripRow?.title) tripTitle = tripRow.title;
+      }
+      const notified = await NotificationService.createItineraryAddedNotification(
+        params.userId,
+        params.tripId,
+        actorName,
+        params.title.trim(),
+        data.id,
+        tripTitle
+      );
+      if (!notified) console.warn('addItineraryItemDB: itinerary-added notification not sent');
+
+      const list = await this.fetchTripItineraryDB(params.tripId, params.dayNumber);
+      return list.find((i) => i.id === data.id) || null;
+    } catch (err: any) {
+      console.warn('addItineraryItemDB exception:', err?.message);
+      return null;
+    }
+  }
+
+  /**
+   * Edit an itinerary item (creator only, enforced by RLS).
+   */
+  public async updateItineraryItemDB(
+    itemId: string,
+    params: {
+      title: string;
+      time?: string;
+      tag?: ItineraryTag;
+      location?: string;
+      estCost?: string;
+      note?: string;
+      placeId?: string;
+      placeName?: string;
+      placeAddress?: string;
+      photoReference?: string;
+    },
+    userId: string
+  ): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('trip_itinerary_items')
+        .update({
+          title: params.title.trim(),
+          time: params.time?.trim() || null,
+          tag: params.tag || 'ACTIVITY',
+          location: params.location?.trim() || null,
+          est_cost: params.estCost?.trim() || null,
+          note: params.note?.trim() || null,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          updated_at: new Date().toISOString(),
+          updated_by: userId,
+        })
+        .eq('id', itemId);
+
+      if (error) {
+        console.warn('updateItineraryItemDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('updateItineraryItemDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Delete an itinerary item (creator only, enforced by RLS).
+   */
+  public async deleteItineraryItemDB(itemId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('trip_itinerary_items').delete().eq('id', itemId);
+      if (error) {
+        console.warn('deleteItineraryItemDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('deleteItineraryItemDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Toggle a member's like / dislike on an itinerary item and notify the item
+   * creator on the first time they react to it.
+   */
+  public async toggleItineraryReactionDB(
+    itemId: string,
+    tripId: string,
+    userId: string,
+    reaction: 'like' | 'dislike'
+  ): Promise<boolean> {
+    try {
+      const { data: existing } = await supabase
+        .from('trip_itinerary_reactions')
+        .select('id, reaction')
+        .eq('item_id', itemId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.reaction === reaction) {
+          // Same reaction tapped again → remove it
+          await supabase.from('trip_itinerary_reactions').delete().eq('id', existing.id);
+        } else {
+          // Switch like <-> dislike
+          await supabase
+            .from('trip_itinerary_reactions')
+            .update({ reaction, updated_at: new Date().toISOString() })
+            .eq('id', existing.id);
+        }
+        return true;
+      }
+
+      await supabase.from('trip_itinerary_reactions').insert({ item_id: itemId, user_id: userId, reaction });
+
+      // Notify the item creator (only on the first reaction to this item)
+      const { data: item } = await supabase
+        .from('trip_itinerary_items')
+        .select('created_by, title')
+        .eq('id', itemId)
+        .maybeSingle();
+      if (item && item.created_by !== userId) {
+        let actorName = 'Someone';
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', userId)
+          .maybeSingle();
+        if (prof?.first_name) actorName = `${prof.first_name} ${prof.last_name || ''}`.trim();
+        let tripTitle = 'Barkada Trip';
+        const { data: tripRow } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', tripId)
+          .maybeSingle();
+        if (tripRow?.title) tripTitle = tripRow.title;
+        const notified = await NotificationService.createItineraryReactionNotification(
+          userId,
+          item.created_by,
+          actorName,
+          item.title,
+          itemId,
+          tripId,
+          tripTitle,
+          reaction
+        );
+        if (!notified) console.warn('toggleItineraryReactionDB: itinerary-reaction notification not sent');
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('toggleItineraryReactionDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
    * Fetch host + voting deadline for a trip (used to show host-only UI).
    */
   public async fetchTripSettingsDB(tripId: string): Promise<{ hostId: string | null; votingDeadline: string | null; planningStage: string | null }> {
@@ -1192,6 +1518,20 @@ export class TripService {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trip_poll_votes' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_itinerary_items' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_itinerary_reactions' },
         () => {
           this.notify();
         }

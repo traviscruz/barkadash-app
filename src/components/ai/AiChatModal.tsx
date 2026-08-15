@@ -21,7 +21,11 @@ import { TripService } from '../../services/tripService';
 import { Trip } from '../../types/trip';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
+import { useUser } from '../../context/UserContext';
 import { RichNaviMessage } from './RichNaviMessage';
+import { ItineraryAddModal } from '../trip/ItineraryAddModal';
+import { PlaceToolData } from '../../services/aiAssistantCommon';
+import { tripDayCount } from '../../utils/tripDates';
 
 const PLACEHOLDER_DESTINATIONS = ['Voting in Progress', 'Voting Phase', 'Destination Voting', 'Planning Stage'];
 const PLACEHOLDER_DATES = ['Dates TBD', 'Upcoming', 'Upcoming Dates'];
@@ -41,6 +45,7 @@ interface AiChatModalProps {
 export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) => {
   const { colors, isDark } = useTheme();
   const { fs, insets } = useResponsive();
+  const { profile } = useUser();
   const service = AiChatService.getInstance();
 
   const [sessions, setSessions] = useState<AiChatSession[]>([]);
@@ -51,7 +56,22 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
   const [showHistory, setShowHistory] = useState(false);
   const [lineCount, setLineCount] = useState(1);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [acceptingPlace, setAcceptingPlace] = useState<PlaceToolData | null>(null);
+  const acceptResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  const handleAcceptPlace = (place: PlaceToolData): Promise<boolean> => {
+    setAcceptingPlace(place);
+    return new Promise<boolean>((resolve) => {
+      acceptResolveRef.current = resolve;
+    });
+  };
+
+  const closeAccept = (ok: boolean) => {
+    acceptResolveRef.current?.(ok);
+    acceptResolveRef.current = null;
+    setAcceptingPlace(null);
+  };
 
   const historyAnim = useRef(new Animated.Value(-300)).current;
   const typingAnim = useRef(new Animated.Value(0)).current;
@@ -313,7 +333,12 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
                           </Text>
                         </View>
                       ) : (
-                        <RichNaviMessage message={msg} colors={colors} isDark={isDark} />
+                        <RichNaviMessage
+                          message={msg}
+                          colors={colors}
+                          isDark={isDark}
+                          onAcceptPlace={activeTrip ? handleAcceptPlace : undefined}
+                        />
                       )}
                     </View>
                   </View>
@@ -548,6 +573,28 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
             ))}
           </ScrollView>
         </Animated.View>
+
+        {/* Accept a suggested place → add to itinerary (day + time, with 5-min gap validation) */}
+        <ItineraryAddModal
+          visible={!!acceptingPlace}
+          mode="add"
+          tripId={activeTrip?.id || ''}
+          dayNumber={1}
+          dayCount={tripDayCount(activeTrip?.dateRange)}
+          userId={profile?.id || ''}
+          initialPlace={
+            acceptingPlace
+              ? {
+                  placeId: acceptingPlace.placeId || undefined,
+                  name: acceptingPlace.name,
+                  address: acceptingPlace.address || undefined,
+                  photoReference: acceptingPlace.photoReference,
+                }
+              : null
+          }
+          onClose={() => closeAccept(false)}
+          onSaved={() => closeAccept(true)}
+        />
       </View>
     </Modal>
   );
