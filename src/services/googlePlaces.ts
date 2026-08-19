@@ -127,6 +127,37 @@ export interface NearbyPlace {
   photoReference?: string;
 }
 
+export interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Resolve a Google Place ID to lat/lng coordinates via the Places (legacy)
+ * Details API. Used by the fare estimator to build a real route.
+ */
+export async function getPlaceLatLng(placeId: string): Promise<LatLng | null> {
+  if (!API_KEY || !placeId) return null;
+  try {
+    const params = new URLSearchParams({
+      place_id: placeId,
+      fields: 'geometry',
+      key: API_KEY,
+    });
+    const res = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?${params.toString()}`);
+    const json = await res.json();
+    const loc = json?.result?.geometry?.location;
+    if (json.status !== 'OK' || !loc) {
+      console.warn('getPlaceLatLng error:', json.status, json.error_message || '');
+      return null;
+    }
+    return { latitude: loc.lat, longitude: loc.lng };
+  } catch (err: any) {
+    console.warn('getPlaceLatLng exception:', err?.message);
+    return null;
+  }
+}
+
 export interface NearbyPlacesResult {
   places: NearbyPlace[];
   error: PlaceSearchError;

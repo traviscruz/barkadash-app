@@ -10,6 +10,51 @@ export interface ItineraryReaction {
   userInitials?: string;
 }
 
+export interface TripStayReaction {
+  id: string;
+  stayId: string;
+  userId: string;
+  reaction: 'like' | 'dislike';
+  userFirstName?: string;
+  userLastName?: string;
+  userInitials?: string;
+}
+
+export interface TripStayComment {
+  id: string;
+  stayId: string;
+  userId: string;
+  comment: string;
+  createdAt?: string;
+  userFirstName?: string;
+  userLastName?: string;
+  userInitials?: string;
+}
+
+export interface TripStay {
+  id: string;
+  tripId: string;
+  title: string;
+  startDay: number;
+  endDay: number;
+  placeId?: string;
+  placeName?: string;
+  placeAddress?: string;
+  photoReference?: string;
+  link?: string;
+  note?: string;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  reactions?: TripStayReaction[];
+  likeCount?: number;
+  dislikeCount?: number;
+  myReaction?: 'like' | 'dislike' | null;
+  comments?: TripStayComment[];
+  commentCount?: number;
+}
+
 export interface ItineraryItem {
   id: string;
   time: string;

@@ -16,7 +16,10 @@ export interface AppNotification {
     | 'poll_result'
     | 'trip_invite_response'
     | 'itinerary_added'
-    | 'itinerary_reaction';
+    | 'itinerary_reaction'
+    | 'stay_added'
+    | 'stay_reaction'
+    | 'stay_comment';
   title: string;
   message: string;
   isRead: boolean;
@@ -25,6 +28,7 @@ export interface AppNotification {
   isFollowingActor?: boolean;
   tripId?: string;
   itineraryItemId?: string;
+  stayId?: string;
 }
 
 const AVATAR_BG_COLORS = [
@@ -68,6 +72,7 @@ export const NotificationService = {
           created_at,
           trip_id,
           itinerary_item_id,
+          stay_id,
           profiles:actor_id (
             first_name,
             last_name,
@@ -123,6 +128,7 @@ export const NotificationService = {
           isFollowingActor: n.actor_id ? followingSet.has(n.actor_id) : false,
           tripId: n.trip_id || undefined,
           itineraryItemId: n.itinerary_item_id || undefined,
+          stayId: n.stay_id || undefined,
         };
       });
 
@@ -392,6 +398,132 @@ export const NotificationService = {
       return true;
     } catch (err: any) {
       console.warn('NotificationService createItineraryReactionNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the other members of a trip that the host added a stay.
+   */
+  async createStayAddedNotification(
+    actorId: string,
+    tripId: string,
+    actorName: string,
+    stayTitle: string,
+    stayId: string,
+    tripTitle: string
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        type: 'stay_added',
+        title: 'New Stay Added',
+        message: `${actorName} picked "${stayTitle}" for the ${tripTitle} stay — check it out!`,
+        is_read: false,
+        trip_id: tripId,
+        stay_id: stayId,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createStayAddedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createStayAddedNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the other trip members when someone likes or dislikes a stay.
+   */
+  async createStayReactionNotification(
+    actorId: string,
+    tripId: string,
+    actorName: string,
+    stayTitle: string,
+    stayId: string,
+    tripTitle: string,
+    reaction: 'like' | 'dislike'
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        type: 'stay_reaction',
+        title: reaction === 'like' ? 'Stay Liked' : 'Stay Disliked',
+        message:
+          reaction === 'like'
+            ? `${actorName} liked "${stayTitle}" for your ${tripTitle} stay.`
+            : `${actorName} disliked "${stayTitle}" for your ${tripTitle} stay — maybe consider swapping it.`,
+        is_read: false,
+        trip_id: tripId,
+        stay_id: stayId,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createStayReactionNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createStayReactionNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the other trip members when someone comments on a stay.
+   */
+  async createStayCommentNotification(
+    actorId: string,
+    tripId: string,
+    actorName: string,
+    stayTitle: string,
+    commentText: string,
+    stayId: string,
+    tripTitle: string
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const snippet = `${commentText.slice(0, 60)}${commentText.length > 60 ? '…' : ''}`;
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        type: 'stay_comment',
+        title: 'New Comment on Stay',
+        message: `${actorName} commented on "${stayTitle}": "${snippet}"`,
+        is_read: false,
+        trip_id: tripId,
+        stay_id: stayId,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createStayCommentNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createStayCommentNotification error:', err.message);
       return false;
     }
   },

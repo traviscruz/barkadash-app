@@ -27,7 +27,6 @@ import {
   Battery,
   Clock,
   Menu,
-  Share2,
   Sun,
   Moon,
   ChevronDown,
@@ -36,6 +35,9 @@ import {
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
+import { TripService } from '../../services/tripService';
+import { Trip } from '../../types/trip';
 import { fetchWeather } from '../../services/weatherService';
 
 interface MemberStatus {
@@ -50,8 +52,20 @@ interface MemberStatus {
   speed: string;
   lastUpdated: string;
   isMe?: boolean;
+  isOnline?: boolean;
   lat: number;
   lng: number;
+}
+
+interface Participant {
+  id: string;
+  name: string;
+  handle: string;
+  initials: string;
+  avatarBg: string;
+  avatarUrl?: string;
+  role: 'host' | 'member';
+  status: 'accepted' | 'pending';
 }
 
 interface BarkadaRadarScreenProps {
@@ -84,6 +98,53 @@ function latLngToPixel(lat: number, lng: number, zoom: number) {
   return { x, y };
 }
 
+const OFFSETS = [
+  { lat: 0.0045, lng: 0.0035 },
+  { lat: -0.006, lng: 0.005 },
+  { lat: 0.0075, lng: -0.0055 },
+  { lat: -0.003, lng: -0.004 },
+  { lat: 0.009, lng: 0.006 },
+  { lat: -0.008, lng: -0.006 },
+];
+
+const formatSpeed = (speedMps: number | null | undefined): string => {
+  if (speedMps == null) return 'Stationary';
+  const kmh = speedMps * 3.6;
+  if (kmh < 0.5) return 'Stationary';
+  return `Moving • ${Math.round(kmh)} km/h`;
+};
+
+const buildMembers = (
+  participants: Participant[],
+  myLat: number,
+  myLng: number,
+  mySpeed: number | null | undefined,
+  meId: string
+): MemberStatus[] =>
+  participants.map((p, i) => {
+    const isMe = p.id === meId;
+    const off = OFFSETS[i % OFFSETS.length];
+    const lat = isMe ? myLat : myLat + off.lat;
+    const lng = isMe ? myLng : myLng + off.lng;
+    const distance = isMe ? 'Here' : calculateDistanceKm(myLat, myLng, lat, lng);
+    return {
+      id: p.id,
+      name: isMe ? `${p.name} (you)` : p.name,
+      initial: p.initials || p.name.charAt(0).toUpperCase(),
+      avatarBg: p.avatarBg,
+      statusText: isMe ? 'Live Location' : 'Offline',
+      address: isMe ? 'Current Device Location' : 'Last seen in this trip',
+      distance,
+      battery: 85 + ((i * 13) % 15),
+      speed: isMe ? formatSpeed(mySpeed) : '—',
+      lastUpdated: isMe ? 'Just now' : 'Offline',
+      isMe,
+      isOnline: isMe,
+      lat,
+      lng,
+    };
+  });
+
 export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCabinet }) => {
   const { colors, isDark } = useTheme();
   const { sp, fs, insets, isTablet } = useResponsive();
@@ -95,7 +156,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
   const [weatherTemp, setWeatherTemp] = useState<number | null>(null);
   const [weatherIsDay, setWeatherIsDay] = useState(true);
   const [mapStyleOverride, setMapStyleOverride] = useState<'auto' | 'hybrid' | 'dark' | 'light'>('auto');
-  const [selectedMemberId, setSelectedMemberId] = useState<string>('m1');
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('');
   const [locationStatus, setLocationStatus] = useState<string>('Acquiring GPS...');
   const [isCardCollapsed, setIsCardCollapsed] = useState<boolean>(false);
 
@@ -135,85 +196,23 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
     lng: 120.9842,
   });
 
-  const [members, setMembers] = useState<MemberStatus[]>([
-    {
-      id: 'm1',
-      name: 'Travis (you)',
-      initial: 'T',
-      avatarBg: '#0171F8',
-      statusText: 'Current Location',
-      address: 'Near City Center Plaza',
-      distance: '0.0 km',
-      battery: 94,
-      speed: 'Stationary',
-      lastUpdated: 'Just now',
-      isMe: true,
-      lat: 14.5995,
-      lng: 120.9842,
-    },
-    {
-      id: 'm2',
-      name: 'Steven',
-      initial: 'S',
-      avatarBg: '#EA4335',
-      statusText: 'Coffee Hub',
-      address: 'Main St & 5th Ave',
-      distance: '0.8 km away',
-      battery: 88,
-      speed: 'Walking • 4 km/h',
-      lastUpdated: '2m ago',
-      lat: 14.6045,
-      lng: 120.9892,
-    },
-    {
-      id: 'm3',
-      name: 'Harry',
-      initial: 'H',
-      avatarBg: '#FBBC05',
-      statusText: 'City Square',
-      address: 'Central Park West',
-      distance: '1.4 km away',
-      battery: 76,
-      speed: 'Driving • 24 km/h',
-      lastUpdated: '4m ago',
-      lat: 14.5915,
-      lng: 120.9932,
-    },
-    {
-      id: 'm4',
-      name: 'Ahiah',
-      initial: 'A',
-      avatarBg: '#34A853',
-      statusText: 'Shopping District',
-      address: 'Grand Promenade',
-      distance: '2.1 km away',
-      battery: 63,
-      speed: 'Stationary',
-      lastUpdated: '10m ago',
-      lat: 14.6115,
-      lng: 120.9742,
-    },
-    {
-      id: 'm5',
-      name: 'Ica',
-      initial: 'I',
-      avatarBg: '#A142F4',
-      statusText: 'Waterfront Park',
-      address: 'Baywalk Esplanade',
-      distance: '0.5 km away',
-      battery: 97,
-      speed: 'Idle',
-      lastUpdated: '1m ago',
-      lat: 14.5955,
-      lng: 120.9802,
-    },
-  ]);
+  const { profile } = useUser();
+  const currentUserId = profile?.id || '';
 
-  // Fetch Phone GPS Location
+  const [members, setMembers] = useState<MemberStatus[]>([]);
+  const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [myLoc, setMyLoc] = useState<{ lat: number; lng: number; speed: number | null } | null>(null);
+  const myLocRef = useRef<{ lat: number; lng: number; speed: number | null } | null>(null);
+  const didInitCenter = useRef(false);
+  const didFetchWeather = useRef(false);
+
+  // Continuous Live GPS Tracking (marker moves as you move)
   useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
     let isMounted = true;
 
-    async function fetchPhoneLocation() {
+    async function startWatching() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -224,100 +223,25 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
           return;
         }
 
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-
-        if (location && location.coords && isMounted) {
-          const lat = location.coords.latitude;
-          const lng = location.coords.longitude;
-
-          setCenter({ lat, lng });
-          setLocationStatus('Live GPS Active');
-
-          const weather = await fetchWeather(lat, lng);
-          if (isMounted && weather) {
-            setWeatherTemp(weather.tempC);
-            setWeatherIsDay(weather.isDay);
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 3, timeInterval: 2500 },
+          (loc) => {
+            if (!isMounted) return;
+            const next = {
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+              speed: loc.coords.speed ?? null,
+            };
+            myLocRef.current = next;
+            setMyLoc(next);
+            if (!didInitCenter.current) {
+              didInitCenter.current = true;
+              setCenter({ lat: next.lat, lng: next.lng });
+            }
+            setLocationStatus('Live GPS Active');
+            setLoadingLocation(false);
           }
-
-          const updatedMembers: MemberStatus[] = [
-            {
-              id: 'm1',
-              name: 'Travis (you)',
-              initial: 'T',
-              avatarBg: '#0171F8',
-              statusText: 'Your Phone Location',
-              address: 'Current Device Location',
-              distance: '0.0 km',
-              battery: 94,
-              speed: 'Stationary',
-              lastUpdated: 'Just now',
-              isMe: true,
-              lat,
-              lng,
-            },
-            {
-              id: 'm2',
-              name: 'Steven',
-              initial: 'S',
-              avatarBg: '#EA4335',
-              statusText: 'Nearby Spot',
-              address: '0.5 km North',
-              distance: calculateDistanceKm(lat, lng, lat + 0.005, lng + 0.004),
-              battery: 88,
-              speed: 'Walking • 3 km/h',
-              lastUpdated: '2m ago',
-              lat: lat + 0.005,
-              lng: lng + 0.004,
-            },
-            {
-              id: 'm3',
-              name: 'Harry',
-              initial: 'H',
-              avatarBg: '#FBBC05',
-              statusText: 'Avenue Plaza',
-              address: '0.9 km East',
-              distance: calculateDistanceKm(lat, lng, lat - 0.007, lng + 0.006),
-              battery: 76,
-              speed: 'Driving • 18 km/h',
-              lastUpdated: '4m ago',
-              lat: lat - 0.007,
-              lng: lng + 0.006,
-            },
-            {
-              id: 'm4',
-              name: 'Ahiah',
-              initial: 'A',
-              avatarBg: '#34A853',
-              statusText: 'Food Market',
-              address: '1.4 km West',
-              distance: calculateDistanceKm(lat, lng, lat + 0.009, lng - 0.008),
-              battery: 63,
-              speed: 'Stationary',
-              lastUpdated: '10m ago',
-              lat: lat + 0.009,
-              lng: lng - 0.008,
-            },
-            {
-              id: 'm5',
-              name: 'Ica',
-              initial: 'I',
-              avatarBg: '#A142F4',
-              statusText: 'Central Gardens',
-              address: '0.4 km South',
-              distance: calculateDistanceKm(lat, lng, lat - 0.003, lng - 0.003),
-              battery: 97,
-              speed: 'Idle',
-              lastUpdated: '1m ago',
-              lat: lat - 0.003,
-              lng: lng - 0.003,
-            },
-          ];
-
-          setMembers(updatedMembers);
-          setLoadingLocation(false);
-        }
+        );
       } catch (err) {
         console.log('Location error:', err);
         if (isMounted) {
@@ -327,12 +251,72 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
       }
     }
 
-    fetchPhoneLocation();
+    startWatching();
 
     return () => {
       isMounted = false;
+      if (sub) sub.remove();
     };
   }, []);
+
+  // Load trips if not already loaded, then subscribe for active-trip changes
+  useEffect(() => {
+    const svc = TripService.getInstance();
+    const refresh = () => setActiveTrip(svc.getActiveTrip());
+    refresh();
+    if (currentUserId && svc.getTrips().length === 0) {
+      svc.fetchUserTripsDB(currentUserId).then(() => setActiveTrip(svc.getActiveTrip()));
+    }
+    const unsub = svc.subscribe(refresh);
+    return unsub;
+  }, [currentUserId]);
+
+  // Fetch joined members for the active trip
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeTrip) {
+      setParticipants([]);
+      return;
+    }
+    TripService.getInstance()
+      .fetchTripParticipantsDB(activeTrip.id)
+      .then((list) => {
+        if (cancelled) return;
+        setParticipants(list.filter((p) => p.status === 'accepted'));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTrip]);
+
+  // Weather once the first GPS fix arrives
+  useEffect(() => {
+    if (!myLoc || didFetchWeather.current) return;
+    didFetchWeather.current = true;
+    fetchWeather(myLoc.lat, myLoc.lng).then((w) => {
+      if (w) {
+        setWeatherTemp(w.tempC);
+        setWeatherIsDay(w.isDay);
+      }
+    });
+  }, [myLoc]);
+
+  // Rebuild the member pins from the trip's joined members + live position
+  useEffect(() => {
+    if (!myLoc) return;
+    setMembers(buildMembers(participants, myLoc.lat, myLoc.lng, myLoc.speed, currentUserId));
+  }, [participants, myLoc, currentUserId]);
+
+  // Keep a valid selected member (defaults to me)
+  useEffect(() => {
+    if (members.length === 0) {
+      setSelectedMemberId('');
+      return;
+    }
+    const me = members.find((m) => m.isMe) || members[0];
+    setSelectedMemberId((prev) => (members.some((m) => m.id === prev) ? prev : me.id));
+  }, [members]);
 
   const currentMember = members.find((m) => m.id === selectedMemberId) || members[0];
 
@@ -549,11 +533,15 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                   width: pinSize,
                   height: pinSize,
                   borderRadius: pinSize / 2,
-                  backgroundColor: m.avatarBg,
+                  backgroundColor: m.isOnline ? m.avatarBg : isDarkModeMap ? '#3A3A45' : '#9AA0A6',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderWidth: isSelected ? 3.5 : 2.5,
-                  borderColor: isSelected ? '#0171F8' : '#FFFFFF',
+                  borderColor: isSelected
+                    ? '#0171F8'
+                    : m.isOnline
+                    ? '#FFFFFF'
+                    : '#6B7280',
                   shadowColor: '#000',
                   shadowOffset: { width: 0, height: 6 },
                   shadowOpacity: 0.35,
@@ -561,28 +549,54 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                   elevation: 8,
                 }}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: isSelected ? 16 : 14 }}>
+                <Text
+                  style={{
+                    color: m.isOnline ? '#FFFFFF' : isDarkModeMap ? '#8B8F98' : '#4B5563',
+                    fontWeight: '900',
+                    fontSize: isSelected ? 16 : 14,
+                  }}
+                >
                   {m.initial}
                 </Text>
 
                 {/* Battery Badge on Pin */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: -4,
-                    right: -4,
-                    backgroundColor: '#3A8E71',
-                    paddingHorizontal: 4,
-                    paddingVertical: 1,
-                    borderRadius: 8,
-                    borderWidth: 1.5,
-                    borderColor: '#FFFFFF',
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 8, fontWeight: '900' }}>
-                    {m.battery}%
-                  </Text>
-                </View>
+                {m.isOnline ? (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      backgroundColor: '#3A8E71',
+                      paddingHorizontal: 4,
+                      paddingVertical: 1,
+                      borderRadius: 8,
+                      borderWidth: 1.5,
+                      borderColor: '#FFFFFF',
+                    }}
+                  >
+                    <Text style={{ color: '#FFFFFF', fontSize: 8, fontWeight: '900' }}>
+                      {m.battery}%
+                    </Text>
+                  </View>
+                ) : (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      width: 14,
+                      height: 14,
+                      borderRadius: 7,
+                      backgroundColor: '#6B7280',
+                      borderWidth: 1.5,
+                      borderColor: '#FFFFFF',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#C4C7CC' }} />
+                  </View>
+                )}
               </View>
 
               {/* Name Pill Badge with High-Contrast Dark/Light Mode Colors */}
@@ -612,11 +626,15 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                   style={{
                     fontSize: 10,
                     fontWeight: '800',
-                    color: isSelected
-                      ? '#38BDF8'
+                    color: m.isOnline
+                      ? isSelected
+                        ? '#38BDF8'
+                        : isDarkModeMap
+                        ? '#F8FAFC'
+                        : '#0F172A'
                       : isDarkModeMap
-                      ? '#F8FAFC'
-                      : '#0F172A',
+                      ? '#8B8F98'
+                      : '#6B7280',
                   }}
                 >
                   {m.name.split(' ')[0]}
@@ -766,7 +784,46 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
         </TouchableOpacity>
       </View>
 
+      {/* EMPTY STATE BANNER */}
+      {(!activeTrip || members.length === 0) && (
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + 96,
+            left: sp.lg,
+            right: sp.lg,
+            alignItems: 'center',
+            zIndex: 40,
+          }}
+        >
+          <View
+            style={[
+              glassCardStyle,
+              {
+                borderRadius: 18,
+                paddingHorizontal: sp.lg,
+                paddingVertical: sp.md,
+                alignItems: 'center',
+                gap: 4,
+                maxWidth: 320,
+              },
+            ]}
+          >
+            <Users size={20} color={colors.inkSoft} />
+            <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink, textAlign: 'center' }}>
+              {activeTrip ? 'No members joined yet' : 'No active trip'}
+            </Text>
+            <Text style={{ fontSize: 10, fontWeight: '500', color: colors.inkSoft, textAlign: 'center', lineHeight: 14 }}>
+              {activeTrip
+                ? 'Invite friends to the trip so they show up on the radar.'
+                : 'Pick an active trip in the Trip Planner to see your barkada live.'}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* CUBIC EASE ANIMATED BOTTOM SQUAD PANEL SHEET */}
+      {members.length > 0 && (
       <View
         style={{
           marginTop: 'auto',
@@ -828,7 +885,11 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                   marginRight: sp.md,
                   borderWidth: 2,
                   borderColor: '#FFFFFF',
-                  backgroundColor: currentMember.avatarBg,
+                  backgroundColor: currentMember.isOnline
+                    ? currentMember.avatarBg
+                    : isDark
+                    ? '#3A3A45'
+                    : '#9AA0A6',
                   shadowColor: '#000',
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.15,
@@ -870,12 +931,12 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             {/* Quick Battery, Clock & Expand/Collapse Chevron */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
               <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Battery size={13} color="#3A8E71" />
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#3A8E71' }}>
-                    {currentMember.battery}%
-                  </Text>
-                </View>
+<View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Battery size={13} color={currentMember.isOnline ? '#3A8E71' : isDark ? '#8B8F98' : '#9AA0A6'} />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: currentMember.isOnline ? '#3A8E71' : isDark ? '#8B8F98' : '#9AA0A6' }}>
+                        {currentMember.isOnline ? `${currentMember.battery}%` : 'Offline'}
+                      </Text>
+                    </View>
                 {!isCardCollapsed && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                     <Clock size={11} color={colors.inkSoft} />
@@ -957,7 +1018,11 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                         borderRadius: memberAvatarSize / 2,
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: m.avatarBg,
+                        backgroundColor: m.isOnline
+                          ? m.avatarBg
+                          : isDark
+                          ? '#3A3A45'
+                          : '#9AA0A6',
                         borderWidth: isSelected ? 3 : 1,
                         borderColor: isSelected ? '#0171F8' : 'rgba(255, 255, 255, 0.8)',
                         shadowColor: isSelected ? '#0171F8' : 'transparent',
@@ -976,10 +1041,16 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                         fontSize: 10,
                         marginTop: 4,
                         fontWeight: isSelected ? '800' : '500',
-                        color: isSelected ? '#0171F8' : colors.inkSoft,
+                        color: m.isOnline
+                          ? isSelected
+                            ? '#0171F8'
+                            : colors.inkSoft
+                          : isDark
+                          ? '#8B8F98'
+                          : '#9AA0A6',
                       }}
                     >
-                      {m.initial === 'T' ? 'Travis' : m.name.split(' ')[0]}
+                      {m.name.split(' ')[0]}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1001,7 +1072,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Users size={13} color="#3A8E71" />
                   <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>
-                    5 Squad
+                    {members.length} {members.length === 1 ? 'Member' : 'Squad'}
                   </Text>
                 </View>
 
@@ -1030,32 +1101,12 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
                   <Radio size={13} color="#0171F8" />
                   <Text style={{ color: '#0171F8', fontSize: fs.xs, fontWeight: '800' }}>Ping</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => Alert.alert('Radar Broadcast', 'Live location link generated.')}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: '#1F4E67',
-                    paddingHorizontal: sp.md,
-                    paddingVertical: sp.xs + 2,
-                    borderRadius: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: sp.xs,
-                    shadowColor: '#1F4E67',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.2,
-                    shadowRadius: 4,
-                  }}
-                >
-                  <Share2 size={13} color="#FFFFFF" />
-                  <Text style={{ color: '#FFFFFF', fontSize: fs.xs, fontWeight: '700' }}>Share</Text>
-                </TouchableOpacity>
               </View>
             </View>
           </Animated.View>
         </View>
       </View>
+      )}
     </SafeAreaView>
   );
 };

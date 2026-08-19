@@ -7,6 +7,7 @@ import {
   StatusBar,
   StyleSheet,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TripService } from '../../services/tripService';
@@ -18,7 +19,10 @@ import { SectionHeader } from '../../components/common/SectionHeader';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { PolaroidStack } from '../../components/home/PolaroidStack';
 import { NoTripWelcome } from '../../components/home/NoTripWelcome';
+import { TripCalendarCard } from '../../components/home/TripCalendarCard';
 import { TripMember } from '../../components/trip/TripDetailsModal';
+import { TripFeedScreen } from '../feed/TripFeedScreen';
+import { TripRecapScreen } from '../feed/TripRecapScreen';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
@@ -37,7 +41,18 @@ import {
   Clock,
   Menu,
   MapPin,
+  Plane,
+  LayoutGrid,
+  Award,
 } from 'lucide-react-native';
+
+type HomeTabKey = 'mytrip' | 'feed' | 'recap';
+
+const HOME_TABS: { key: HomeTabKey; label: string; icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }> }[] = [
+  { key: 'mytrip', label: 'My Trip', icon: Plane },
+  { key: 'feed', label: 'Feed', icon: LayoutGrid },
+  { key: 'recap', label: 'Recap', icon: Award },
+];
 
 interface HomeScreenProps {
   onNavigateToTab?: (index: number) => void;
@@ -116,6 +131,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [weatherIsDay, setWeatherIsDay] = useState(true);
   const [nextUpItem, setNextUpItem] = useState<ItineraryItem | null>(null);
   const [nextUpLoaded, setNextUpLoaded] = useState(false);
+  const [homeTab, setHomeTab] = useState<HomeTabKey>('mytrip');
+  const [homeTabLayouts, setHomeTabLayouts] = useState<{ [key: string]: { x: number; width: number } }>({});
+  const homeTabSlide = useRef(new Animated.Value(0)).current;
+  const homeTabWidth = useRef(new Animated.Value(0)).current;
   const lastOffsetY = useRef(0);
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
@@ -286,34 +305,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     return () => { cancelled = true; };
   }, []);
 
+  // Slide the active pill highlight across the home tab bar with a spring bounce
+  // (same feel as the day-selection pill in the trip planner).
+  const activeHomeTabLayout = homeTabLayouts[homeTab];
+  useEffect(() => {
+    if (activeHomeTabLayout && activeHomeTabLayout.width > 0) {
+      Animated.parallel([
+        Animated.spring(homeTabSlide, {
+          toValue: activeHomeTabLayout.x,
+          useNativeDriver: false,
+          bounciness: 6,
+          speed: 12,
+        }),
+        Animated.spring(homeTabWidth, {
+          toValue: activeHomeTabLayout.width,
+          useNativeDriver: false,
+          bounciness: 6,
+          speed: 12,
+        }),
+      ]).start();
+    }
+  }, [homeTab, activeHomeTabLayout?.x, activeHomeTabLayout?.width]);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        onScroll={(e) => {
-          const currentY = e.nativeEvent.contentOffset.y;
-          const delta = currentY - lastOffsetY.current;
-          lastOffsetY.current = currentY;
-
-          if (currentY < 15) {
-            onScrollDirection?.('up');
-          } else if (delta > 2) {
-            onScrollDirection?.('down');
-          } else if (delta < -2) {
-            onScrollDirection?.('up');
-          }
-        }}
-        scrollEventThrottle={16}
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          paddingHorizontal: sp.lg,
-          paddingTop: sp.sm,
-          paddingBottom: bottomNavOffset + 40,
-          flexGrow: 1,
-        }}
-      >
+      {/* Pinned Header + TikTok-style Sub-Tabs */}
+      <View style={{ paddingHorizontal: sp.lg, paddingTop: sp.sm }}>
         {/* App Header with Borderless Hamburger Button */}
         <View style={styles.appHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -360,14 +379,93 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </View>
         </View>
 
+        {/* Home Sub-Tabs (My Trip | Feed | Recap) */}
+        <View style={[styles.homeTabBar, { backgroundColor: colors.subtleBg }]}>
+          {activeHomeTabLayout && activeHomeTabLayout.width > 0 && (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.homeTabHighlight,
+                {
+                  left: homeTabSlide,
+                  width: homeTabWidth,
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  shadowColor: isDark ? '#000' : '#8A7F6A',
+                },
+              ]}
+            />
+          )}
+          {HOME_TABS.map((tab) => {
+            const isSelected = homeTab === tab.key;
+            const IconComponent = tab.icon;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                onPress={() => setHomeTab(tab.key)}
+                activeOpacity={0.8}
+                onLayout={(e) => {
+                  const { x, width } = e.nativeEvent.layout;
+                  setHomeTabLayouts((prev) => {
+                    const current = prev[tab.key];
+                    if (current && Math.abs(current.x - x) < 2 && Math.abs(current.width - width) < 2) return prev;
+                    return { ...prev, [tab.key]: { x, width } };
+                  });
+                }}
+                style={styles.homeTabItem}
+              >
+                <IconComponent
+                  size={15}
+                  color={isSelected ? colors.tealDark : colors.inkSoft}
+                  strokeWidth={isSelected ? 2.6 : 1.9}
+                />
+                <Text style={[styles.homeTabText, { color: isSelected ? colors.tealDark : colors.inkSoft }]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {homeTab === 'mytrip' ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          onScroll={(e) => {
+            const currentY = e.nativeEvent.contentOffset.y;
+            const delta = currentY - lastOffsetY.current;
+            lastOffsetY.current = currentY;
+
+            if (currentY < 15) {
+              onScrollDirection?.('up');
+            } else if (delta > 2) {
+              onScrollDirection?.('down');
+            } else if (delta < -2) {
+              onScrollDirection?.('up');
+            }
+          }}
+          scrollEventThrottle={16}
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: sp.lg,
+            paddingTop: sp.sm,
+            paddingBottom: bottomNavOffset + 40,
+            flexGrow: 1,
+          }}
+        >
+
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={colors.tealDark} />
             <Text style={[styles.loadingText, { color: colors.inkSoft }]}>Rounding up your barkada…</Text>
           </View>
-        ) : activeTrip ? (
+        ) : (
           <>
-            {/* Active Trip Card */}
+            <TripCalendarCard currentUserId={profile?.id} />
+
+            {activeTrip ? (
+            <>
+              {/* Active Trip Card */}
             <TripCard
               trip={activeTrip}
               members={members}
@@ -426,13 +524,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 />
               </>
             )}
+              </>
+            ) : (
+              /* Empty state — landing page when no trip yet */
+              <NoTripWelcome
+                variant="landing"
+                onGetStarted={() => onNavigateToTab?.(1)}
+              />
+            )}
           </>
-        ) : (
-          /* Empty state — landing page when no trip yet */
-          <NoTripWelcome
-            variant="landing"
-            onGetStarted={() => onNavigateToTab?.(1)}
-          />
         )}
 
         {/* Live Barkada Updates */}
@@ -474,6 +574,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </>
         )}
       </ScrollView>
+      ) : homeTab === 'feed' ? (
+        <TripFeedScreen embedded onScrollDirection={onScrollDirection} />
+      ) : (
+        <TripRecapScreen embedded onScrollDirection={onScrollDirection} />
+      )}
     </SafeAreaView>
   );
 };
@@ -484,6 +589,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  homeTabBar: {
+    position: 'relative',
+    flexDirection: 'row',
+    borderRadius: 26,
+    padding: 4,
+    marginBottom: 14,
+  },
+  homeTabHighlight: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    borderRadius: 22,
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  homeTabItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 22,
+    zIndex: 1,
+  },
+  homeTabText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   borderlessMenuBtn: {
     width: 36,

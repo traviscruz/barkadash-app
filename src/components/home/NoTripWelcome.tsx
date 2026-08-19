@@ -11,8 +11,8 @@ import {
   CalendarDays,
 } from 'lucide-react-native';
 
-const greetingMascotImg = require('../../../assets/mascot/greeting_mascot.png');
-const welcomeMascotImg = require('../../../assets/mascot/welcome_mascot.png');
+const greetingMascotImg = require('../../../assets/mascot/greeting_mascot.webp');
+const welcomeMascotImg = require('../../../assets/mascot/welcome_mascot.webp');
 
 interface NoTripWelcomeProps {
   firstName?: string;

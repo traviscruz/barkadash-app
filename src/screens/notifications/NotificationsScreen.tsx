@@ -11,7 +11,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2, MapPin, ThumbsUp } from 'lucide-react-native';
+import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2, MapPin, ThumbsUp, BedDouble, MessageCircle } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService, AppNotification } from '../../services/notificationService';
@@ -130,7 +130,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
       onNavigateToConnections?.();
       return;
     }
-    if (item.type === 'itinerary_added' || item.type === 'itinerary_reaction' || item.type === 'poll_result') {
+    if (item.type === 'itinerary_added' || item.type === 'itinerary_reaction' || item.type === 'poll_result' || item.type === 'stay_added' || item.type === 'stay_reaction' || item.type === 'stay_comment') {
       onBack?.();
       onNavigateToTab?.(1);
       return;
@@ -290,7 +290,10 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
               item.type === 'system' ||
               item.type === 'poll_result' ||
               item.type === 'itinerary_added' ||
-              item.type === 'itinerary_reaction';
+              item.type === 'itinerary_reaction' ||
+              item.type === 'stay_added' ||
+              item.type === 'stay_reaction' ||
+              item.type === 'stay_comment';
             const isInviteResponse = item.type === 'trip_invite_response';
             const isAcceptedResp = isInviteResponse && item.title?.toLowerCase().includes('accepted');
             const respTripTitle = isInviteResponse ? item.message.match(/"(.*?)"/)?.[1] : null;
@@ -339,6 +342,12 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                         <MapPin size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : item.type === 'itinerary_reaction' ? (
                         <ThumbsUp size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'stay_added' ? (
+                        <BedDouble size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'stay_reaction' ? (
+                        <ThumbsUp size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'stay_comment' ? (
+                        <MessageCircle size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : isSystem ? (
                         <Bell size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : (

@@ -13,7 +13,15 @@ import {
 } from './aiAssistantCommon';
 
 const GROQ_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
-const MODEL = process.env.EXPO_PUBLIC_GROQ_MODEL || 'llama-3.3-70b-versatile';
+// Groq rotates/retires models — try the configured one first, then known-good
+// current models so a stale EXPO_PUBLIC_GROQ_MODEL never breaks the fallback.
+const GROQ_MODELS = [
+  process.env.EXPO_PUBLIC_GROQ_MODEL || 'groq/compound',
+  'groq/compound',
+  'groq/compound-mini',
+  'openai/gpt-oss-120b',
+  'qwen/qwen3.6-27b',
+];
 
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -51,6 +59,26 @@ export async function generateGroqReply(
     );
   }
 
+  for (const model of GROQ_MODELS) {
+    try {
+      const reply = await runGroqWithModel(model, current, trip);
+      if (reply) return reply;
+    } catch (err: any) {
+      console.warn(`Groq model ${model} failed:`, err?.message);
+    }
+  }
+
+  return textReply(
+    "Okay, I need a bit more detail to nail that down — tell me what you're after (food, activities, weather, budget) and I'll tailor ideas for your barkada."
+  );
+}
+
+async function runGroqWithModel(
+  model: string,
+  messages: any[],
+  trip?: TripContext
+): Promise<NaviReply | null> {
+  let current = messages;
   const tools: ChatToolResult[] = [];
 
   for (let i = 0; i < 4; i++) {
@@ -61,7 +89,7 @@ export async function generateGroqReply(
         Authorization: `Bearer ${GROQ_KEY}`,
       },
       body: JSON.stringify({
-        model: MODEL,
+        model,
         messages: current,
         tools: OPENAI_TOOLS,
         temperature: 0.8,
@@ -108,7 +136,5 @@ export async function generateGroqReply(
     if (content) return { text: content, tools };
   }
 
-  return textReply(
-    "Okay, I need a bit more detail to nail that down — tell me what you're after (food, activities, weather, budget) and I'll tailor ideas for your barkada."
-  );
+  return null;
 }

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
+  TextInput,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -18,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
 import { TripService } from '../../services/tripService';
@@ -31,8 +32,9 @@ import { PendingTripInvite } from '../../components/trip/TripInvitationModal';
 import { TripVotingPollsSection } from '../../components/trip/TripVotingPollsSection';
 import { EditTourModal } from '../../components/trip/EditTourModal';
 import { ItineraryAddModal, ItineraryPlacePrefill } from '../../components/trip/ItineraryAddModal';
+import { StayAddModal } from '../../components/trip/StayAddModal';
 import { getPlacePhotoUrl } from '../../services/googlePlaces';
-import { Trip, ItineraryItem } from '../../types/trip';
+import { Trip, ItineraryItem, TripStay } from '../../types/trip';
 import { fetchAiSpots, ensureAiSpots, generateAiSpots, getSmartCategories, AiSpot, AiSpotCategory } from '../../services/aiSpotsService';
 
 import { useUser } from '../../context/UserContext';
@@ -42,7 +44,7 @@ const { width } = Dimensions.get('window');
 const bigLagoonImg = require('../../../assets/images/biglagoon.jpg');
 const nacpanImg = require('../../../assets/images/nacpan.jpg');
 const sagadaImg = require('../../../assets/images/sagada.jpeg');
-const naviMascot = require('../../../assets/mascot/ai_mascot.png');
+const naviMascot = require('../../../assets/mascot/ai_mascot.webp');
 
 interface TripPlannerScreenProps {
   onScrollDirection?: (direction: 'up' | 'down') => void;
@@ -284,6 +286,174 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     profile?.firstName && profile?.lastName
       ? `${profile.firstName[0]}${profile.lastName[0]}`.toUpperCase()
       : 'U';
+
+  // ---- Where You'll Stay (host-picked accommodations) ----
+  const [stays, setStays] = useState<TripStay[]>([]);
+  const [staysLoading, setStaysLoading] = useState(false);
+  const [stayModalVisible, setStayModalVisible] = useState(false);
+  const [stayModalMode, setStayModalMode] = useState<'add' | 'edit'>('add');
+  const [editingStay, setEditingStay] = useState<TripStay | null>(null);
+  const [stayToDelete, setStayToDelete] = useState<TripStay | null>(null);
+  const [deletingStay, setDeletingStay] = useState(false);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [commentSending, setCommentSending] = useState(false);
+  const stayLoadSeq = useRef(0);
+  const pendingStayReactionOps = useRef<Record<string, Promise<unknown>>>({});
+
+  const loadStays = useCallback(async (tripId: string, silent?: boolean) => {
+    if (!tripId) return;
+    const seq = ++stayLoadSeq.current;
+    if (!silent) setStaysLoading(true);
+    const fetched = await TripService.getInstance().fetchTripStaysDB(tripId);
+    if (seq !== stayLoadSeq.current) return; // stale response — drop it
+    setStays(fetched);
+    setStaysLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadStays(activeTrip?.id || '');
+  }, [activeTrip?.id, loadStays]);
+
+  // Realtime: keeps stays, reactions, and comments in sync live.
+  useEffect(() => {
+    const tripId = activeTrip?.id;
+    if (!tripId) return;
+    const channel = supabase
+      .channel(`stays-realtime:${tripId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stays', filter: `trip_id=eq.${tripId}` },
+        () => loadStays(tripId, true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stay_reactions' },
+        () => loadStays(tripId, true)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stay_comments' },
+        () => loadStays(tripId, true)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeTrip?.id, loadStays]);
+
+  const openAddStay = () => {
+    setStayModalMode('add');
+    setEditingStay(null);
+    setStayModalVisible(true);
+  };
+
+  const openEditStay = (stay: TripStay) => {
+    setStayModalMode('edit');
+    setEditingStay(stay);
+    setStayModalVisible(true);
+  };
+
+  const handleDeleteStay = async (stay: TripStay) => {
+    if (!stay) return;
+    setDeletingStay(true);
+    const ok = await TripService.getInstance().deleteTripStayDB(stay.id);
+    setDeletingStay(false);
+    setStayToDelete(null);
+    if (ok) loadStays(activeTrip?.id || '');
+  };
+
+  const openStayLink = (stay: TripStay) => {
+    if (!stay.link) return;
+    const url = /^https?:\/\//i.test(stay.link) ? stay.link : `https://${stay.link}`;
+    Linking.openURL(url).catch((err) => {
+      console.warn('openStayLink error:', err?.message);
+    });
+  };
+
+  const handleReactStay = (stay: TripStay, reaction: 'like' | 'dislike') => {
+    if (!profile?.id) return;
+    const tripId = activeTrip?.id || '';
+    // Optimistic update — same as itinerary reactions.
+    setStays((prev) =>
+      prev.map((s) => {
+        if (s.id !== stay.id) return s;
+        const current = s.myReaction;
+        const finalReaction = current === reaction ? null : reaction;
+        const reactions = (s.reactions || []).filter((r) => r.userId !== profile.id);
+        let myReaction: 'like' | 'dislike' | null = null;
+        if (finalReaction) {
+          reactions.push({
+            id: `opt:${s.id}:${finalReaction}`,
+            stayId: s.id,
+            userId: profile.id,
+            reaction: finalReaction,
+            userInitials: meInitials,
+          });
+          myReaction = finalReaction;
+        }
+        return {
+          ...s,
+          reactions,
+          myReaction,
+          likeCount: reactions.filter((r) => r.reaction === 'like').length,
+          dislikeCount: reactions.filter((r) => r.reaction === 'dislike').length,
+        };
+      })
+    );
+
+    const prev = (pendingStayReactionOps.current[stay.id] || Promise.resolve()).catch(() => {});
+    const op = prev.then(() =>
+      TripService.getInstance().toggleTripStayReactionDB(stay.id, tripId, profile.id, reaction)
+    );
+    pendingStayReactionOps.current[stay.id] = op;
+    op.finally(() => {
+      if (pendingStayReactionOps.current[stay.id] === op) {
+        delete pendingStayReactionOps.current[stay.id];
+      }
+    });
+  };
+
+  const handleSendStayComment = async (stayId: string) => {
+    const text = (commentDrafts[stayId] || '').trim();
+    if (!text || commentSending) return;
+    setCommentSending(true);
+    const ok = await TripService.getInstance().addTripStayCommentDB(
+      stayId,
+      activeTrip?.id || '',
+      profile?.id || '',
+      text
+    );
+    setCommentSending(false);
+    if (ok) {
+      setCommentDrafts((prev) => ({ ...prev, [stayId]: '' }));
+      loadStays(activeTrip?.id || '', true);
+    }
+  };
+
+  const handleDeleteStayComment = async (stayId: string, commentId: string) => {
+    const ok = await TripService.getInstance().deleteTripStayCommentDB(commentId);
+    if (ok) loadStays(activeTrip?.id || '', true);
+  };
+
+  const stayDateLabel = (stay: TripStay) => {
+    const start = getDayDate(stay.startDay - 1);
+    const end = getDayDate(stay.endDay - 1);
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    return stay.endDay > stay.startDay
+      ? `${fmt(start)} – ${fmt(end)}`
+      : `Night of ${fmt(start)}`;
+  };
+
+  // Open Google Maps directions to a stay (uses its stored place_id when available)
+  const openStayDirections = (stay: TripStay) => {
+    const queryName = stay.placeName || stay.title;
+    const dest = stay.placeId
+      ? `https://www.google.com/maps/dir/?api=1&destination_place_id=${encodeURIComponent(stay.placeId)}&destination=${encodeURIComponent(queryName)}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${queryName} ${stay.placeAddress || ''}`.trim())}`;
+    Linking.openURL(dest).catch((err) => {
+      console.warn('openStayDirections error:', err?.message);
+    });
+  };
 
   // Open Google Maps directions to an itinerary place. Prefer the stored
   // place_id (deep link) so maps opens the exact spot; fall back to a text query.
@@ -833,6 +1003,256 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
             </View>
           )}
+
+          {/* ================= WHERE YOU'LL STAY ================= */}
+          <View style={{ marginTop: sp.lg, marginBottom: sp.lg }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center' }}>
+                  <BedDouble size={16} color={colors.tealDark} strokeWidth={2.4} />
+                </View>
+                <Text style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark }}>
+                  Where You'll Stay
+                </Text>
+              </View>
+              {isHost && isLocked && (
+                <TouchableOpacity
+                  onPress={openAddStay}
+                  activeOpacity={0.85}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 100, backgroundColor: colors.tealDark }}
+                >
+                  <Plus size={14} color="#FFFFFF" strokeWidth={2.6} />
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Add a Stay</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {!isLocked ? (
+              /* Locked hint — stays unlock once place & dates are locked in */
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F1F5F9', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 16, padding: 14 }}>
+                <Lock size={16} color={COLORS.subtleDark} strokeWidth={2.2} />
+                <Text style={{ flex: 1, fontSize: 11, fontWeight: '600', color: COLORS.subtleDark, lineHeight: 16 }}>
+                  Stays open once your place & dates are locked in — then the host can pick where everyone sleeps.
+                </Text>
+              </View>
+            ) : staysLoading && stays.length === 0 ? (
+              <View style={{ alignItems: 'center', paddingVertical: 24, gap: 8 }}>
+                <ActivityIndicator color={colors.tealDark} />
+                <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtleDark }}>Loading stays…</Text>
+              </View>
+            ) : stays.length === 0 ? (
+              <TouchableOpacity
+                onPress={isHost ? openAddStay : undefined}
+                activeOpacity={0.85}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 10,
+                  borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.tealDark,
+                  borderRadius: 16, padding: 16,
+                  backgroundColor: isDark ? 'rgba(59,122,158,0.08)' : '#EBF5FB',
+                }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : 'rgba(59,122,158,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+                  <BedDouble size={17} color={colors.tealDark} strokeWidth={2.2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.tealDark }}>
+                    {isHost ? 'Pick where the barkada stays' : 'No stays yet'}
+                  </Text>
+                  <Text style={{ fontSize: 10.5, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2, lineHeight: 14 }}>
+                    {isHost ? 'Tap to add a hotel, resort, or airbnb.' : "The host hasn't picked a place to stay yet."}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ gap: sp.md }}>
+                {stays.map((stay) => {
+                  const isMine = stay.createdBy === profile?.id;
+                  const likers = (stay.reactions || []).filter((r) => r.reaction === 'like');
+                  const dislikers = (stay.reactions || []).filter((r) => r.reaction === 'dislike');
+                  const stayComments = stay.comments || [];
+                  return (
+                    <View key={stay.id} style={{ backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.cardBorder, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
+                      {/* Cover / placeholder */}
+                      <View>
+                        {stay.photoReference ? (
+                          <ShimmerImage source={{ uri: getPlacePhotoUrl(stay.photoReference, 900) }} style={{ width: '100%', height: isTablet ? 180 : 150 }} />
+                        ) : (
+                          <View style={{ width: '100%', height: isTablet ? 180 : 150, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EFF3EA' }}>
+                            <BedDouble size={36} color={colors.tealDark} strokeWidth={1.8} />
+                          </View>
+                        )}
+
+                        {/* Nights badge (top-left) */}
+                        <View style={{ position: 'absolute', left: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 8 }}>
+                          <CalendarDays size={11} color="#FFFFFF" strokeWidth={2.4} />
+                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
+                            {stay.endDay > stay.startDay ? `NIGHTS ${stay.startDay}–${stay.endDay}` : `NIGHT ${stay.startDay}`}
+                          </Text>
+                        </View>
+
+                        {/* Edit / Delete — host only (top-right) */}
+                        {isMine && isHost && (
+                          <View style={{ position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6, zIndex: 3 }}>
+                            <TouchableOpacity onPress={() => openEditStay(stay)} hitSlop={8} style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.95)' }}>
+                              <Pencil size={12} color={colors.tealDark} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setStayToDelete(stay)} hitSlop={8} style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.95)' }}>
+                              <Trash2 size={12} color="#EF4444" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+
+                      <View style={{ padding: 14 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                          <Text style={{ flex: 1, fontSize: fs.md, fontWeight: '800', color: COLORS.textDark }}>
+                            {stay.title}
+                          </Text>
+                        </View>
+                        {!!stay.placeAddress && (
+                          <Text numberOfLines={1} style={{ fontSize: 10, fontWeight: '700', color: COLORS.subtleDark, letterSpacing: 0.2, marginTop: 2 }}>
+                            {stay.placeAddress}
+                          </Text>
+                        )}
+
+                        {/* Dates to stay */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+                          <CalendarDays size={11} color={colors.tealDark} strokeWidth={2.4} />
+                          <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>
+                            {stayDateLabel(stay)}
+                          </Text>
+                        </View>
+
+                        {/* Link + directions */}
+                        {(!!stay.link || stay.placeId) && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                            {!!stay.link && (
+                              <TouchableOpacity onPress={() => openStayLink(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
+                                <LinkIcon size={11} color={colors.tealDark} strokeWidth={2.4} />
+                                <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>Booking Link</Text>
+                              </TouchableOpacity>
+                            )}
+                            {(stay.placeId || stay.placeAddress) && (
+                              <TouchableOpacity onPress={() => openStayDirections(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
+                                <Navigation size={11} color={colors.tealDark} strokeWidth={2.4} />
+                                <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>Directions</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        )}
+
+                        {!!stay.note && (
+                          <View style={{ borderTopWidth: 1, borderTopColor: COLORS.borderLight, paddingTop: 6, marginTop: 8 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '600', color: AppColors.sky }}>+ {stay.note}</Text>
+                          </View>
+                        )}
+
+                        {/* Reactions */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                          <TouchableOpacity
+                            onPress={() => handleReactStay(stay, 'like')}
+                            activeOpacity={0.8}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'like' ? (isDark ? 'rgba(16,185,129,0.2)' : '#E6F4EA') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'like' ? '#10B981' : 'transparent' }}
+                          >
+                            <ThumbsUp size={12} color={stay.myReaction === 'like' ? '#10B981' : COLORS.subtleDark} fill={stay.myReaction === 'like' ? '#10B981' : 'transparent'} />
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: stay.myReaction === 'like' ? '#10B981' : COLORS.subtleDark }}>
+                              {stay.likeCount || 0}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => handleReactStay(stay, 'dislike')}
+                            activeOpacity={0.8}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'dislike' ? (isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'dislike' ? '#EF4444' : 'transparent' }}
+                          >
+                            <ThumbsDown size={12} color={stay.myReaction === 'dislike' ? '#EF4444' : COLORS.subtleDark} fill={stay.myReaction === 'dislike' ? '#EF4444' : 'transparent'} />
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: stay.myReaction === 'dislike' ? '#EF4444' : COLORS.subtleDark }}>
+                              {stay.dislikeCount || 0}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {(likers.length > 0 || dislikers.length > 0) && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap', gap: 4 }}>
+                              {likers.slice(0, 3).map((r) => (
+                                <View key={r.id} style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Text style={{ color: '#FFF', fontSize: 7, fontWeight: '900' }}>{r.userInitials}</Text>
+                                </View>
+                              ))}
+                              {dislikers.slice(0, 2).map((r) => (
+                                <View key={r.id} style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center' }}>
+                                  <Text style={{ color: '#FFF', fontSize: 7, fontWeight: '900' }}>{r.userInitials}</Text>
+                                </View>
+                              ))}
+                              <Text numberOfLines={1} style={{ fontSize: 8.5, fontWeight: '600', color: COLORS.subtleDark, flexShrink: 1 }}>
+                                {likers.length + dislikers.length > 4 ? `+${likers.length + dislikers.length - 4}` : ''}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+
+                        {/* Comments */}
+                        <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: COLORS.borderLight, paddingTop: 10 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                            <MessageCircle size={12} color={COLORS.subtleDark} />
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: COLORS.subtleDark, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Comments ({stay.commentCount || 0})
+                            </Text>
+                          </View>
+
+                          {stayComments.map((c) => (
+                            <View key={c.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center' }}>
+                                <Text style={{ color: '#FFF', fontSize: 8, fontWeight: '900' }}>{c.userInitials}</Text>
+                              </View>
+                              <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '800', color: colors.ink }}>
+                                    {c.userId === profile?.id ? 'You' : `${c.userFirstName || ''} ${c.userLastName || ''}`.trim() || 'Barkada'}
+                                  </Text>
+                                  {c.userId === profile?.id && (
+                                    <TouchableOpacity onPress={() => handleDeleteStayComment(stay.id, c.id)} hitSlop={8}>
+                                      <Trash2 size={11} color={COLORS.subtleDark} />
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                                <Text style={{ fontSize: 11, fontWeight: '600', color: colors.ink, marginTop: 1, lineHeight: 15 }}>
+                                  {c.comment}
+                                </Text>
+                              </View>
+                            </View>
+                          ))}
+
+                          {/* Comment input */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9', borderRadius: 100, borderWidth: 1, borderColor: colors.cardBorder, paddingLeft: 12, paddingRight: 4 }}>
+                              <TextInput
+                                style={{ flex: 1, paddingVertical: 8, color: colors.ink, fontSize: 11 }}
+                                placeholder="Add a comment…"
+                                placeholderTextColor={COLORS.subtleDark}
+                                value={commentDrafts[stay.id] || ''}
+                                onChangeText={(t) => setCommentDrafts((prev) => ({ ...prev, [stay.id]: t }))}
+                                onSubmitEditing={() => handleSendStayComment(stay.id)}
+                                returnKeyType="send"
+                                blurOnSubmit={false}
+                              />
+                              <TouchableOpacity
+                                onPress={() => handleSendStayComment(stay.id)}
+                                disabled={!(commentDrafts[stay.id] || '').trim() || commentSending}
+                                style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: (commentDrafts[stay.id] || '').trim() ? colors.tealDark : 'transparent' }}
+                              >
+                                <Send size={13} color={(commentDrafts[stay.id] || '').trim() ? '#FFFFFF' : COLORS.subtleDark} />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
 
           {/* ================= ITINERARY ================= */}
           {activeSubTab === 'Itinerary' && (
@@ -1524,6 +1944,91 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 activeOpacity={0.7}
                 onPress={() => setItemToDelete(null)}
                 disabled={deletingItem}
+                style={{
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  paddingVertical: 11,
+                  borderRadius: 100,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: COLORS.subtleDark, fontSize: 13, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add / Edit Stay (host only) */}
+      <StayAddModal
+        visible={stayModalVisible}
+        mode={stayModalMode}
+        tripId={activeTrip?.id || ''}
+        userId={profile?.id || ''}
+        dayCount={tripDayCount}
+        tripStartDate={tripDates ? tripDates.start : null}
+        initialDay={selectedDay}
+        initialStay={editingStay}
+        onClose={() => setStayModalVisible(false)}
+        onSaved={() => loadStays(activeTrip?.id || '')}
+      />
+
+      {/* Delete Stay Confirmation */}
+      <Modal
+        transparent
+        visible={!!stayToDelete}
+        animationType="fade"
+        onRequestClose={() => setStayToDelete(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setStayToDelete(null)} />
+          <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, alignItems: 'center', elevation: 12 }}>
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+              <Trash2 size={26} color="#EF4444" strokeWidth={2.2} />
+            </View>
+
+            <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+              Remove this stay?
+            </Text>
+
+            <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.subtleDark, textAlign: 'center', lineHeight: 18, marginBottom: 20 }}>
+              "{stayToDelete?.title || 'This stay'}" will be permanently removed, along with its reactions and comments. This cannot be undone.
+            </Text>
+
+            <View style={{ width: '100%', gap: 10 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => handleDeleteStay(stayToDelete!)}
+                disabled={deletingStay}
+                style={{
+                  backgroundColor: '#EF4444',
+                  paddingVertical: 13,
+                  borderRadius: 100,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#EF4444',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}
+              >
+                {deletingStay ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                    Yes, Remove Stay
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setStayToDelete(null)}
+                disabled={deletingStay}
                 style={{
                   borderWidth: 1,
                   borderColor: colors.cardBorder,

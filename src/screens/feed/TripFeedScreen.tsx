@@ -21,9 +21,11 @@ const zambalesImg = require('../../../assets/images/zambales.jpg');
 interface TripFeedScreenProps {
   onScrollDirection?: (direction: 'up' | 'down') => void;
   onOpenCabinet?: () => void;
+  /** When true, skips the SafeArea + logo header so it can be embedded inside HomeScreen tabs. */
+  embedded?: boolean;
 }
 
-export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirection, onOpenCabinet, embedded }) => {
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<'Following' | 'Explore'>('Following');
   const lastOffsetY = useRef(0);
@@ -61,33 +63,39 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
 
   const cardImgHeight = isTablet ? 220 : 176;
 
+  const Wrapper: any = embedded ? View : SafeAreaView;
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
+    <Wrapper style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <StatusBar barStyle={colors.statusBar} backgroundColor={colors.paper} />
       <View style={{ flex: 1, paddingHorizontal: sp.lg, paddingTop: sp.sm }}>
         {/* App Logo & Borderless Hamburger Match Home Screen */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
-          <TouchableOpacity
-            onPress={onOpenCabinet}
-            activeOpacity={0.7}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'transparent',
-            }}
-          >
-            <Menu size={22} color={colors.ink} strokeWidth={2.2} />
-          </TouchableOpacity>
-          <BarkadashLogo height={32} />
-        </View>
+        {!embedded && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: sp.md }}>
+            <TouchableOpacity
+              onPress={onOpenCabinet}
+              activeOpacity={0.7}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <Menu size={22} color={colors.ink} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <BarkadashLogo height={32} />
+          </View>
+        )}
 
         {/* Header */}
-        <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, marginBottom: sp.sm }}>
-          Barkada Feed
-        </Text>
+        {!embedded && (
+          <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, marginBottom: sp.sm }}>
+            Barkada Feed
+          </Text>
+        )}
 
         {/* Sub-Tabs */}
         <View style={{ flexDirection: 'row', gap: sp.sm, marginBottom: sp.lg }}>
@@ -228,6 +236,6 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
           ))}
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </Wrapper>
   );
 };

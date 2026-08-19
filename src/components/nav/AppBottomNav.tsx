@@ -10,7 +10,7 @@ import {
   Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Home, Compass, MapPin, Receipt, Grid } from 'lucide-react-native';
+import { Home, Compass, MapPin, Receipt, Globe } from 'lucide-react-native';
 import Svg, { Defs, LinearGradient as SvgGradient, Stop, Rect } from 'react-native-svg';
 
 import { useTheme } from '../../context/ThemeContext';
@@ -34,7 +34,7 @@ const TABS = [
   { label: 'Plan', icon: Compass },
   { label: 'Radar', icon: MapPin },
   { label: 'Ledger', icon: Receipt },
-  { label: 'Recap', icon: Grid },
+  { label: 'Explore', icon: Globe },
 ];
 
 export const AppBottomNav: React.FC<AppBottomNavProps> = ({

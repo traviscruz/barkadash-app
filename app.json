@@ -31,6 +31,19 @@
     "plugins": [
       "@react-native-community/datetimepicker",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Barkadash to access your camera to scan receipts.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Barkadash to access your photos so you can attach receipts."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "color": "#0B132B",

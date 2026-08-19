@@ -1,4 +1,4 @@
-import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction } from '../types/trip';
+import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
 import { NotificationService } from './notificationService';
@@ -1237,6 +1237,420 @@ export class TripService {
   }
 
   /**
+   * Fetch all stays ("where you'll stay") for a trip, with like/dislike
+   * reactions, member comments, and the host's name attached. RLS ensures
+   * only accepted members can read them.
+   */
+  public async fetchTripStaysDB(tripId: string): Promise<TripStay[]> {
+    try {
+      const { data, error } = await supabase
+        .from('trip_stays')
+        .select(`
+          id,
+          trip_id,
+          title,
+          start_day,
+          end_day,
+          place_id,
+          place_name,
+          place_address,
+          photo_reference,
+          link,
+          note,
+          created_by,
+          created_at,
+          updated_at,
+          creator_profile:created_by ( first_name, last_name ),
+          reactions:trip_stay_reactions (
+            id,
+            user_id,
+            reaction,
+            user_profile:user_id ( first_name, last_name )
+          ),
+          comments:trip_stay_comments (
+            id,
+            user_id,
+            comment,
+            created_at,
+            user_profile:user_id ( first_name, last_name )
+          )
+        `)
+        .eq('trip_id', tripId)
+        .order('start_day', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (error || !data) {
+        console.warn('fetchTripStaysDB error:', error?.message);
+        return [];
+      }
+
+      const me = (await supabase.auth.getUser()).data?.user?.id;
+
+      return data.map((row: any) => {
+        const reactions: TripStayReaction[] = (row.reactions || []).map((r: any) => {
+          const prof = r.user_profile || {};
+          const fn = prof.first_name || '';
+          const ln = prof.last_name || '';
+          return {
+            id: r.id,
+            stayId: row.id,
+            userId: r.user_id,
+            reaction: r.reaction,
+            userFirstName: fn,
+            userLastName: ln,
+            userInitials: `${(fn[0] || '').toUpperCase()}${(ln[0] || '').toUpperCase()}` || 'U',
+          };
+        });
+        const likeCount = reactions.filter((r) => r.reaction === 'like').length;
+        const dislikeCount = reactions.filter((r) => r.reaction === 'dislike').length;
+        const mine = reactions.find((r) => r.userId === me)?.reaction || null;
+
+        const creator = row.creator_profile || {};
+        const comments: TripStayComment[] = (row.comments || []).map((c: any) => {
+          const prof = c.user_profile || {};
+          const fn = prof.first_name || '';
+          const ln = prof.last_name || '';
+          return {
+            id: c.id,
+            stayId: row.id,
+            userId: c.user_id,
+            comment: c.comment,
+            createdAt: c.created_at || undefined,
+            userFirstName: fn,
+            userLastName: ln,
+            userInitials: `${(fn[0] || '').toUpperCase()}${(ln[0] || '').toUpperCase()}` || 'U',
+          };
+        });
+
+        return {
+          id: row.id,
+          tripId: row.trip_id,
+          title: row.title,
+          startDay: row.start_day || 1,
+          endDay: row.end_day || 1,
+          placeId: row.place_id || undefined,
+          placeName: row.place_name || undefined,
+          placeAddress: row.place_address || undefined,
+          photoReference: row.photo_reference || undefined,
+          link: row.link || undefined,
+          note: row.note || undefined,
+          createdBy: row.created_by,
+          createdByName: `${creator.first_name || ''} ${creator.last_name || ''}`.trim() || 'Barkada',
+          createdAt: row.created_at || undefined,
+          updatedAt: row.updated_at || undefined,
+          reactions,
+          likeCount,
+          dislikeCount,
+          myReaction: mine as 'like' | 'dislike' | null,
+          comments,
+          commentCount: comments.length,
+        };
+      });
+    } catch (err: any) {
+      console.warn('fetchTripStaysDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Add a stay to a trip. Host-only (enforced by RLS) and only allowed once
+   * the tour is locked (planning_stage READY / ITINERARY_BUILDING). Fans out
+   * "New Stay Added" notifications to the other members.
+   */
+  public async addTripStayDB(params: {
+    tripId: string;
+    title: string;
+    startDay: number;
+    endDay: number;
+    placeId?: string;
+    placeName?: string;
+    placeAddress?: string;
+    photoReference?: string;
+    link?: string;
+    note?: string;
+    userId: string;
+  }): Promise<TripStay | null> {
+    try {
+      const startDay = Math.max(1, params.startDay);
+      const endDay = Math.max(startDay, params.endDay);
+
+      const { data, error } = await supabase
+        .from('trip_stays')
+        .insert({
+          trip_id: params.tripId,
+          title: params.title.trim(),
+          start_day: startDay,
+          end_day: endDay,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          link: params.link?.trim() || null,
+          note: params.note?.trim() || null,
+          created_by: params.userId,
+        })
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        console.warn('addTripStayDB error:', error?.message);
+        return null;
+      }
+
+      // Notify the other members
+      let actorName = 'Your host';
+      if (params.userId) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', params.userId)
+          .maybeSingle();
+        if (prof?.first_name) actorName = `${prof.first_name} ${prof.last_name || ''}`.trim();
+      }
+      let tripTitle = 'Barkada Trip';
+      if (params.tripId) {
+        const { data: tripRow } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', params.tripId)
+          .maybeSingle();
+        if (tripRow?.title) tripTitle = tripRow.title;
+      }
+      const notified = await NotificationService.createStayAddedNotification(
+        params.userId,
+        params.tripId,
+        actorName,
+        params.title.trim(),
+        data.id,
+        tripTitle
+      );
+      if (!notified) console.warn('addTripStayDB: stay-added notification not sent');
+
+      const list = await this.fetchTripStaysDB(params.tripId);
+      return list.find((s) => s.id === data.id) || null;
+    } catch (err: any) {
+      console.warn('addTripStayDB exception:', err?.message);
+      return null;
+    }
+  }
+
+  /**
+   * Edit a stay (host only, enforced by RLS).
+   */
+  public async updateTripStayDB(
+    stayId: string,
+    params: {
+      title: string;
+      startDay: number;
+      endDay: number;
+      placeId?: string;
+      placeName?: string;
+      placeAddress?: string;
+      photoReference?: string;
+      link?: string;
+      note?: string;
+    }
+  ): Promise<boolean> {
+    try {
+      const startDay = Math.max(1, params.startDay);
+      const endDay = Math.max(startDay, params.endDay);
+
+      const { error } = await supabase
+        .from('trip_stays')
+        .update({
+          title: params.title.trim(),
+          start_day: startDay,
+          end_day: endDay,
+          place_id: params.placeId || null,
+          place_name: params.placeName || null,
+          place_address: params.placeAddress || null,
+          photo_reference: params.photoReference || null,
+          link: params.link?.trim() || null,
+          note: params.note?.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', stayId);
+
+      if (error) {
+        console.warn('updateTripStayDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('updateTripStayDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a stay (host only, enforced by RLS). Cascades reactions/comments.
+   */
+  public async deleteTripStayDB(stayId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('trip_stays').delete().eq('id', stayId);
+      if (error) {
+        console.warn('deleteTripStayDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('deleteTripStayDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Toggle a member's like / dislike on a stay and notify the host on their
+   * first reaction to it.
+   */
+  public async toggleTripStayReactionDB(
+    stayId: string,
+    tripId: string,
+    userId: string,
+    reaction: 'like' | 'dislike'
+  ): Promise<boolean> {
+    try {
+      const { data: existing } = await supabase
+        .from('trip_stay_reactions')
+        .select('id, reaction')
+        .eq('stay_id', stayId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.reaction === reaction) {
+          // Same reaction tapped again → remove it
+          await supabase.from('trip_stay_reactions').delete().eq('id', existing.id);
+        } else {
+          // Switch like <-> dislike
+          await supabase
+            .from('trip_stay_reactions')
+            .update({ reaction, updated_at: new Date().toISOString() })
+            .eq('id', existing.id);
+        }
+        return true;
+      }
+
+      await supabase.from('trip_stay_reactions').insert({ stay_id: stayId, user_id: userId, reaction });
+
+      // Notify the other trip members on a reaction to this stay
+      const { data: stay } = await supabase
+        .from('trip_stays')
+        .select('created_by, title')
+        .eq('id', stayId)
+        .maybeSingle();
+      if (stay) {
+        let actorName = 'Someone';
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', userId)
+          .maybeSingle();
+        if (prof?.first_name) actorName = `${prof.first_name} ${prof.last_name || ''}`.trim();
+        let tripTitle = 'Barkada Trip';
+        const { data: tripRow } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', tripId)
+          .maybeSingle();
+        if (tripRow?.title) tripTitle = tripRow.title;
+        const notified = await NotificationService.createStayReactionNotification(
+          userId,
+          tripId,
+          actorName,
+          stay.title,
+          stayId,
+          tripTitle,
+          reaction
+        );
+        if (!notified) console.warn('toggleTripStayReactionDB: stay-reaction notification not sent');
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('toggleTripStayReactionDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Add a member comment to a stay and notify the host.
+   */
+  public async addTripStayCommentDB(
+    stayId: string,
+    tripId: string,
+    userId: string,
+    comment: string
+  ): Promise<boolean> {
+    const text = comment.trim();
+    if (!text) return false;
+    try {
+      const { data, error } = await supabase
+        .from('trip_stay_comments')
+        .insert({ stay_id: stayId, user_id: userId, comment: text })
+        .select('id')
+        .single();
+
+      if (error || !data) {
+        console.warn('addTripStayCommentDB error:', error?.message);
+        return false;
+      }
+
+      const { data: stay } = await supabase
+        .from('trip_stays')
+        .select('created_by, title')
+        .eq('id', stayId)
+        .maybeSingle();
+      if (stay) {
+        let actorName = 'Someone';
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('id', userId)
+          .maybeSingle();
+        if (prof?.first_name) actorName = `${prof.first_name} ${prof.last_name || ''}`.trim();
+        let tripTitle = 'Barkada Trip';
+        const { data: tripRow } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', tripId)
+          .maybeSingle();
+        if (tripRow?.title) tripTitle = tripRow.title;
+        const notified = await NotificationService.createStayCommentNotification(
+          userId,
+          tripId,
+          actorName,
+          stay.title,
+          text,
+          stayId,
+          tripTitle
+        );
+        if (!notified) console.warn('addTripStayCommentDB: stay-comment notification not sent');
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('addTripStayCommentDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Delete a stay comment (author only, enforced by RLS).
+   */
+  public async deleteTripStayCommentDB(commentId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('trip_stay_comments').delete().eq('id', commentId);
+      if (error) {
+        console.warn('deleteTripStayCommentDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('deleteTripStayCommentDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
    * Fetch host + voting deadline for a trip (used to show host-only UI).
    */
   public async fetchTripSettingsDB(tripId: string): Promise<{ hostId: string | null; votingDeadline: string | null; planningStage: string | null }> {
@@ -1532,6 +1946,27 @@ export class TripService {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trip_itinerary_reactions' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stays' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stay_reactions' },
+        () => {
+          this.notify();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'trip_stay_comments' },
         () => {
           this.notify();
         }

@@ -33,7 +33,7 @@ const PLACEHOLDER_DATES = ['Dates TBD', 'Upcoming', 'Upcoming Dates'];
 const cleanDateRange = (range: string): string =>
   range.replace(/\s*·\s*\d+\s*barkadas?/i, '').trim();
 
-const aiMascotImg = require('../../../assets/mascot/ai_mascot.png');
+const aiMascotImg = require('../../../assets/mascot/ai_mascot.webp');
 
 interface AiChatModalProps {
   visible: boolean;

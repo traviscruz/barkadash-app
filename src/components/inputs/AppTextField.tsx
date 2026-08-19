@@ -30,6 +30,9 @@ export const AppTextField: React.FC<AppTextFieldProps> = ({
             backgroundColor: colors.card,
             borderColor: colors.cardBorder,
             color: colors.ink,
+            minHeight: 50,
+            textAlignVertical: 'center',
+            includeFontPadding: false,
           },
           style,
         ]}

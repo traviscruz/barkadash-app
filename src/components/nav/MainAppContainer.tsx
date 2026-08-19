@@ -5,7 +5,7 @@ import { HomeScreen } from '../../screens/home/HomeScreen';
 import { TripPlannerScreen } from '../../screens/planner/TripPlannerScreen';
 import { BarkadaRadarScreen } from '../../screens/radar/BarkadaRadarScreen';
 import { ExpenseLedgerScreen } from '../../screens/expenses/ExpenseLedgerScreen';
-import { TripFeedScreen } from '../../screens/feed/TripFeedScreen';
+import { ExploreScreen } from '../../screens/explore/ExploreScreen';
 import { ProfileScreen } from '../../screens/profile/ProfileScreen';
 import { EditProfileScreen } from '../../screens/profile/EditProfileScreen';
 import { SocialConnectionsScreen } from '../../screens/profile/SocialConnectionsScreen';
@@ -90,7 +90,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
       const type = data?.type;
       if (type === 'follow' || type === 'follow_back') {
         handleOpenSubScreen('connections');
-      } else if (type === 'itinerary_added' || type === 'itinerary_reaction' || type === 'poll_result') {
+      } else if (type === 'itinerary_added' || type === 'itinerary_reaction' || type === 'poll_result' || type === 'stay_added' || type === 'stay_reaction' || type === 'stay_comment') {
         handleTabChange(1);
       } else {
         handleOpenSubScreen('notifications');
@@ -156,7 +156,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
     if (!notif) return;
     if (notif.type === 'follow' || notif.type === 'follow_back') {
       handleOpenSubScreen('connections');
-    } else if (notif.type === 'itinerary_added' || notif.type === 'itinerary_reaction' || notif.type === 'poll_result') {
+    } else if (notif.type === 'itinerary_added' || notif.type === 'itinerary_reaction' || notif.type === 'poll_result' || notif.type === 'stay_added' || notif.type === 'stay_reaction' || notif.type === 'stay_comment') {
       handleTabChange(1);
     } else {
       handleOpenSubScreen('notifications');
@@ -261,7 +261,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
             <ExpenseLedgerScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 4 ? 'flex' : 'none' }]}>
-            <TripFeedScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
+            <ExploreScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
           </View>
         </View>
 

@@ -1,7 +1,10 @@
 export interface Expense {
   id: string;
+  tripId?: string;
   title: string;
   paidBy: string;
+  payerId?: string;
+  createdBy?: string;
   payerAvatar: string;
   amount: number;
   splitDetails: string;
@@ -11,7 +14,11 @@ export interface Expense {
   iconColor: string;
   date: string;
   receiptImagePath?: any;
+  receiptPhotos?: string[];
+  receiptPaths?: string[];
   isPinaluwal?: boolean;
+  splitMode?: 'split' | 'pinaluwal' | 'solo';
+  splitCount?: number;
   notes?: string;
 }
 

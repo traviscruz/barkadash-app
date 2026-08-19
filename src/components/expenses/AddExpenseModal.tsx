@@ -4,64 +4,137 @@ import {
   Text,
   TouchableOpacity,
   ScrollView,
-  Switch,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { AppTextField } from '../inputs/AppTextField';
 import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
+import { ReceiptPhotoCarousel } from './ReceiptPhotoCarousel';
 import { ExpenseService } from '../../services/expenseService';
 import { useTheme } from '../../context/ThemeContext';
-import { X, Utensils, Home, Compass, ShoppingBag, Car, Receipt } from 'lucide-react-native';
+import { useResponsive } from '../../utils/responsive';
+import {
+  X,
+  Utensils,
+  Home,
+  Compass,
+  ShoppingBag,
+  Car,
+  Receipt,
+  Camera,
+  ImagePlus,
+  Users,
+  HandCoins,
+  Crown,
+} from 'lucide-react-native';
 
 interface AddExpenseModalProps {
   visible: boolean;
   onClose: () => void;
+  tripId?: string;
+  members?: { id: string; name: string }[];
+  myId?: string;
 }
 
 const CATEGORIES = [
-  { name: 'Food', icon: Utensils, bg: 'bg-lightOrangeBg', color: '#F0A93E' },
-  { name: 'Stay', icon: Home, bg: 'bg-lightGreenBg', color: '#3A8E71' },
-  { name: 'Activities', icon: Compass, bg: 'bg-lightBlueBg', color: '#3B7A9E' },
-  { name: 'Groceries', icon: ShoppingBag, bg: 'bg-lightRedBg', color: '#E2604A' },
-  { name: 'Transport', icon: Car, bg: 'bg-lightOrangeBg', color: '#B8791E' },
-  { name: 'General', icon: Receipt, bg: 'bg-paperDim', color: '#6E738A' },
+  { name: 'Food', icon: Utensils, color: '#F0A93E' },
+  { name: 'Stay', icon: Home, color: '#3A8E71' },
+  { name: 'Activities', icon: Compass, color: '#3B7A9E' },
+  { name: 'Groceries', icon: ShoppingBag, color: '#E2604A' },
+  { name: 'Transport', icon: Car, color: '#B8791E' },
+  { name: 'General', icon: Receipt, color: '#6E738A' },
 ];
 
-const PAYERS = ['Steven', 'Harry', 'Ahiah', 'Travis', 'Me'];
+const SPLIT_MODES = [
+  { key: 'split' as const, label: 'Split with barkada', sub: 'Cost is shared by everyone', icon: Users },
+  { key: 'pinaluwal' as const, label: 'Pinaluwal mo', sub: 'You advanced it for the barkada', icon: HandCoins },
+  { key: 'solo' as const, label: 'Shouldered by you', sub: 'You covered it all yourself', icon: Crown },
+];
 
-export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClose }) => {
+export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClose, tripId, members = [], myId }) => {
   const { colors } = useTheme();
+  const { sp, fs } = useResponsive();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
-  const [paidBy, setPaidBy] = useState('Me');
   const [category, setCategory] = useState('Food');
-  const [isPinaluwal, setIsPinaluwal] = useState(false);
+  const [splitMode, setSplitMode] = useState<'split' | 'pinaluwal' | 'solo'>('split');
   const [notes, setNotes] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [carouselVisible, setCarouselVisible] = useState(false);
+  const [avoidKeyboard, setAvoidKeyboard] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const myName = members.find((m) => m.id === myId)?.name ?? 'Me';
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') return;
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setPhotos((prev) => [...prev, result.assets![0].uri]);
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+    });
+    if (!result.canceled && result.assets) {
+      const uris = result.assets.map((a) => a.uri).filter(Boolean);
+      setPhotos((prev) => [...prev, ...uris].slice(0, 5));
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSave = async () => {
     if (!title.trim() || !amount.trim()) return;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+    if (!tripId || !myId) return;
 
-    ExpenseService.getInstance().addExpense({
+    setSaving(true);
+    const result = await ExpenseService.getInstance().addExpenseDB({
+      tripId,
       title: title.trim(),
       amount: parsedAmount,
-      paidBy,
+      payerId: myId,
+      paidBy: myName,
+      createdBy: myId,
       category,
-      isPinaluwal,
+      splitMode,
+      splitCount: Math.max(members.length, 1),
+      photos,
       notes: notes.trim() ? notes.trim() : undefined,
     });
+    setSaving(false);
+    if (!result) return;
 
     // Reset & close
     setTitle('');
     setAmount('');
     setNotes('');
-    setIsPinaluwal(false);
+    setCategory('Food');
+    setSplitMode('split');
+    setPhotos([]);
+    setAvoidKeyboard(false);
     onClose();
   };
 
   return (
-    <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.4} useKeyboardAvoiding>
+    <SlideUpModal visible={visible} onClose={onClose} backdropOpacity={0.4} useKeyboardAvoiding={avoidKeyboard}>
       <View
         style={{ backgroundColor: colors.paper, borderColor: colors.cardBorder }}
         className="rounded-t-3xl max-h-[90%] p-5 border-t"
@@ -74,13 +147,14 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {/* Expense Title */}
           <AppTextField
             label="Expense Title"
             placeholder="e.g. Seafood Dinner at Artcafe"
             value={title}
             onChangeText={setTitle}
+            onFocus={() => setAvoidKeyboard(false)}
           />
 
           {/* Amount */}
@@ -90,39 +164,12 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
             keyboardType="numeric"
             value={amount}
             onChangeText={setAmount}
+            onFocus={() => setAvoidKeyboard(false)}
           />
 
-          {/* Paid By */}
-          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-1.5 uppercase">Paid By</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-4">
-            <View className="flex-row space-x-2">
-              {PAYERS.map((p) => {
-                const isSelected = paidBy === p;
-                return (
-                  <TouchableOpacity
-                    key={p}
-                    onPress={() => setPaidBy(p)}
-                    style={{
-                      backgroundColor: isSelected ? colors.sky : colors.card,
-                      borderColor: isSelected ? colors.sky : colors.cardBorder,
-                    }}
-                    className="px-4 py-2 rounded-full border"
-                  >
-                    <Text
-                      style={{ color: isSelected ? '#FFFFFF' : colors.ink }}
-                      className="text-sm font-semibold"
-                    >
-                      {p}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </ScrollView>
-
-          {/* Category Selection */}
-          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-1.5 uppercase">Category</Text>
-          <View className="flex-row flex-wrap gap-2 mb-4">
+          {/* Category */}
+          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-2 uppercase">Category</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: sp.sm, marginBottom: sp.lg }}>
             {CATEGORIES.map((cat) => {
               const isSelected = category === cat.name;
               const IconComponent = cat.icon;
@@ -130,19 +177,26 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
                 <TouchableOpacity
                   key={cat.name}
                   onPress={() => setCategory(cat.name)}
+                  activeOpacity={0.8}
                   style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingHorizontal: sp.sm + 2,
+                    paddingVertical: sp.xs + 1,
+                    borderRadius: 100,
                     backgroundColor: isSelected ? colors.tealDark : colors.card,
+                    borderWidth: 1,
                     borderColor: isSelected ? colors.tealDark : colors.cardBorder,
                   }}
-                  className="flex-row items-center px-3.5 py-2 rounded-xl border"
                 >
-                  <IconComponent
-                    size={16}
-                    color={isSelected ? '#FFFFFF' : cat.color}
-                  />
+                  <IconComponent size={13} color={isSelected ? '#FFFFFF' : cat.color} />
                   <Text
-                    style={{ color: isSelected ? '#FFFFFF' : colors.ink }}
-                    className="text-xs font-bold ml-1.5"
+                    style={{
+                      fontSize: fs.xs,
+                      fontWeight: '800',
+                      color: isSelected ? '#FFFFFF' : colors.ink,
+                    }}
                   >
                     {cat.name}
                   </Text>
@@ -151,24 +205,174 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
             })}
           </View>
 
-          {/* Pinaluwal Toggle */}
-          <View
-            style={{ backgroundColor: colors.card, borderColor: colors.cardBorder }}
-            className="flex-row items-center justify-between p-3.5 rounded-xl border mb-4"
-          >
-            <View className="flex-1 pr-3">
-              <Text style={{ color: colors.ink }} className="text-sm font-bold">Advance Payment (Pinaluwal)</Text>
-              <Text style={{ color: colors.inkSoft }} className="text-xs mt-0.5">
-                Paid ahead on behalf of the barkada
-              </Text>
-            </View>
-            <Switch
-              value={isPinaluwal}
-              onValueChange={setIsPinaluwal}
-              trackColor={{ false: colors.cardBorder, true: colors.tealDark }}
-              thumbColor="#FFFFFF"
-            />
+          {/* Split Mode */}
+          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-2 uppercase">How was it split?</Text>
+          <View style={{ gap: sp.sm, marginBottom: sp.lg }}>
+            {SPLIT_MODES.map((mode) => {
+              const isSelected = splitMode === mode.key;
+              const IconComponent = mode.icon;
+              return (
+                <TouchableOpacity
+                  key={mode.key}
+                  onPress={() => setSplitMode(mode.key)}
+                  activeOpacity={0.85}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: sp.sm,
+                    backgroundColor: isSelected ? colors.tealDark : colors.card,
+                    borderWidth: 1,
+                    borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                    borderRadius: 14,
+                    paddingVertical: sp.sm,
+                    paddingHorizontal: sp.sm,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 12,
+                      backgroundColor: isSelected ? 'rgba(255,255,255,0.18)' : colors.paperDim,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <IconComponent size={17} color={isSelected ? '#FFFFFF' : colors.tealDark} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        fontSize: fs.sm,
+                        fontWeight: '800',
+                        color: isSelected ? '#FFFFFF' : colors.ink,
+                      }}
+                    >
+                      {mode.label}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: '500',
+                        color: isSelected ? 'rgba(255,255,255,0.75)' : colors.inkSoft,
+                      }}
+                    >
+                      {mode.sub}
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 11,
+                      borderWidth: 2,
+                      borderColor: isSelected ? '#FFFFFF' : colors.cardBorder,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {isSelected && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#FFFFFF' }} />}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
+
+          {/* Receipt Photos */}
+          <Text style={{ color: colors.ink }} className="text-xs font-bold mb-2 uppercase">Receipt Photos</Text>
+          <View style={{ flexDirection: 'row', gap: sp.sm, marginBottom: photos.length ? sp.sm : sp.lg }}>
+            <TouchableOpacity
+              onPress={takePhoto}
+              activeOpacity={0.8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingHorizontal: sp.sm + 2,
+                paddingVertical: sp.xs + 1,
+                borderRadius: 100,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+              }}
+            >
+              <Camera size={13} color={colors.tealDark} />
+              <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink }}>Take Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={pickFromLibrary}
+              activeOpacity={0.8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                paddingHorizontal: sp.sm + 2,
+                paddingVertical: sp.xs + 1,
+                borderRadius: 100,
+                backgroundColor: colors.card,
+                borderWidth: 1,
+                borderColor: colors.cardBorder,
+              }}
+            >
+              <ImagePlus size={13} color={colors.tealDark} />
+              <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink }}>Upload</Text>
+            </TouchableOpacity>
+          </View>
+
+          {photos.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="mb-4"
+              contentContainerStyle={{ paddingTop: 8, paddingRight: 8, paddingBottom: 4 }}
+            >
+              <View style={{ flexDirection: 'row', gap: sp.sm }}>
+                {photos.map((uri, i) => (
+                  <View key={i}>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        setCarouselIndex(i);
+                        setCarouselVisible(true);
+                      }}
+                    >
+                      <Image
+                        source={{ uri }}
+                        style={{
+                          width: 64,
+                          height: 64,
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: colors.cardBorder,
+                          backgroundColor: colors.card,
+                        }}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => removePhoto(i)}
+                      activeOpacity={0.8}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      style={{
+                        position: 'absolute',
+                        top: -5,
+                        right: -5,
+                        width: 18,
+                        height: 18,
+                        borderRadius: 9,
+                        backgroundColor: '#E2604A',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderWidth: 1.5,
+                        borderColor: colors.paper,
+                      }}
+                    >
+                      <X size={10} color="#FFFFFF" strokeWidth={3} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          )}
 
           {/* Notes */}
           <AppTextField
@@ -176,14 +380,35 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
             placeholder="Add details, receipt reference, etc."
             value={notes}
             onChangeText={setNotes}
+            onFocus={() => setAvoidKeyboard(true)}
           />
 
           {/* Action */}
           <View className="mt-2 mb-6">
-            <PrimaryButton label="Save Expense to Ledger" onPress={handleSave} />
+            <PrimaryButton
+              label={saving ? 'Saving…' : 'Save Expense to Ledger'}
+              onPress={handleSave}
+              disabled={saving || !tripId || !myId}
+            />
+            {!tripId && (
+              <Text style={{ color: colors.inkSoft }} className="text-xs text-center mt-2">
+                Pick an active trip to save expenses.
+              </Text>
+            )}
           </View>
         </ScrollView>
       </View>
+
+      <ReceiptPhotoCarousel
+        photos={photos}
+        initialIndex={carouselIndex}
+        visible={carouselVisible}
+        onClose={() => setCarouselVisible(false)}
+        onDelete={(i) => {
+          removePhoto(i);
+          if (photos.length === 1) setCarouselVisible(false);
+        }}
+      />
     </SlideUpModal>
   );
 };

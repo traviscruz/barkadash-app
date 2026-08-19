@@ -59,7 +59,16 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
   // (softwareKeyboardLayoutMode: resize), so the OS keeps the sheet above the
   // keyboard without any JS work.
   useEffect(() => {
-    if (!useKeyboardAvoiding) return;
+    if (!useKeyboardAvoiding) {
+      // Release the sheet back down when keyboard avoidance is turned off.
+      Animated.timing(keyboardShift, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
