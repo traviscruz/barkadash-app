@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import * as Battery from 'expo-battery';
 import {
   MapPin,
   Users,
@@ -24,13 +25,17 @@ import {
   Layers,
   Radio,
   Navigation,
-  Battery,
+  Battery as BatteryIcon,
   Clock,
   Menu,
   Sun,
   Moon,
   ChevronDown,
   ChevronUp,
+  Lock,
+  CalendarClock,
+  CalendarDays,
+  Sparkles,
 } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useResponsive } from '../../utils/responsive';
@@ -39,6 +44,8 @@ import { useUser } from '../../context/UserContext';
 import { TripService } from '../../services/tripService';
 import { Trip } from '../../types/trip';
 import { fetchWeather } from '../../services/weatherService';
+import { supabase } from '../../utils/supabase';
+import { isWithinTripDates, getTripDayInfo, parseTripDateRange } from '../../utils/tripDates';
 
 interface MemberStatus {
   id: string;
@@ -55,6 +62,18 @@ interface MemberStatus {
   isOnline?: boolean;
   lat: number;
   lng: number;
+}
+
+interface PeerLocation {
+  userId: string;
+  name?: string;
+  lat: number;
+  lng: number;
+  speed: number | null;
+  battery: number;
+  lastUpdated: string;
+  isOnline: boolean;
+  address?: string;
 }
 
 interface Participant {
@@ -119,27 +138,51 @@ const buildMembers = (
   myLat: number,
   myLng: number,
   mySpeed: number | null | undefined,
-  meId: string
+  myBatteryPercent: number,
+  myAddressText: string,
+  meId: string,
+  peers: Record<string, PeerLocation>
 ): MemberStatus[] =>
   participants.map((p, i) => {
     const isMe = p.id === meId;
-    const off = OFFSETS[i % OFFSETS.length];
-    const lat = isMe ? myLat : myLat + off.lat;
-    const lng = isMe ? myLng : myLng + off.lng;
+    const peer = peers[p.id];
+
+    let lat = myLat;
+    let lng = myLng;
+    let battery = isMe ? myBatteryPercent : (peer?.battery ?? (85 + ((i * 13) % 15)));
+    let speed = isMe ? formatSpeed(mySpeed) : (peer?.speed != null ? formatSpeed(peer.speed) : '—');
+    let isOnline = isMe ? true : (peer?.isOnline ?? false);
+    let statusText = isMe ? 'Live Location' : (isOnline ? 'Live Location' : 'Last seen in trip');
+    let address = isMe ? (myAddressText || 'Current Device Location') : (peer?.address || 'Trip Member');
+    let lastUpdated = isMe ? 'Just now' : (peer?.lastUpdated ? 'Live' : 'Offline');
+
+    if (isMe) {
+      lat = myLat;
+      lng = myLng;
+    } else if (peer && peer.lat && peer.lng) {
+      lat = peer.lat;
+      lng = peer.lng;
+    } else {
+      const off = OFFSETS[i % OFFSETS.length];
+      lat = myLat + off.lat;
+      lng = myLng + off.lng;
+    }
+
     const distance = isMe ? 'Here' : calculateDistanceKm(myLat, myLng, lat, lng);
+
     return {
       id: p.id,
       name: isMe ? `${p.name} (you)` : p.name,
       initial: p.initials || p.name.charAt(0).toUpperCase(),
       avatarBg: p.avatarBg,
-      statusText: isMe ? 'Live Location' : 'Offline',
-      address: isMe ? 'Current Device Location' : 'Last seen in this trip',
+      statusText,
+      address,
       distance,
-      battery: 85 + ((i * 13) % 15),
-      speed: isMe ? formatSpeed(mySpeed) : '—',
-      lastUpdated: isMe ? 'Just now' : 'Offline',
+      battery,
+      speed,
+      lastUpdated,
       isMe,
-      isOnline: isMe,
+      isOnline,
       lat,
       lng,
     };
@@ -168,7 +211,6 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
     setIsCardCollapsed(nextCollapsedState);
 
     if (nextCollapsedState) {
-      // Snappy Clean Ease Down for Closing (No Weird Bounce Overshoot)
       Animated.timing(animatedProgress, {
         toValue: 0,
         duration: 220,
@@ -176,7 +218,6 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
         useNativeDriver: false,
       }).start();
     } else {
-      // Perfect Elastic Bounce Pop for Opening
       Animated.spring(animatedProgress, {
         toValue: 1,
         bounciness: 15,
@@ -204,11 +245,62 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [myLoc, setMyLoc] = useState<{ lat: number; lng: number; speed: number | null } | null>(null);
   const myLocRef = useRef<{ lat: number; lng: number; speed: number | null } | null>(null);
+  const [myBattery, setMyBattery] = useState<number>(100);
+  const [myAddress, setMyAddress] = useState<string>('Current Location');
+  const [peerLocations, setPeerLocations] = useState<Record<string, PeerLocation>>({});
   const didInitCenter = useRef(false);
   const didFetchWeather = useRef(false);
+  const lastGeocodeTime = useRef(0);
 
-  // Continuous Live GPS Tracking (marker moves as you move)
+  // Event Date Validation: Barkada Radar ONLY works during the trip's actual event dates
+  const hasActiveTrip = !!activeTrip;
+  const isTripFinalized =
+    activeTrip?.planningStage === 'READY' || activeTrip?.planningStage === 'ITINERARY_BUILDING';
+  const isTripCompleted = activeTrip?.status === 'Completed';
+  const isEventDate =
+    hasActiveTrip &&
+    isTripFinalized &&
+    !isTripCompleted &&
+    isWithinTripDates(activeTrip?.dateRange);
+  const dayInfo = activeTrip ? getTripDayInfo(activeTrip?.dateRange) : null;
+  const dateRangeParsed = activeTrip ? parseTripDateRange(activeTrip?.dateRange) : null;
+
+  // 1. Real Device Battery Monitoring
   useEffect(() => {
+    let batterySub: Battery.Subscription | null = null;
+    const fetchBattery = async () => {
+      try {
+        const level = await Battery.getBatteryLevelAsync();
+        if (level >= 0) {
+          setMyBattery(Math.round(level * 100));
+        }
+      } catch (e) {
+        console.log('Battery fetch note:', e);
+      }
+    };
+    fetchBattery();
+    try {
+      batterySub = Battery.addBatteryLevelListener((evt) => {
+        if (evt.batteryLevel >= 0) {
+          setMyBattery(Math.round(evt.batteryLevel * 100));
+        }
+      });
+    } catch (e) {
+      console.log('Battery listener note:', e);
+    }
+    return () => {
+      batterySub?.remove();
+    };
+  }, []);
+
+  // 2. Continuous Live GPS Tracking (strictly on event dates only)
+  useEffect(() => {
+    if (!isEventDate) {
+      setLocationStatus('Radar Inactive (Event Dates Only)');
+      setLoadingLocation(false);
+      return;
+    }
+
     let sub: Location.LocationSubscription | null = null;
     let isMounted = true;
 
@@ -224,7 +316,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
         }
 
         sub = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 3, timeInterval: 2500 },
+          { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 2000 },
           (loc) => {
             if (!isMounted) return;
             const next = {
@@ -257,7 +349,127 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
       isMounted = false;
       if (sub) sub.remove();
     };
-  }, []);
+  }, [isEventDate]);
+
+  // 3. Reverse Geocode locality (throttled to once every 20s)
+  useEffect(() => {
+    if (!isEventDate || !myLoc) return;
+    const now = Date.now();
+    if (now - lastGeocodeTime.current < 20000) return;
+    lastGeocodeTime.current = now;
+
+    Location.reverseGeocodeAsync({ latitude: myLoc.lat, longitude: myLoc.lng })
+      .then((results) => {
+        if (results && results.length > 0) {
+          const item = results[0];
+          const parts = [item.name, item.street, item.district || item.city, item.region].filter(Boolean);
+          if (parts.length > 0) {
+            setMyAddress(parts.slice(0, 2).join(', '));
+          }
+        }
+      })
+      .catch(() => {});
+  }, [isEventDate, myLoc]);
+
+  const myDisplayName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || profile?.username || 'Me';
+
+  // 4. Supabase Realtime Live Broadcast & Peer Location Sync (strictly on event dates only)
+  useEffect(() => {
+    if (!isEventDate || !activeTrip?.id || !currentUserId) return;
+
+    const tripId = activeTrip.id;
+    const channelName = `radar:trip:${tripId}`;
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: false },
+        presence: { key: currentUserId },
+      },
+    });
+
+    channel
+      .on('broadcast', { event: 'location_update' }, ({ payload }) => {
+        if (!payload || !payload.userId || payload.userId === currentUserId) return;
+        setPeerLocations((prev) => ({
+          ...prev,
+          [payload.userId]: {
+            userId: payload.userId,
+            name: payload.name,
+            lat: payload.lat,
+            lng: payload.lng,
+            speed: payload.speed ?? null,
+            battery: payload.battery ?? 100,
+            lastUpdated: payload.lastUpdated || new Date().toISOString(),
+            isOnline: true,
+            address: payload.address,
+          },
+        }));
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const onlineUserIds = new Set(Object.keys(state));
+        setPeerLocations((prev) => {
+          const next = { ...prev };
+          Object.keys(next).forEach((id) => {
+            next[id] = {
+              ...next[id],
+              isOnline: onlineUserIds.has(id),
+            };
+          });
+          return next;
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        if (!key) return;
+        setPeerLocations((prev) => {
+          if (!prev[key]) return prev;
+          return {
+            ...prev,
+            [key]: {
+              ...prev[key],
+              isOnline: false,
+              lastUpdated: 'Just now',
+            },
+          };
+        });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({
+            userId: currentUserId,
+            name: myDisplayName,
+            onlineAt: new Date().toISOString(),
+          });
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isEventDate, activeTrip?.id, currentUserId, myDisplayName]);
+
+  // 5. Broadcast Local GPS & Real Battery to Trip Peers (strictly on event dates only)
+  useEffect(() => {
+    if (!isEventDate || !activeTrip?.id || !myLoc || !currentUserId) return;
+    const channelName = `radar:trip:${activeTrip.id}`;
+    const channel = supabase.channel(channelName);
+
+    channel
+      .send({
+        type: 'broadcast',
+        event: 'location_update',
+        payload: {
+          userId: currentUserId,
+          name: myDisplayName,
+          lat: myLoc.lat,
+          lng: myLoc.lng,
+          speed: myLoc.speed,
+          battery: myBattery,
+          address: myAddress,
+          lastUpdated: new Date().toISOString(),
+        },
+      })
+      .catch(() => {});
+  }, [isEventDate, myLoc, myBattery, myAddress, activeTrip?.id, currentUserId, myDisplayName]);
 
   // Load trips if not already loaded, then subscribe for active-trip changes
   useEffect(() => {
@@ -292,7 +504,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
 
   // Weather once the first GPS fix arrives
   useEffect(() => {
-    if (!myLoc || didFetchWeather.current) return;
+    if (!isEventDate || !myLoc || didFetchWeather.current) return;
     didFetchWeather.current = true;
     fetchWeather(myLoc.lat, myLoc.lng).then((w) => {
       if (w) {
@@ -300,13 +512,27 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
         setWeatherIsDay(w.isDay);
       }
     });
-  }, [myLoc]);
+  }, [isEventDate, myLoc]);
 
-  // Rebuild the member pins from the trip's joined members + live position
+  // Rebuild the member pins from joined members + live positions + real battery
   useEffect(() => {
-    if (!myLoc) return;
-    setMembers(buildMembers(participants, myLoc.lat, myLoc.lng, myLoc.speed, currentUserId));
-  }, [participants, myLoc, currentUserId]);
+    if (!isEventDate || !myLoc) {
+      setMembers([]);
+      return;
+    }
+    setMembers(
+      buildMembers(
+        participants,
+        myLoc.lat,
+        myLoc.lng,
+        myLoc.speed,
+        myBattery,
+        myAddress,
+        currentUserId,
+        peerLocations
+      )
+    );
+  }, [isEventDate, participants, myLoc, myBattery, myAddress, currentUserId, peerLocations]);
 
   // Keep a valid selected member (defaults to me)
   useEffect(() => {
@@ -650,11 +876,12 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
         style={{
           position: 'absolute',
           top: insets.top + sp.sm,
-          left: sp.lg,
-          right: sp.lg,
+          left: sp.md,
+          right: sp.md,
           flexDirection: 'row',
           justifyContent: 'space-between',
           alignItems: 'center',
+          gap: sp.sm,
           zIndex: 50,
         }}
       >
@@ -664,11 +891,12 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             {
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 8,
+              gap: 6,
               paddingLeft: 4,
-              paddingRight: 12,
+              paddingRight: 10,
               paddingVertical: 4,
               borderRadius: 100,
+              flexShrink: 1,
             },
           ]}
         >
@@ -676,116 +904,349 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             onPress={onOpenCabinet}
             activeOpacity={0.7}
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
+              width: 34,
+              height: 34,
+              borderRadius: 17,
               alignItems: 'center',
               justifyContent: 'center',
               backgroundColor: 'transparent',
             }}
           >
-            <Menu size={20} color={colors.ink} strokeWidth={2.2} />
+            <Menu size={18} color={colors.ink} strokeWidth={2.2} />
           </TouchableOpacity>
 
-          <BarkadashLogo height={26} />
+          <BarkadashLogo height={24} />
 
           <View
             style={{
               width: 1,
-              height: 16,
+              height: 14,
               backgroundColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
-              marginHorizontal: 2,
+              marginHorizontal: 1,
             }}
           />
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3A8E71' }} />
-            <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink, letterSpacing: -0.2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: 3.5,
+                backgroundColor: isEventDate ? '#3A8E71' : '#F59E0B',
+              }}
+            />
+            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.ink, letterSpacing: -0.2 }}>
               RADAR
             </Text>
             <View
               style={{
-                backgroundColor: 'rgba(58,142,113,0.15)',
+                backgroundColor: isEventDate ? 'rgba(58,142,113,0.15)' : 'rgba(245,158,11,0.15)',
                 paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 3,
               }}
             >
-              <Text style={{ fontSize: 9, fontWeight: '900', color: '#3A8E71', letterSpacing: 0.5 }}>
-                LIVE
+              {!isEventDate && <Lock size={9} color="#F59E0B" strokeWidth={2.5} />}
+              <Text
+                style={{
+                  fontSize: 8.5,
+                  fontWeight: '900',
+                  color: isEventDate ? '#3A8E71' : '#F59E0B',
+                  letterSpacing: 0.5,
+                }}
+              >
+                {isEventDate ? 'LIVE' : 'LOCKED'}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Weather / Day-Night Appearance Badge */}
+        {/* Weather / Event Info Badge */}
         <View
           style={[
             glassCardStyle,
             {
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 6,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
+              gap: 5,
+              paddingHorizontal: 10,
+              paddingVertical: 7,
               borderRadius: 100,
+              flexShrink: 0,
             },
           ]}
         >
-          {weatherIsDay ? <Sun size={14} color="#D97706" /> : <Moon size={14} color="#60A5FA" />}
-          <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>
-            {loadingLocation ? 'Locating...' : weatherTemp == null ? '--' : `${weatherTemp}°C`}
-          </Text>
+          {isEventDate ? (
+            <>
+              {weatherIsDay ? <Sun size={13} color="#D97706" /> : <Moon size={13} color="#60A5FA" />}
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>
+                {loadingLocation ? 'Locating...' : weatherTemp == null ? '--' : `${weatherTemp}°C`}
+              </Text>
+            </>
+          ) : (
+            <>
+              <CalendarClock size={13} color={colors.orangeAccent} strokeWidth={2.2} />
+              <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '800', color: colors.ink, maxWidth: 90 }}>
+                {activeTrip?.destination ? activeTrip.destination.split(',')[0] : 'Radar'}
+              </Text>
+            </>
+          )}
         </View>
       </View>
 
-      {/* FLOATING QUICK MAP CONTROLS */}
-      <View
-        style={{
-          position: 'absolute',
-          right: sp.md,
-          top: insets.top + (isTablet ? 76 : 68),
-          gap: sp.xs,
-          zIndex: 40,
-        }}
-      >
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleLocateMe}
-          style={[
-            glassCardStyle,
-            {
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
+      {/* FLOATING QUICK MAP CONTROLS (Active during Event Dates only) */}
+      {isEventDate && (
+        <View
+          style={{
+            position: 'absolute',
+            right: sp.md,
+            top: insets.top + (isTablet ? 76 : 68),
+            gap: sp.xs,
+            zIndex: 40,
+          }}
         >
-          <LocateFixed size={20} color="#0171F8" />
-        </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleLocateMe}
+            style={[
+              glassCardStyle,
+              {
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <LocateFixed size={20} color="#0171F8" />
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={handleToggleStyle}
-          style={[
-            glassCardStyle,
-            {
-              width: 42,
-              height: 42,
-              borderRadius: 21,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={handleToggleStyle}
+            style={[
+              glassCardStyle,
+              {
+                width: 42,
+                height: 42,
+                borderRadius: 21,
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <Layers size={20} color={isDarkModeMap ? '#60A5FA' : colors.ink} />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* LOCKED RADAR STATE (ONLY WORKS ON EVENT DATES) */}
+      {!isEventDate && (
+        <View
+          style={{
+            position: 'absolute',
+            top: insets.top + (isTablet ? 70 : 60),
+            left: 0,
+            right: 0,
+            bottom: insets.bottom > 0 ? insets.bottom + 60 : 72,
+            zIndex: 45,
+          }}
         >
-          <Layers size={20} color={isDarkModeMap ? '#60A5FA' : colors.ink} />
-        </TouchableOpacity>
-      </View>
+          <ScrollView
+            contentContainerStyle={{
+              flexGrow: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+              paddingHorizontal: sp.md,
+              paddingVertical: sp.sm,
+            }}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View
+              style={[
+                glassCardStyle,
+                {
+                  borderRadius: 24,
+                  paddingHorizontal: isTablet ? 24 : 18,
+                  paddingVertical: isTablet ? 24 : 18,
+                  alignItems: 'center',
+                  width: '100%',
+                  maxWidth: 400,
+                  borderWidth: 1.5,
+                  borderColor: isDark ? 'rgba(240, 169, 62, 0.3)' : 'rgba(240, 169, 62, 0.4)',
+                },
+              ]}
+            >
+              {/* Glowing Lock & Calendar Icon Badge */}
+              <View
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: 27,
+                  backgroundColor: isDark ? 'rgba(240, 169, 62, 0.15)' : '#FEF6E7',
+                  borderWidth: 1.5,
+                  borderColor: isDark ? 'rgba(240, 169, 62, 0.4)' : '#FCD34D',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 12,
+                  shadowColor: '#F59E0B',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 10,
+                  elevation: 5,
+                }}
+              >
+                <CalendarClock size={26} color={colors.orangeAccent} strokeWidth={2.2} />
+              </View>
 
-      {/* EMPTY STATE BANNER */}
-      {(!activeTrip || members.length === 0) && (
+              {/* Status Tag Pill */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                  backgroundColor: isDark ? 'rgba(240, 169, 62, 0.18)' : '#FEF3C7',
+                  paddingHorizontal: 10,
+                  paddingVertical: 3,
+                  borderRadius: 100,
+                  marginBottom: 8,
+                }}
+              >
+                <Lock size={10} color={colors.orangeAccent} strokeWidth={2.5} />
+                <Text
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: '900',
+                    color: colors.orangeAccent,
+                    letterSpacing: 0.6,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {!hasActiveTrip
+                    ? 'NO ACTIVE TRIP'
+                    : !isTripFinalized
+                    ? 'VOTING IN PROGRESS'
+                    : dayInfo?.isBeforeStart
+                    ? 'UPCOMING EVENT'
+                    : dayInfo?.isEnded || isTripCompleted
+                    ? 'EVENT CONCLUDED'
+                    : 'EVENT DATES ONLY'}
+                </Text>
+              </View>
+
+              {/* Main Title */}
+              <Text
+                style={{
+                  fontSize: isTablet ? 18 : 16,
+                  fontWeight: '900',
+                  color: colors.ink,
+                  textAlign: 'center',
+                  letterSpacing: -0.3,
+                  marginBottom: 6,
+                }}
+              >
+                {!hasActiveTrip
+                  ? 'Barkada Radar Inactive'
+                  : !isTripFinalized
+                  ? 'Dates Not Finalized'
+                  : dayInfo?.isBeforeStart
+                  ? 'Radar Unlocks on Day 1'
+                  : dayInfo?.isEnded || isTripCompleted
+                  ? 'Trip Concluded'
+                  : 'Available on Event Dates'}
+              </Text>
+
+              {/* Descriptive Body */}
+              <Text
+                style={{
+                  fontSize: 11.5,
+                  color: colors.inkSoft,
+                  textAlign: 'center',
+                  lineHeight: 17,
+                  marginBottom: 14,
+                  maxWidth: 300,
+                }}
+              >
+                {!hasActiveTrip
+                  ? 'Barkada Radar provides real-time location sharing exclusively during active trip dates. Join or select a trip to use radar with your barkada.'
+                  : !isTripFinalized
+                  ? 'Your barkada is still voting on destination and dates. Radar activates automatically on Day 1 of the trip once dates are locked in.'
+                  : dayInfo?.isBeforeStart
+                  ? `Barkada Radar only operates live during official event dates (${activeTrip?.dateRange || 'Upcoming'}). Live squad location tracking and proximity pings will unlock automatically when Day 1 begins.`
+                  : dayInfo?.isEnded || isTripCompleted
+                  ? `This trip has ended (${activeTrip?.dateRange || 'Past'}). Live radar location tracking is deactivated outside event dates.`
+                  : 'Barkada Radar is restricted to event dates.'}
+              </Text>
+
+              {/* Trip Info Box (if active trip exists) */}
+              {hasActiveTrip && (
+                <View
+                  style={{
+                    width: '100%',
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F8FAFC',
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                    padding: 10,
+                    gap: 6,
+                  }}
+                >
+                  {!!activeTrip.destination && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                      <MapPin size={13} color={colors.tealDark} strokeWidth={2.4} />
+                      <Text style={{ fontSize: 11.5, fontWeight: '800', color: colors.ink, flex: 1 }} numberOfLines={1}>
+                        {activeTrip.destination}
+                      </Text>
+                    </View>
+                  )}
+
+                  {!!activeTrip.dateRange && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                      <CalendarDays size={13} color={colors.orangeAccent} strokeWidth={2.4} />
+                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft, flex: 1 }} numberOfLines={1}>
+                        {activeTrip.dateRange}
+                      </Text>
+                    </View>
+                  )}
+
+                  {participants.length > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                      <Users size={13} color="#3A8E71" strokeWidth={2.4} />
+                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
+                        {participants.length} {participants.length === 1 ? 'barkada joined' : 'barkadas joined'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Lock Security Footnote */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  marginTop: 10,
+                  opacity: 0.8,
+                }}
+              >
+                <Lock size={11} color={colors.inkSoft} />
+                <Text style={{ fontSize: 9.5, fontWeight: '600', color: colors.inkSoft, textAlign: 'center' }}>
+                  Live GPS is strictly restricted to event dates for privacy & battery.
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
+      {/* EMPTY STATE BANNER (Event Dates active, but no members yet) */}
+      {isEventDate && (!activeTrip || members.length === 0) && (
         <View
           style={{
             position: 'absolute',
@@ -811,19 +1272,17 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
           >
             <Users size={20} color={colors.inkSoft} />
             <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.ink, textAlign: 'center' }}>
-              {activeTrip ? 'No members joined yet' : 'No active trip'}
+              No members joined yet
             </Text>
             <Text style={{ fontSize: 10, fontWeight: '500', color: colors.inkSoft, textAlign: 'center', lineHeight: 14 }}>
-              {activeTrip
-                ? 'Invite friends to the trip so they show up on the radar.'
-                : 'Pick an active trip in the Trip Planner to see your barkada live.'}
+              Invite friends to the trip so they show up on the radar.
             </Text>
           </View>
         </View>
       )}
 
-      {/* CUBIC EASE ANIMATED BOTTOM SQUAD PANEL SHEET */}
-      {members.length > 0 && (
+      {/* CUBIC EASE ANIMATED BOTTOM SQUAD PANEL SHEET (Active during Event Dates only) */}
+      {isEventDate && members.length > 0 && (
       <View
         style={{
           marginTop: 'auto',
@@ -931,8 +1390,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             {/* Quick Battery, Clock & Expand/Collapse Chevron */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
               <View style={{ alignItems: 'flex-end', gap: 2 }}>
-<View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Battery size={13} color={currentMember.isOnline ? '#3A8E71' : isDark ? '#8B8F98' : '#9AA0A6'} />
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <BatteryIcon size={13} color={currentMember.isOnline ? '#3A8E71' : isDark ? '#8B8F98' : '#9AA0A6'} />
                       <Text style={{ fontSize: 11, fontWeight: '700', color: currentMember.isOnline ? '#3A8E71' : isDark ? '#8B8F98' : '#9AA0A6' }}>
                         {currentMember.isOnline ? `${currentMember.battery}%` : 'Offline'}
                       </Text>

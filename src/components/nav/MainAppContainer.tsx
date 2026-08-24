@@ -12,6 +12,8 @@ import { SocialConnectionsScreen } from '../../screens/profile/SocialConnections
 import { SettingsScreen } from '../../screens/settings/SettingsScreen';
 import { TermsPrivacyScreen } from '../../screens/auth/TermsPrivacyScreen';
 import { NotificationsScreen } from '../../screens/notifications/NotificationsScreen';
+import { CommitmentTrackerScreen } from '../../screens/trip/CommitmentTrackerScreen';
+import { PackingChecklistScreen } from '../../screens/checklist/PackingChecklistScreen';
 import { CabinetDrawerModal } from './CabinetDrawerModal';
 import { PendingTripInvite } from '../trip/TripInvitationModal';
 import { TripInvitationBanner } from '../trip/TripInvitationBanner';
@@ -30,7 +32,7 @@ import { AiChatModal } from '../ai/AiChatModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | null;
+export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | 'commitment' | 'checklist' | null;
 
 interface MainAppContainerProps {
   onLogout?: () => void;
@@ -309,6 +311,16 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
                 onBack={handleBackRootSub}
                 onNavigateToTab={handleTabChange}
                 onNavigateToConnections={() => handleOpenSubScreen('connections')}
+              />
+            </View>
+            <View style={[styles.subScreenContainer, { display: activeSubScreen === 'commitment' ? 'flex' : 'none' }]}>
+              <CommitmentTrackerScreen
+                onBack={handleBackRootSub}
+              />
+            </View>
+            <View style={[styles.subScreenContainer, { display: activeSubScreen === 'checklist' ? 'flex' : 'none' }]}>
+              <PackingChecklistScreen
+                onBack={handleBackRootSub}
               />
             </View>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Pressable,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ExpenseService, computeSettleUps, payerDisplayName, ExpenseMember } from '../../services/expenseService';
@@ -21,6 +22,10 @@ import { AddExpenseModal } from '../../components/expenses/AddExpenseModal';
 import { EditExpenseModal } from '../../components/expenses/EditExpenseModal';
 import { ScanReceiptModal } from '../../components/expenses/ScanReceiptModal';
 import { ExpenseDetailsDialog } from '../../components/expenses/ExpenseDetailsDialog';
+import { SettleBreakdownModal } from '../../components/expenses/SettleBreakdownModal';
+import { MyPaymentMethodsModal } from '../../components/expenses/MyPaymentMethodsModal';
+import { ExpenseSettlement, SettleUpItem } from '../../types/expense';
+import { ReceiptScanResult } from '../../services/receiptScanService';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import {
@@ -39,6 +44,9 @@ import {
   Wallet,
   Pencil,
   Trash2,
+  Clock,
+  CheckCircle2,
+  QrCode,
 } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { formatCurrency } from '../../utils/formatters';
@@ -58,12 +66,15 @@ const CATEGORY_ICONS: Record<string, React.ComponentType<{ size?: number; color?
   sail: Compass,
   'shopping-bag': ShoppingBag,
   groceries: ShoppingBag,
+  shopping: ShoppingBag,
   car: Car,
   transport: Car,
-  commute: Car,
-  bike: Car,
+  taxi: Car,
+  fuel: Car,
   receipt: Receipt,
   general: Receipt,
+  bills: Receipt,
+  other: Receipt,
 };
 
 const iconFor = (exp: Expense) =>
@@ -77,32 +88,33 @@ const PAYER_COLORS: Record<string, string> = {
   Me: '#8B5CF6',
 };
 
-const BouncyReveal: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
-  const reveal = useRef(new Animated.Value(0)).current;
+const BouncyReveal: React.FC<{ children: React.ReactNode; index?: number }> = ({ children, index = 0 }) => {
+  const scale = useRef(new Animated.Value(0.85)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      reveal.setValue(0);
-      Animated.spring(reveal, {
-        toValue: 1,
-        bounciness: 10,
-        speed: 16,
-        useNativeDriver: true,
-      }).start();
+    const delay = Math.min(index * 60, 400);
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.spring(scale, {
+          toValue: 1,
+          bounciness: 6,
+          speed: 12,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }, delay);
-    return () => clearTimeout(t);
-  }, [reveal, delay]);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
-    <Animated.View
-      style={{
-        opacity: reveal,
-        transform: [
-          { translateY: reveal.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) },
-          { scale: reveal.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
-        ],
-      }}
-    >
+    <Animated.View style={{ transform: [{ scale }], opacity }}>
       {children}
     </Animated.View>
   );
@@ -120,6 +132,7 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
   const myId = profile?.id;
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [settlements, setSettlements] = useState<ExpenseSettlement[]>([]);
   const [members, setMembers] = useState<ExpenseMember[]>([]);
   const [activeTripId, setActiveTripId] = useState<string | undefined>();
   const [tripTitle, setTripTitle] = useState('');
@@ -127,63 +140,72 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
   const [settleFilter, setSettleFilter] = useState<'mine' | 'all'>('mine');
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [scanDraft, setScanDraft] = useState<{ receiptUri?: string; scan?: ReceiptScanResult } | undefined>();
   const [previewExpense, setPreviewExpense] = useState<Expense | null>(null);
   const [editExpense, setEditExpense] = useState<Expense | null>(null);
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [deletingExpense, setDeletingExpense] = useState(false);
+  const [selectedSettleUpId, setSelectedSettleUpId] = useState<string | null>(null);
+  const [myPaymentModalVisible, setMyPaymentModalVisible] = useState(false);
 
   const lastOffsetY = useRef(0);
 
+  const loadData = useCallback(async () => {
+    const trip = TripService.getInstance().getActiveTrip();
+    const tripId = trip?.id;
+    setActiveTripId(tripId);
+    setTripTitle(trip?.title ?? '');
+
+    if (!tripId) {
+      setExpenses([]);
+      setSettlements([]);
+      setMembers([]);
+      return;
+    }
+
+    const [exps, parts, setts] = await Promise.all([
+      ExpenseService.getInstance().fetchExpensesDB(tripId),
+      TripService.getInstance().fetchTripParticipantsDB(tripId),
+      ExpenseService.getInstance().fetchSettlementsDB(tripId),
+    ]);
+    setExpenses(exps);
+    setSettlements(setts);
+    setMembers(
+      parts.filter((p) => p.status === 'accepted').map((p) => ({ id: p.id, name: p.name }))
+    );
+  }, []);
+
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      const trip = TripService.getInstance().getActiveTrip();
-      const tripId = trip?.id;
-      if (!active) return;
-      setActiveTripId(tripId);
-      setTripTitle(trip?.title ?? '');
-
-      if (!tripId) {
-        setExpenses([]);
-        setMembers([]);
-        return;
-      }
-
-      const [exps, parts] = await Promise.all([
-        ExpenseService.getInstance().fetchExpensesDB(tripId),
-        TripService.getInstance().fetchTripParticipantsDB(tripId),
-      ]);
-      if (!active) return;
-      setExpenses(exps);
-      setMembers(
-        parts.filter((p) => p.status === 'accepted').map((p) => ({ id: p.id, name: p.name }))
-      );
-    };
-
-    load();
-    const unsubTrip = TripService.getInstance().subscribe(load);
+    loadData();
+    const unsubTrip = TripService.getInstance().subscribe(loadData);
     const unsubExp = ExpenseService.getInstance().subscribe(() => {
       setExpenses(ExpenseService.getInstance().getExpenses());
+      setSettlements(ExpenseService.getInstance().getSettlements());
     });
 
     return () => {
-      active = false;
       unsubTrip();
       unsubExp();
     };
-  }, []);
+  }, [loadData]);
 
-  // Realtime: refresh when another member adds/changes expenses in this trip.
+  // Realtime: refresh when another member adds/changes expenses or settlements in this trip.
   useEffect(() => {
     if (!activeTripId) return;
     const channel = supabase
-      .channel(`realtime:expenses:${activeTripId}`)
+      .channel(`realtime:ledger:${activeTripId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'expenses', filter: `trip_id=eq.${activeTripId}` },
         () => {
           ExpenseService.getInstance().fetchExpensesDB(activeTripId).then(setExpenses);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'expense_settlements', filter: `trip_id=eq.${activeTripId}` },
+        () => {
+          ExpenseService.getInstance().fetchSettlementsDB(activeTripId).then(setSettlements);
         }
       )
       .subscribe();
@@ -193,27 +215,62 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
     };
   }, [activeTripId]);
 
-  const filteredExpenses = expenses.filter((exp) => {
-    if (selectedCategory === 'All') return true;
-    return exp.category.toLowerCase() === selectedCategory.toLowerCase();
-  });
+  const [refreshing, setRefreshing] = useState(false);
 
-  const memberNames = members.map((m) => m.name);
-  const myName = members.find((m) => m.id === myId)?.name ?? 'Me';
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadData();
+    } catch (e) {
+      console.warn('ExpenseLedger refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
-  const expensesWithPayer = expenses.map((exp) => ({
-    ...exp,
-    paidBy: payerDisplayName(exp, members),
-  }));
-  const settleUps = computeSettleUps(expensesWithPayer, memberNames);
-  const payerLabel = (exp: Expense) => payerDisplayName(exp, members);
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((exp) => {
+      if (selectedCategory === 'All') return true;
+      return exp.category.toLowerCase() === selectedCategory.toLowerCase();
+    });
+  }, [expenses, selectedCategory]);
 
-  const totalSpent = expenses.reduce((sum, item) => sum + item.amount, 0);
-  const youOwed = settleUps.filter((s) => s.toUser === myName).reduce((sum, s) => sum + s.amount, 0);
-  const youOwe = settleUps.filter((s) => s.fromUser === myName).reduce((sum, s) => sum + s.amount, 0);
+  const memberNames = useMemo(() => members.map((m) => m.name), [members]);
+  const myName = useMemo(() => members.find((m) => m.id === myId)?.name ?? 'Me', [members, myId]);
 
-  const visibleSettleUps =
-    settleFilter === 'all' ? settleUps : settleUps.filter((s) => s.fromUser === myName || s.toUser === myName);
+  const expensesWithPayer = useMemo(() => {
+    return expenses.map((exp) => ({
+      ...exp,
+      paidBy: payerDisplayName(exp, members),
+    }));
+  }, [expenses, members]);
+
+  const settleUps = useMemo(() => {
+    return computeSettleUps(expensesWithPayer, members, settlements);
+  }, [expensesWithPayer, members, settlements]);
+
+  const payerLabel = useCallback((exp: Expense) => payerDisplayName(exp, members), [members]);
+
+  const totalSpent = useMemo(() => expenses.reduce((sum, item) => sum + item.amount, 0), [expenses]);
+  const youOwed = useMemo(
+    () => settleUps.filter((s) => s.toUserId === myId).reduce((sum, s) => sum + s.unpaidAmount, 0),
+    [settleUps, myId]
+  );
+  const youOwe = useMemo(
+    () => settleUps.filter((s) => s.fromUserId === myId).reduce((sum, s) => sum + s.unpaidAmount, 0),
+    [settleUps, myId]
+  );
+
+  const visibleSettleUps = useMemo(() => {
+    return settleFilter === 'all'
+      ? settleUps
+      : settleUps.filter((s) => s.fromUserId === myId || s.toUserId === myId);
+  }, [settleFilter, settleUps, myId]);
+
+  const selectedSettleUp = useMemo(
+    () => (selectedSettleUpId ? settleUps.find((s) => s.id === selectedSettleUpId) || null : null),
+    [settleUps, selectedSettleUpId]
+  );
 
   const photoUrisFor = (exp: Expense) => [
     ...(exp.receiptPhotos?.filter(Boolean) ?? []),
@@ -263,7 +320,7 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
         </View>
 
         {/* Quick Actions */}
-        <View style={{ flexDirection: 'row', gap: sp.sm, marginBottom: sp.lg }}>
+        <View style={{ flexDirection: 'row', gap: sp.sm, marginBottom: sp.md }}>
           <TouchableOpacity
             onPress={() => setAddModalVisible(true)}
             activeOpacity={0.85}
@@ -305,6 +362,14 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
 
         <ScrollView
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.tealDark}
+              colors={[colors.tealDark]}
+            />
+          }
           onScroll={(e) => {
             const currentY = e.nativeEvent.contentOffset.y;
             const delta = currentY - lastOffsetY.current;
@@ -461,7 +526,7 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
                   : `${payerLabel(exp)} · ${splitCount}-way · ${formatCurrency(share)} each`;
 
                 return (
-                  <BouncyReveal key={exp.id} delay={Math.min(idx, 8) * 60}>
+                  <BouncyReveal key={exp.id} index={idx}>
                     <View
                       style={{
                         backgroundColor: colors.card,
@@ -629,11 +694,33 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
 
           {/* Settle Up */}
           <View style={{ marginBottom: sp.xxl }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.sm }}>
-                <Text style={{ fontSize: fs.md, fontWeight: '900', color: colors.ink, letterSpacing: -0.3 }}>
-                  Settle Up
-                </Text>
-                <View style={{ flex: 1 }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.sm }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={{ fontSize: fs.md, fontWeight: '900', color: colors.ink, letterSpacing: -0.3 }}>
+                    Settle Up
+                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setMyPaymentModalVisible(true)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      backgroundColor: isDark ? 'rgba(13,148,136,0.15)' : '#CCFBF1',
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(13,148,136,0.3)' : '#99F6E4',
+                      paddingHorizontal: 9,
+                      paddingVertical: 4,
+                      borderRadius: 100,
+                    }}
+                  >
+                    <QrCode size={12} color={colors.tealDark} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>
+                      My QR / Bank
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 <View
                   style={{
                     flexDirection: 'row',
@@ -714,42 +801,194 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
                     overflow: 'hidden',
                   }}
                 >
-                  {visibleSettleUps.map((s, idx) => (
-                    <View
-                      key={s.id}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: sp.md,
-                        borderBottomWidth: idx === visibleSettleUps.length - 1 ? 0 : 1,
-                        borderBottomColor: colors.cardBorder,
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.xs }}>
-                        <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>{s.fromUser}</Text>
-                        <ArrowRight size={14} color={colors.inkSoft} />
-                        <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>{s.toUser}</Text>
-                      </View>
-                      <Text style={{ fontSize: fs.sm, fontWeight: '900', color: colors.tealDark }}>
-                        {formatCurrency(s.amount)}
-                      </Text>
-                    </View>
-                  ))}
+                  {visibleSettleUps.map((s, idx) => {
+                    const isMyDebt = s.fromUserId === myId;
+                    const isMyCredit = s.toUserId === myId;
+                    const unpaidCount = s.items.filter((i) => i.status === 'unpaid').length;
+                    const pendingCount = s.items.filter((i) => i.status === 'pending').length;
+
+                    return (
+                      <TouchableOpacity
+                        key={s.id}
+                        activeOpacity={0.8}
+                        onPress={() => setSelectedSettleUpId(s.id)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: sp.md,
+                          borderBottomWidth: idx === visibleSettleUps.length - 1 ? 0 : 1,
+                          borderBottomColor: colors.cardBorder,
+                        }}
+                      >
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.xs }}>
+                            <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>
+                              {isMyDebt ? 'You' : s.fromUser}
+                            </Text>
+                            <ArrowRight size={14} color={colors.inkSoft} />
+                            <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>
+                              {isMyCredit ? 'You' : s.toUser}
+                            </Text>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                            {isMyCredit && pendingCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <Clock size={10} color="#B45309" />
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#B45309' }}>
+                                  {pendingCount} of {s.items.length} to approve
+                                </Text>
+                              </View>
+                            )}
+
+                            {isMyDebt && unpaidCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.redAccent }}>
+                                  {unpaidCount} of {s.items.length} to pay
+                                </Text>
+                              </View>
+                            )}
+
+                            {isMyDebt && pendingCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                }}
+                              >
+                                <Clock size={10} color="#F59E0B" />
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#B45309' }}>
+                                  {pendingCount} pending
+                                </Text>
+                              </View>
+                            )}
+
+                            {!isMyCredit && !isMyDebt && pendingCount > 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                }}
+                              >
+                                <Clock size={10} color="#F59E0B" />
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#B45309' }}>
+                                  {pendingCount} pending
+                                </Text>
+                              </View>
+                            )}
+
+                            {isMyCredit && unpaidCount > 0 && pendingCount === 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                }}
+                              >
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.redAccent }}>
+                                  {unpaidCount} unpaid
+                                </Text>
+                              </View>
+                            )}
+
+                            {unpaidCount === 0 && pendingCount === 0 && (
+                              <View
+                                style={{
+                                  backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                                  paddingHorizontal: 7,
+                                  paddingVertical: 2,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                }}
+                              >
+                                <CheckCircle2 size={10} color={colors.emerald} />
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: colors.emerald }}>
+                                  All Settled
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text style={{ fontSize: fs.sm, fontWeight: '900', color: colors.tealDark }}>
+                            {formatCurrency(s.amount)}
+                          </Text>
+                          <ChevronRight size={16} color={colors.inkSoft} />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
             </View>
         </ScrollView>
 
         {/* Modals */}
+        <SettleBreakdownModal
+          visible={!!selectedSettleUp}
+          onClose={() => setSelectedSettleUpId(null)}
+          settleUpItem={selectedSettleUp}
+          currentUserId={myId}
+          tripId={activeTripId}
+          onRefresh={loadData}
+        />
+        <MyPaymentMethodsModal
+          visible={myPaymentModalVisible}
+          onClose={() => setMyPaymentModalVisible(false)}
+          onUpdated={loadData}
+        />
         <AddExpenseModal
           visible={addModalVisible}
-          onClose={() => setAddModalVisible(false)}
+          onClose={() => {
+            setAddModalVisible(false);
+            setScanDraft(undefined);
+          }}
           tripId={activeTripId}
           members={members}
           myId={myId}
+          initialDraft={scanDraft}
         />
-        <ScanReceiptModal visible={scanModalVisible} onClose={() => setScanModalVisible(false)} />
+        <ScanReceiptModal
+          visible={scanModalVisible}
+          onClose={() => setScanModalVisible(false)}
+          onCaptured={(uri, result) => {
+            setScanDraft({ receiptUri: uri, scan: result });
+            setScanModalVisible(false);
+            setAddModalVisible(true);
+          }}
+        />
         <EditExpenseModal
           expense={editExpense}
           visible={!!editExpense}

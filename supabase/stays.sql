@@ -1,4 +1,4 @@
--- ============================================================
+what -- ============================================================
 -- Barkadash — Where You'll Stay (Host-picked Accommodations)
 -- Run this in the Supabase SQL Editor (public schema).
 --

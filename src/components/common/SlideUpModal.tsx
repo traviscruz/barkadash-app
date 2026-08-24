@@ -129,7 +129,7 @@ export const SlideUpModal: React.FC<SlideUpModalProps> = ({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <View style={styles.outerContainer}>
+      <View style={styles.outerContainer} pointerEvents="box-none">
         {/* Fixed dark backdrop overlay that stays stationary and only fades opacity */}
         <TouchableWithoutFeedback onPress={onClose}>
           <Animated.View style={[styles.backdrop, backdropAnimStyle]} />

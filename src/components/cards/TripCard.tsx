@@ -7,6 +7,8 @@ import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { Calendar, Users, Clock, Sparkles } from 'lucide-react-native';
 
+import { parseTripDateRange } from '../../utils/tripDates';
+
 interface TripCardProps {
   trip: Trip;
   members?: TripMember[];
@@ -23,14 +25,11 @@ export const TripCard: React.FC<TripCardProps> = ({ trip, members, onPress }) =>
   const memberCount = displayMembers.length || trip.memberCount;
   const shownAvatars = displayMembers.slice(0, 5);
   const isLocked = trip.planningStage === 'READY' || trip.planningStage === 'ITINERARY_BUILDING';
-  const hasRealDates = !!trip.dateRange && trip.dateRange !== 'Dates TBD';
+  const parsedDates = parseTripDateRange(trip.dateRange);
 
   const lockedDateLabel = (() => {
-    if (!hasRealDates) return 'TBD';
-    const m = trip.dateRange.match(/([A-Za-z]{3})\s+(\d{1,2}),\s+(\d{4})/);
-    if (!m) return 'TBD';
-    const start = new Date(`${m[1]} ${m[2]}, ${m[3]}`);
-    if (isNaN(start.getTime())) return 'TBD';
+    if (!parsedDates) return 'TBD';
+    const start = parsedDates.start;
     const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime();
     const today = new Date();
     const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();

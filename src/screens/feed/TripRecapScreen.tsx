@@ -1,9 +1,10 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, MapPin, Users, Heart, Award } from 'lucide-react-native';
@@ -21,6 +22,13 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({ embedded, onSc
   const { colors } = useTheme();
   const { sp, fs, bottomNavOffset } = useResponsive();
   const lastOffsetY = useRef(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await new Promise((r) => setTimeout(r, 600));
+    setRefreshing(false);
+  };
 
   const stats = [
     { label: 'Days', value: '3' },
@@ -35,6 +43,14 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({ embedded, onSc
     <Wrapper style={{ flex: 1, backgroundColor: colors.paper }} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.tealDark}
+            colors={[colors.tealDark]}
+          />
+        }
         onScroll={(e) => {
           const currentY = e.nativeEvent.contentOffset.y;
           const delta = currentY - lastOffsetY.current;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { PrimaryButton } from '../buttons/PrimaryButton';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ReceiptPhotoCarousel } from './ReceiptPhotoCarousel';
 import { ExpenseService } from '../../services/expenseService';
+import { ReceiptScanResult } from '../../services/receiptScanService';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 import {
@@ -35,6 +36,7 @@ interface AddExpenseModalProps {
   tripId?: string;
   members?: { id: string; name: string }[];
   myId?: string;
+  initialDraft?: { receiptUri?: string; scan?: ReceiptScanResult };
 }
 
 const CATEGORIES = [
@@ -52,13 +54,14 @@ const SPLIT_MODES = [
   { key: 'solo' as const, label: 'Shouldered by you', sub: 'You covered it all yourself', icon: Crown },
 ];
 
-export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClose, tripId, members = [], myId }) => {
+export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClose, tripId, members = [], myId, initialDraft }) => {
   const { colors } = useTheme();
   const { sp, fs } = useResponsive();
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('Food');
-  const [splitMode, setSplitMode] = useState<'split' | 'pinaluwal' | 'solo'>('split');
+  const [splitMode, setSplitMode] = useState<'split' | 'pinaluwal' | 'solo' | null>(null);
+  const [splitTouched, setSplitTouched] = useState(false);
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [carouselIndex, setCarouselIndex] = useState(0);
@@ -67,6 +70,31 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
   const [saving, setSaving] = useState(false);
 
   const myName = members.find((m) => m.id === myId)?.name ?? 'Me';
+
+  useEffect(() => {
+    if (!visible || !initialDraft) return;
+    const scan = initialDraft.scan;
+    setTitle(scan?.merchantName || '');
+    setAmount(scan?.total != null ? String(scan.total) : '');
+    setCategory(scan?.category || 'General');
+    setSplitMode(null);
+    setSplitTouched(false);
+    setPhotos(initialDraft.receiptUri ? [initialDraft.receiptUri] : []);
+
+    // Short concise note about the purchase without dates or prices
+    if (scan?.note) {
+      setNotes(scan.note);
+    } else if (scan?.items && scan.items.length > 0) {
+      const itemNames = scan.items
+        .map((i) => i.name)
+        .filter(Boolean)
+        .slice(0, 4)
+        .join(', ');
+      setNotes(itemNames ? `${itemNames}` : '');
+    } else {
+      setNotes('');
+    }
+  }, [visible, initialDraft]);
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -101,6 +129,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
 
   const handleSave = async () => {
     if (!title.trim() || !amount.trim()) return;
+    setSplitTouched(true);
+    if (!splitMode) return;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
     if (!tripId || !myId) return;
@@ -127,7 +157,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
     setAmount('');
     setNotes('');
     setCategory('Food');
-    setSplitMode('split');
+    setSplitMode(null);
+    setSplitTouched(false);
     setPhotos([]);
     setAvoidKeyboard(false);
     onClose();
@@ -214,7 +245,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
               return (
                 <TouchableOpacity
                   key={mode.key}
-                  onPress={() => setSplitMode(mode.key)}
+                  onPress={() => { setSplitMode(mode.key); setSplitTouched(true); }}
                   activeOpacity={0.85}
                   style={{
                     flexDirection: 'row',
@@ -277,6 +308,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
               );
             })}
           </View>
+          {splitTouched && !splitMode && (
+            <Text style={{ color: colors.redAccent, fontSize: 11, fontWeight: '700', marginTop: -sp.md, marginBottom: sp.md }}>
+              Choose how this expense was split to continue.
+            </Text>
+          )}
 
           {/* Receipt Photos */}
           <Text style={{ color: colors.ink }} className="text-xs font-bold mb-2 uppercase">Receipt Photos</Text>
@@ -388,7 +424,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({ visible, onClo
             <PrimaryButton
               label={saving ? 'Saving…' : 'Save Expense to Ledger'}
               onPress={handleSave}
-              disabled={saving || !tripId || !myId}
+              disabled={saving || !tripId || !myId || !splitMode}
             />
             {!tripId && (
               <Text style={{ color: colors.inkSoft }} className="text-xs text-center mt-2">

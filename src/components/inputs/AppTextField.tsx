@@ -18,9 +18,9 @@ export const AppTextField: React.FC<AppTextFieldProps> = ({
   const { colors } = useTheme();
 
   return (
-    <View className="mb-4">
+    <View style={{ marginBottom: 12 }}>
       {label && (
-        <Text style={{ color: colors.ink }} className="text-xs font-bold mb-1.5 uppercase">
+        <Text style={{ color: colors.ink, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' }}>
           {label}
         </Text>
       )}
@@ -30,17 +30,22 @@ export const AppTextField: React.FC<AppTextFieldProps> = ({
             backgroundColor: colors.card,
             borderColor: colors.cardBorder,
             color: colors.ink,
-            minHeight: 50,
+            height: 42,
+            fontSize: 13,
+            fontWeight: '600',
+            borderRadius: 12,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderWidth: 1,
             textAlignVertical: 'center',
             includeFontPadding: false,
           },
           style,
         ]}
-        className={`border rounded-xl px-4 py-3 text-base ${className}`}
         placeholderTextColor={colors.inkSoft}
         {...props}
       />
-      {error && <Text className="text-xs text-redAccent mt-1 font-medium">{error}</Text>}
+      {error && <Text style={{ color: '#EF4444', fontSize: 11, fontWeight: '600', marginTop: 4 }}>{error}</Text>}
     </View>
   );
 };

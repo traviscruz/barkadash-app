@@ -6,6 +6,7 @@ import {
   Image,
   TouchableOpacity,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Heart, Menu } from 'lucide-react-native';
@@ -62,6 +63,13 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
   ];
 
   const cardImgHeight = isTablet ? 220 : 176;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await new Promise((r) => setTimeout(r, 600));
+    setRefreshing(false);
+  };
 
   const Wrapper: any = embedded ? View : SafeAreaView;
 
@@ -90,35 +98,27 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
           </View>
         )}
 
-        {/* Header */}
-        {!embedded && (
-          <Text style={{ fontSize: fs.xxl, fontWeight: '900', color: colors.ink, letterSpacing: -0.5, marginBottom: sp.sm }}>
-            Barkada Feed
-          </Text>
-        )}
-
-        {/* Sub-Tabs */}
+        {/* Following / Explore Tab Selector */}
         <View style={{ flexDirection: 'row', gap: sp.sm, marginBottom: sp.lg }}>
           {(['Following', 'Explore'] as const).map((tab) => {
             const isSelected = activeTab === tab;
             return (
               <TouchableOpacity
                 key={tab}
+                activeOpacity={0.8}
                 onPress={() => setActiveTab(tab)}
                 style={{
-                  paddingHorizontal: sp.lg,
-                  paddingVertical: sp.xs + 2,
+                  paddingVertical: 8,
+                  paddingHorizontal: 16,
                   borderRadius: 100,
-                  borderWidth: 1,
-                  backgroundColor: isSelected ? colors.tealDark : colors.card,
-                  borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                  backgroundColor: isSelected ? colors.tealDark : colors.paperDim,
                 }}
               >
                 <Text
                   style={{
                     fontSize: fs.xs,
-                    fontWeight: '700',
-                    color: isSelected ? '#FFFFFF' : colors.ink,
+                    fontWeight: '800',
+                    color: isSelected ? '#FFFFFF' : colors.inkSoft,
                   }}
                 >
                   {tab}
@@ -131,6 +131,14 @@ export const TripFeedScreen: React.FC<TripFeedScreenProps> = ({ onScrollDirectio
         {/* Feed Cards */}
         <ScrollView
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.tealDark}
+              colors={[colors.tealDark]}
+            />
+          }
           onScroll={(e) => {
           const currentY = e.nativeEvent.contentOffset.y;
           const delta = currentY - lastOffsetY.current;

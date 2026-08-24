@@ -14,12 +14,14 @@ import {
   Pressable,
   Linking,
   Easing,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings } from 'lucide-react-native';
+import { isWithinTripDates, getTripDayInfo, sortItineraryChronological, parseTripDateRange, tripDayCount as calcTripDayCount } from '../../utils/tripDates';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
 import { TripService } from '../../services/tripService';
@@ -33,7 +35,7 @@ import { TripVotingPollsSection } from '../../components/trip/TripVotingPollsSec
 import { EditTourModal } from '../../components/trip/EditTourModal';
 import { ItineraryAddModal, ItineraryPlacePrefill } from '../../components/trip/ItineraryAddModal';
 import { StayAddModal } from '../../components/trip/StayAddModal';
-import { getPlacePhotoUrl } from '../../services/googlePlaces';
+import { getPlacePhotoUrl, getPlaceDetails, searchPlaces } from '../../services/googlePlaces';
 import { Trip, ItineraryItem, TripStay } from '../../types/trip';
 import { fetchAiSpots, ensureAiSpots, generateAiSpots, getSmartCategories, AiSpot, AiSpotCategory } from '../../services/aiSpotsService';
 
@@ -117,7 +119,7 @@ const SpotCard: React.FC<SpotCardProps> = ({ spot, isPicked, isDark, teal, width
 export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet, pendingInvite, onViewInvitation }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
-  const { sp, fs, icon, bottomNavOffset, isTablet } = useResponsive();
+  const { sp, fs, icon, isTablet, insets, width, bottomNavOffset } = useResponsive();
   const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots'>('Itinerary');
   const [selectedDay, setSelectedDay] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState('DINING');
@@ -140,8 +142,68 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const [tripDetailsVisible, setTripDetailsVisible] = useState(false);
   const [editTourVisible, setEditTourVisible] = useState(false);
 
+  // Complete Trip & Undo State
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [loadingComplete, setLoadingComplete] = useState(false);
+  const [showUndoModal, setShowUndoModal] = useState(false);
+  const [loadingUndo, setLoadingUndo] = useState(false);
+
   const isHost = !!profile?.id && activeTrip?.hostId === profile.id;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const service = TripService.getInstance();
+      await service.fetchUserTripsDB(profile?.id);
+      const active = service.getActiveTrip();
+      setActiveTrip(active);
+      setAllTrips(service.getTrips());
+      if (active?.id) {
+        await Promise.all([
+          loadItinerary(active.id, selectedDay, true),
+          loadStays(active.id, true),
+        ]);
+      }
+    } catch (e) {
+      console.warn('Planner refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const isLocked = activeTrip?.planningStage === 'READY' || activeTrip?.planningStage === 'ITINERARY_BUILDING';
+  const withinDates = activeTrip ? isWithinTripDates(activeTrip.dateRange) : false;
+  const dayInfo = activeTrip ? getTripDayInfo(activeTrip.dateRange) : null;
+  const isTripCompleted = activeTrip?.status === 'Completed';
+
+  const confirmCompleteTrip = async () => {
+    if (!activeTrip || !profile?.id) return;
+    setLoadingComplete(true);
+    try {
+      const res = await TripService.getInstance().completeTripDB(activeTrip.id, profile.id);
+      if (res.success) {
+        setShowCompleteModal(false);
+        setActiveTrip(TripService.getInstance().getActiveTrip());
+      }
+    } finally {
+      setLoadingComplete(false);
+    }
+  };
+
+  const confirmUndoCompleteTrip = async () => {
+    if (!activeTrip || !profile?.id) return;
+    setLoadingUndo(true);
+    try {
+      const res = await TripService.getInstance().reopenTripDB(activeTrip.id, profile.id);
+      if (res.success) {
+        setShowUndoModal(false);
+        setActiveTrip(TripService.getInstance().getActiveTrip());
+      }
+    } finally {
+      setLoadingUndo(false);
+    }
+  };
 
   useEffect(() => {
     const service = TripService.getInstance();
@@ -200,7 +262,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     }
     return res;
   };
-  
+
   // DB-backed shared itinerary
   const [itineraryItems, setItineraryItems] = useState<ItineraryItem[]>([]);
   const [itineraryLoading, setItineraryLoading] = useState(false);
@@ -222,7 +284,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     if (!silent) setItineraryLoading(true);
     const items = await TripService.getInstance().fetchTripItineraryDB(tripId, day);
     if (seq !== itineraryLoadSeq.current) return; // stale response — drop it
-    setItineraryItems(items);
+    setItineraryItems(sortItineraryChronological(items));
     setItineraryLoading(false);
   }, []);
 
@@ -290,6 +352,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   // ---- Where You'll Stay (host-picked accommodations) ----
   const [stays, setStays] = useState<TripStay[]>([]);
   const [staysLoading, setStaysLoading] = useState(false);
+  const [staysCollapsed, setStaysCollapsed] = useState(false);
   const [stayModalVisible, setStayModalVisible] = useState(false);
   const [stayModalMode, setStayModalMode] = useState<'add' | 'edit'>('add');
   const [editingStay, setEditingStay] = useState<TripStay | null>(null);
@@ -308,7 +371,37 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     if (seq !== stayLoadSeq.current) return; // stale response — drop it
     setStays(fetched);
     setStaysLoading(false);
-  }, []);
+
+    // Auto-resolve missing photo references from Google Places API
+    fetched.forEach(async (stay) => {
+      if (!stay.photoReference && (stay.placeId || stay.title)) {
+        try {
+          let photoRef: string | undefined;
+          if (stay.placeId) {
+            const details = await getPlaceDetails(stay.placeId);
+            photoRef = details?.photoReference || details?.photos?.[0]?.reference;
+          } else {
+            const query = `${stay.title} ${stay.placeAddress || activeTrip?.destination || ''}`.trim();
+            const res = await searchPlaces(query);
+            if (res.predictions.length > 0) {
+              const details = await getPlaceDetails(res.predictions[0].placeId);
+              photoRef = details?.photoReference || details?.photos?.[0]?.reference;
+            }
+          }
+          if (photoRef) {
+            setStays((prev) =>
+              prev.map((s) => (s.id === stay.id ? { ...s, photoReference: photoRef } : s))
+            );
+            if (isHost) {
+              TripService.getInstance().updateTripStayDB(stay.id, { photoReference: photoRef }).catch(() => {});
+            }
+          }
+        } catch (e) {
+          // ignore lookup failure
+        }
+      }
+    });
+  }, [activeTrip?.destination, isHost]);
 
   useEffect(() => {
     loadStays(activeTrip?.id || '');
@@ -515,38 +608,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     });
   };
 
-  // Parse the locked trip's date range (e.g. "Mar 1, 2026 – Mar 5, 2026")
-  // into actual day pills so the itinerary reflects the real dates.
-  const parseTripDates = (range?: string): { start: Date; end: Date } | null => {
-    if (!range) return null;
-    const monthMap: Record<string, number> = {
-      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-      january: 0, february: 1, march: 2, april: 3, june: 5, july: 6,
-      august: 7, september: 8, october: 9, november: 10, december: 11,
-    };
-    const parse = (text: string): Date | null => {
-      const m = text.match(/([A-Za-z]+)\s+(\d{1,2})(?:,)?\s+(\d{4})/);
-      if (!m) return null;
-      const month = monthMap[m[1].toLowerCase()];
-      if (month === undefined) return null;
-      const d = new Date(Number(m[3]), month, Number(m[2]));
-      if (isNaN(d.getTime())) return null;
-      return d;
-    };
-    const tokens = range.split(/\s*[-–—]\s*| to |\s+-\s+/).map((t) => t.trim()).filter(Boolean);
-    const start = parse(tokens[0] || '');
-    if (!start) return null;
-    const end = tokens.length >= 2 ? parse(tokens[tokens.length - 1]) : start;
-    if (!end) return null;
-    return { start, end };
-  };
-
-  const tripDates = parseTripDates(activeTrip?.dateRange);
+  const tripDates = parseTripDateRange(activeTrip?.dateRange);
   const hasTripDates = !!tripDates;
-  const tripDayCount = tripDates
-    ? Math.min(Math.max(Math.round((tripDates.end.getTime() - tripDates.start.getTime()) / 86400000) + 1, 1), 7)
-    : 4;
+  const tripDayCount = calcTripDayCount(activeTrip?.dateRange);
   const smartCategories = getSmartCategories(activeTrip?.destination);
   const destination = activeTrip?.destination || '';
 
@@ -621,8 +685,12 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     return d;
   };
 
-  const toggleItemCompletion = (id: string) => {
-    setCompletedItems(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleItemCompletion = async (item: ItineraryItem) => {
+    const isCurrentlyDone = completedItems[item.id] !== undefined ? completedItems[item.id] : !!item.isCompleted;
+    const nextVal = !isCurrentlyDone;
+    setCompletedItems(prev => ({ ...prev, [item.id]: nextVal }));
+    setItineraryItems(prev => prev.map(i => i.id === item.id ? { ...i, isCompleted: nextVal } : i));
+    await TripService.getInstance().toggleItineraryCompletedDB(item.id, nextVal);
   };
 
   const imgHeight = isTablet ? 240 : 180;
@@ -670,32 +738,62 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             <BarkadashLogo height={32} />
           </View>
 
-          {/* Clean Trip Dropdown Picker Button */}
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => setShowTripSelector(true)}
-            style={{
-              backgroundColor: colors.card,
-              borderColor: colors.cardBorder,
-              borderWidth: 1,
-              paddingHorizontal: 12,
-              paddingVertical: 7,
-              borderRadius: 100,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 2 },
-              shadowOpacity: 0.05,
-              shadowRadius: 4,
-              elevation: 2,
-            }}
-          >
-            <Text style={{ fontSize: 12, fontWeight: '800', color: colors.tealDark }} numberOfLines={1}>
-              {activeTrip?.title || 'Barkada Trip'}
-            </Text>
-            <ChevronDown size={14} color={colors.tealDark} strokeWidth={2.5} />
-          </TouchableOpacity>
+          {/* Top Bar Right: Trip Dropdown & Settings Button */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* Clean Trip Dropdown Picker Button */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setShowTripSelector(true)}
+              style={{
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
+                borderWidth: 1,
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 100,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+                maxWidth: isTablet ? 280 : 160,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 2,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '800', color: colors.tealDark, flexShrink: 1 }} numberOfLines={1}>
+                {activeTrip?.title || 'Barkada Trip'}
+              </Text>
+              <ChevronDown size={14} color={colors.tealDark} strokeWidth={2.5} />
+            </TouchableOpacity>
+
+            {/* Trip Settings Hub Button */}
+            {activeTrip && (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => setTripDetailsVisible(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 17,
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  borderWidth: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 2,
+                }}
+              >
+                <Settings size={16} color={colors.ink} strokeWidth={2.2} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Page Title */}
@@ -719,6 +817,14 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         ) : !activeTrip ? (
           <ScrollView
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor={colors.tealDark}
+                colors={[colors.tealDark]}
+              />
+            }
             contentContainerStyle={{ flexGrow: 1, paddingHorizontal: sp.lg, paddingBottom: bottomNavOffset + 40 }}
           >
             <NoTripWelcome
@@ -736,6 +842,14 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.tealDark}
+              colors={[colors.tealDark]}
+            />
+          }
           onScroll={(e) => {
             const currentY = e.nativeEvent.contentOffset.y;
             const delta = currentY - lastOffsetY.current;
@@ -811,106 +925,72 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 </View>
               </View>
             </View>
-
-            {/* Quick Action Pill */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.cardBorder }}>
-              <TouchableOpacity
-                onPress={() => setTripDetailsVisible(true)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 6,
-                  backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB',
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 100,
-                }}
-              >
-                <Users size={13} color={colors.tealDark} />
-                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>
-                  View Members ({activeTrip?.memberCount || 0}) & Invite Code
-                </Text>
-              </TouchableOpacity>
-
-              {isHost && isLocked && (
-                <TouchableOpacity
-                  onPress={() => setEditTourVisible(true)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    backgroundColor: isDark ? 'rgba(240,169,62,0.18)' : '#FEF6E7',
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 100,
-                  }}
-                >
-                  <Pencil size={13} color={colors.orangeAccent} />
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.orangeAccent }}>
-                    Edit Tour
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
           </View>
 
           <View style={{ marginBottom: isLocked ? 0 : sp.lg }}>
             {!isLocked && (
               <>
                 {/* TRIP VOTING POLLS SECTION */}
-                <TripVotingPollsSection tripId={activeTrip?.id || 'default_trip'} />
+                <TripVotingPollsSection
+                  tripId={activeTrip?.id || 'default_trip'}
+                  onPollsUpdated={() => setActiveTrip(TripService.getInstance().getActiveTrip())}
+                />
               </>
             )}
 
-            {/* SECTION DIVIDER - fancy */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: sp.md }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
-              <View style={{
-                width: 34,
-                height: 34,
-                borderRadius: 17,
-                backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(59,122,158,0.35)' : 'rgba(59,122,158,0.25)',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <MapPin size={15} color={colors.tealDark} strokeWidth={2.5} />
-              </View>
-              <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
-            </View>
+            {isLocked && (
+              <>
+                {/* SECTION DIVIDER - fancy */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: sp.md }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
+                  <View style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 17,
+                    backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(59,122,158,0.35)' : 'rgba(59,122,158,0.25)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <MapPin size={15} color={colors.tealDark} strokeWidth={2.5} />
+                  </View>
+                  <View style={{ flex: 1, height: 1, backgroundColor: colors.cardBorder, opacity: 0.7 }} />
+                </View>
 
-            {/* Tab Switcher - Typographic with rounded active pill style */}
-            <View style={{ flexDirection: 'row', gap: sp.sm }}>
-              {(['Itinerary', 'Spots'] as const).map((tab) => {
-                const isSelected = activeSubTab === tab;
-                const label = tab === 'Spots' ? 'Suggested Spots' : tab;
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    onPress={() => setActiveSubTab(tab)}
-                    style={{
-                      paddingVertical: sp.sm,
-                      paddingHorizontal: sp.md,
-                      borderRadius: 100,
-                      backgroundColor: isSelected ? colors.tealDark : 'transparent',
-                      borderWidth: 1,
-                      borderColor: isSelected ? colors.tealDark : colors.cardBorder,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        fontWeight: '800',
-                        color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                {/* Tab Switcher - Typographic with rounded active pill style */}
+                <View style={{ flexDirection: 'row', gap: sp.sm }}>
+                  {(['Itinerary', 'Spots'] as const).map((tab) => {
+                    const isSelected = activeSubTab === tab;
+                    const label = tab === 'Spots' ? 'Suggested Spots' : tab;
+                    return (
+                      <TouchableOpacity
+                        key={tab}
+                        onPress={() => setActiveSubTab(tab)}
+                        style={{
+                          paddingVertical: sp.sm,
+                          paddingHorizontal: sp.md,
+                          borderRadius: 100,
+                          backgroundColor: isSelected ? colors.tealDark : 'transparent',
+                          borderWidth: 1,
+                          borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: '800',
+                            color: isSelected ? '#FFFFFF' : COLORS.subtleDark,
+                          }}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
           </View>
 
           {/* Pending Invitation Banner */}
@@ -965,67 +1045,115 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             </View>
           )}
 
-          {/* Locked-in note: place & dates are set, start planning */}
           {isLocked && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
-                backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
-                borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
-                borderWidth: 1,
-                borderRadius: 18,
-                padding: 14,
-                marginTop: sp.lg,
-                marginBottom: sp.lg,
-              }}
-            >
+            <>
+              {/* Locked-in note: place & dates are set, start planning */}
               <View
                 style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: 21,
+                  flexDirection: 'row',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundColor: '#10B981',
+                  gap: 12,
+                  backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
+                  borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
+                  borderWidth: 1,
+                  borderRadius: 18,
+                  padding: 14,
+                  marginTop: sp.lg,
+                  marginBottom: sp.lg,
                 }}
               >
-                <CheckCircle2 size={20} color="#FFFFFF" />
+                <View
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 21,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#10B981',
+                  }}
+                >
+                  <CheckCircle2 size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '900', color: colors.ink }}>
+                    Place & dates locked in!
+                  </Text>
+                  <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, lineHeight: 16 }}>
+                    Your barkada's set on {activeTrip?.destination} ({activeTrip?.dateRange}). Now you can plan your itinerary.
+                  </Text>
+                </View>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.ink }}>
-                  Place & dates locked in!
-                </Text>
-                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, lineHeight: 16 }}>
-                  Your barkada's set on {activeTrip?.destination} ({activeTrip?.dateRange}). Now you can plan your itinerary.
-                </Text>
-              </View>
-            </View>
-          )}
 
           {/* ================= WHERE YOU'LL STAY ================= */}
           <View style={{ marginTop: sp.lg, marginBottom: sp.lg }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md, gap: 8 }}>
+              {/* Left Title & Count */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <BedDouble size={16} color={colors.tealDark} strokeWidth={2.4} />
                 </View>
-                <Text style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark }}>
+                <Text numberOfLines={1} style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark, flexShrink: 1 }}>
                   Where You'll Stay
                 </Text>
+                {isLocked && stays.length > 0 && (
+                  <View style={{ backgroundColor: isDark ? 'rgba(59,122,158,0.25)' : '#E0F2FE', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, flexShrink: 0 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: colors.tealDark }}>
+                      {stays.length}
+                    </Text>
+                  </View>
+                )}
               </View>
-              {isHost && isLocked && (
-                <TouchableOpacity
-                  onPress={openAddStay}
-                  activeOpacity={0.85}
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 100, backgroundColor: colors.tealDark }}
-                >
-                  <Plus size={14} color="#FFFFFF" strokeWidth={2.6} />
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Add a Stay</Text>
-                </TouchableOpacity>
-              )}
+
+              {/* Right Actions: Collapse/Expand + Add Stay */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {isLocked && stays.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setStaysCollapsed((prev) => !prev)}
+                    activeOpacity={0.75}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingHorizontal: 9,
+                      paddingVertical: 6,
+                      borderRadius: 100,
+                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
+                      borderWidth: 1,
+                      borderColor: colors.cardBorder,
+                    }}
+                  >
+                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
+                      {staysCollapsed ? 'Expand' : 'Collapse'}
+                    </Text>
+                    {staysCollapsed ? (
+                      <ChevronDown size={13} color={colors.inkSoft} strokeWidth={2.4} />
+                    ) : (
+                      <ChevronUp size={13} color={colors.inkSoft} strokeWidth={2.4} />
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {isHost && isLocked && (
+                  <TouchableOpacity
+                    onPress={openAddStay}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      paddingHorizontal: 11,
+                      paddingVertical: 6,
+                      borderRadius: 100,
+                      backgroundColor: colors.tealDark,
+                    }}
+                  >
+                    <Plus size={13} color="#FFFFFF" strokeWidth={2.6} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Add Stay</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             {!isLocked ? (
@@ -1062,6 +1190,45 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   <Text style={{ fontSize: 10.5, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2, lineHeight: 14 }}>
                     {isHost ? 'Tap to add a hotel, resort, or airbnb.' : "The host hasn't picked a place to stay yet."}
                   </Text>
+                </View>
+              </TouchableOpacity>
+            ) : staysCollapsed ? (
+              /* Collapsed Summary Card */
+              <TouchableOpacity
+                onPress={() => setStaysCollapsed(false)}
+                activeOpacity={0.85}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: colors.card,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: colors.cardBorder,
+                  padding: 14,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.04,
+                  shadowRadius: 6,
+                  elevation: 1,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center' }}>
+                    <BedDouble size={16} color={colors.tealDark} strokeWidth={2.2} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                      {stays.length} {stays.length === 1 ? 'Stay' : 'Stays'} Selected
+                    </Text>
+                    <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '500', color: colors.inkSoft, marginTop: 1 }}>
+                      {stays.map((s) => s.title).join(' · ')}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: colors.tealDark }}>Show</Text>
+                  <ChevronDown size={15} color={colors.tealDark} strokeWidth={2.4} />
                 </View>
               </TouchableOpacity>
             ) : (
@@ -1376,7 +1543,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               ) : (
               <View style={{ gap: sp.lg }}>
                 {itineraryItems.map((item, idx) => {
-                  const isCompleted = completedItems[item.id];
+                  const isCompleted = completedItems[item.id] !== undefined ? completedItems[item.id] : !!item.isCompleted;
                   const isMine = item.createdBy === profile?.id;
                   const tagIcon = item.tag === 'TRANSPORT' ? <MapPin size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />
                     : item.tag === 'FOOD' ? <Utensils size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />
@@ -1388,29 +1555,60 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   return (
                     <View key={item.id} style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                       {/* Time Column — always a single line, never wraps */}
-                      <View style={{ width: 74, alignItems: 'flex-start', paddingTop: 4 }}>
+                      <TouchableOpacity
+                        activeOpacity={0.75}
+                        onPress={() => toggleItemCompletion(item)}
+                        style={{ width: 74, alignItems: 'flex-start', paddingTop: 4 }}
+                      >
                         <Text
                           numberOfLines={1}
                           adjustsFontSizeToFit
                           minimumFontScale={0.75}
                           allowFontScaling={false}
-                          style={{ fontSize: fs.md, fontWeight: '900', color: COLORS.textDark }}
+                          style={{
+                            fontSize: fs.md,
+                            fontWeight: '900',
+                            color: isCompleted ? COLORS.subtleDark : COLORS.textDark,
+                            textDecorationLine: isCompleted ? 'line-through' : 'none',
+                          }}
                         >
                           {item.time || '--:--'}
                         </Text>
-                      </View>
+                      </TouchableOpacity>
 
-                      {/* Timeline Line */}
-                      <View style={{ width: 24, alignItems: 'center' }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: colors.tealDark, marginTop: 8 }} />
+                      {/* Timeline Line & Node */}
+                      <TouchableOpacity
+                        activeOpacity={0.75}
+                        onPress={() => toggleItemCompletion(item)}
+                        style={{ width: 24, alignItems: 'center' }}
+                      >
+                        <View
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            backgroundColor: isCompleted ? COLORS.subtleDark : colors.tealDark,
+                            marginTop: 8,
+                          }}
+                        />
                         {idx < itineraryItems.length - 1 && (
-                          <View style={{ width: 2, flex: 1, backgroundColor: COLORS.borderLight, marginVertical: 4 }} />
+                          <View
+                            style={{
+                              width: 2,
+                              flex: 1,
+                              backgroundColor: COLORS.borderLight,
+                              marginVertical: 4,
+                            }}
+                          />
                         )}
-                      </View>
+                      </TouchableOpacity>
 
                       {/* Content Card */}
-                      <View style={{ flex: 1, paddingBottom: sp.xl }}>
-                        <View style={{ opacity: isCompleted ? 0.45 : 1 }}>
+                      <View style={{ flex: 1, paddingBottom: sp.xl, opacity: isCompleted ? 0.45 : 1 }}>
+                        <TouchableOpacity
+                          activeOpacity={0.88}
+                          onPress={() => toggleItemCompletion(item)}
+                        >
                           {!!item.photoReference ? (
                             <View style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
                               <ShimmerImage
@@ -1419,28 +1617,24 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                                 borderRadius={14}
                               />
 
-                              {/* Tag badge overlaid on the image (bottom-left) */}
-                              <TouchableOpacity
-                                onPress={() => toggleItemCompletion(item.id)}
-                                activeOpacity={0.8}
-                                style={{
-                                  position: 'absolute',
-                                  left: 8,
-                                  bottom: 8,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  backgroundColor: 'rgba(0,0,0,0.55)',
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 6,
-                                  zIndex: 2,
-                                }}
-                              >
-                                {tagIcon}
-                                <Text style={{ fontSize: 9, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 }}>
-                                  {item.tag || item.category}
-                                </Text>
-                              </TouchableOpacity>
+                              {/* Badges overlaid on the image (bottom-left) */}
+                              <View style={{ position: 'absolute', left: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 }}>
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    backgroundColor: 'rgba(0,0,0,0.55)',
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 4,
+                                    borderRadius: 6,
+                                  }}
+                                >
+                                  {tagIcon}
+                                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 }}>
+                                    {item.tag || item.category}
+                                  </Text>
+                                </View>
+                              </View>
 
                               {/* Edit / Delete always on top of the image (top-right) */}
                               {isMine && (
@@ -1490,16 +1684,12 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                             </View>
                           ) : (
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <TouchableOpacity
-                                onPress={() => toggleItemCompletion(item.id)}
-                                activeOpacity={0.8}
-                                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.lightOrangeBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}
-                              >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.lightOrangeBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
                                 {tagIcon}
                                 <Text style={{ fontSize: 9, fontWeight: '800', color: colors.orangeAccent, letterSpacing: 1 }}>
                                   {item.tag || item.category}
                                 </Text>
-                              </TouchableOpacity>
+                              </View>
 
                               {isMine && (
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -1514,9 +1704,19 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                             </View>
                           )}
 
-                          <Text style={{ fontSize: fs.md, fontWeight: '800', color: COLORS.textDark, marginBottom: 4, textDecorationLine: isCompleted ? 'line-through' : 'none' }}>
-                            {item.title}
-                          </Text>
+                          <View style={{ marginBottom: 4 }}>
+                            <Text
+                              style={{
+                                fontSize: fs.md,
+                                fontWeight: '800',
+                                color: isCompleted ? COLORS.subtleDark : COLORS.textDark,
+                                textDecorationLine: isCompleted ? 'line-through' : 'none',
+                              }}
+                            >
+                              {item.title}
+                            </Text>
+                          </View>
+
                           {(!!item.location || !!item.estCost) && (
                             <Text style={{ fontSize: 10, fontWeight: '700', color: COLORS.subtleDark, letterSpacing: 0.2, marginBottom: 8, textDecorationLine: isCompleted ? 'line-through' : 'none' }}>
                               {item.location}
@@ -1526,35 +1726,38 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
                           {!!item.note && (
                             <View style={{ borderTopWidth: 1, borderTopColor: COLORS.borderLight, paddingTop: 6, marginBottom: 8 }}>
-                              <Text style={{ fontSize: 10, fontWeight: '600', color: AppColors.sky }}>+ {item.note}</Text>
+                              <Text style={{ fontSize: 10, fontWeight: '600', color: isCompleted ? COLORS.subtleDark : AppColors.sky, textDecorationLine: isCompleted ? 'line-through' : 'none' }}>
+                                + {item.note}
+                              </Text>
                             </View>
                           )}
+                        </TouchableOpacity>
 
-                          {/* Get Directions — only for real places/spots (inline when there's no image) */}
-                          {!item.photoReference && (item.placeId || item.placeAddress || item.placeName) && (
-                            <TouchableOpacity
-                              onPress={() => openDirections(item)}
-                              activeOpacity={0.8}
-                              style={{
-                                alignSelf: 'flex-start',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 5,
-                                paddingHorizontal: 11,
-                                paddingVertical: 6,
-                                borderRadius: 100,
-                                borderWidth: 1,
-                                borderColor: colors.tealDark,
-                                backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
-                                marginBottom: 8,
-                              }}
-                            >
-                              <Navigation size={12} color={colors.tealDark} strokeWidth={2.4} />
-                              <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>
-                                Get Directions
-                              </Text>
-                            </TouchableOpacity>
-                          )}
+                        {/* Get Directions — only for real places/spots (inline when there's no image) */}
+                        {!item.photoReference && (item.placeId || item.placeAddress || item.placeName) && (
+                          <TouchableOpacity
+                            onPress={() => openDirections(item)}
+                            activeOpacity={0.8}
+                            style={{
+                              alignSelf: 'flex-start',
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 5,
+                              paddingHorizontal: 11,
+                              paddingVertical: 6,
+                              borderRadius: 100,
+                              borderWidth: 1,
+                              borderColor: colors.tealDark,
+                              backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <Navigation size={12} color={colors.tealDark} strokeWidth={2.4} />
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>
+                              Get Directions
+                            </Text>
+                          </TouchableOpacity>
+                        )}
 
                           {/* Reactions */}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
@@ -1633,10 +1836,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                           </View>
                         </View>
                       </View>
-                    </View>
-                  );
-                })}
-              </View>
+                    );
+                  })}
+                </View>
               )}
             </View>
           )}
@@ -1795,7 +1997,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
             </View>
           )}
-        </ScrollView>
+        </>
+      )}
+    </ScrollView>
         )}
       </View>
 
@@ -1842,17 +2046,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             setAllTrips(TripService.getInstance().getTrips());
           }
           return ok;
-        }}
-      />
-
-      {/* Trip Details & Members Modal */}
-      <TripDetailsModal
-        visible={tripDetailsVisible}
-        trip={activeTrip}
-        onClose={() => setTripDetailsVisible(false)}
-        onTripUpdated={() => {
-          setActiveTrip(TripService.getInstance().getActiveTrip());
-          setAllTrips(TripService.getInstance().getTrips());
         }}
       />
 
@@ -2047,6 +2240,302 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
         </View>
       </Modal>
 
+      {/* Complete Trip / Early Finish Confirmation Modal */}
+      <Modal
+        transparent
+        visible={showCompleteModal}
+        animationType="fade"
+        onRequestClose={() => setShowCompleteModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowCompleteModal(false)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: dayInfo?.isEarly
+                    ? (isDark ? 'rgba(239,68,68,0.18)' : '#FEE2E2')
+                    : (isDark ? 'rgba(16,185,129,0.18)' : '#DCFCE7'),
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {dayInfo?.isEarly ? (
+                  <AlertTriangle size={22} color="#EF4444" strokeWidth={2.4} />
+                ) : (
+                  <CheckCircle2 size={22} color="#10B981" strokeWidth={2.4} />
+                )}
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowCompleteModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
+              {dayInfo?.isEarly ? 'End Trip Early?' : 'Complete This Trip?'}
+            </Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 14 }}>
+              {dayInfo?.isEarly
+                ? `You're currently on Day ${dayInfo.currentDay} of ${dayInfo.totalDays}. Ending early will finalize the trip for everyone.`
+                : `Finalize "${activeTrip?.title}" and wrap up the itinerary for the barkada.`}
+            </Text>
+
+            {/* Checklist / Info Points */}
+            <View
+              style={{
+                backgroundColor: colors.subtleBg,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 18,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Barkada members will be notified
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Trip recap and memories unlocked
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  You can reopen anytime during trip dates
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmCompleteTrip}
+                disabled={loadingComplete}
+                style={{
+                  backgroundColor: dayInfo?.isEarly ? '#EF4444' : '#10B981',
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {loadingComplete ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
+                    {dayInfo?.isEarly ? 'Yes, End Trip Early' : 'Yes, Complete Trip'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setShowCompleteModal(false)}
+                disabled={loadingComplete}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
+                  Keep Trip Active
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Undo Complete / Reopen Trip Modal */}
+      <Modal
+        transparent
+        visible={showUndoModal}
+        animationType="fade"
+        onRequestClose={() => setShowUndoModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setShowUndoModal(false)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#E0F2FE',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <RotateCcw size={22} color={colors.tealDark} strokeWidth={2.4} />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowUndoModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
+              Reopen This Trip?
+            </Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 14 }}>
+              Restore "{activeTrip?.title}" back to active status for all members.
+            </Text>
+
+            {/* Checklist / Info Points */}
+            <View
+              style={{
+                backgroundColor: colors.subtleBg,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 18,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Live itinerary planning reactivated
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Members can vote and react to spots
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Trip countdown and radar restored
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmUndoCompleteTrip}
+                disabled={loadingUndo}
+                style={{
+                  backgroundColor: colors.tealDark,
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {loadingUndo ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
+                    Yes, Reopen Trip
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setShowUndoModal(false)}
+                disabled={loadingUndo}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Trip Details & Settings Hub Modal */}
+      <TripDetailsModal
+        visible={tripDetailsVisible}
+        trip={activeTrip}
+        onClose={() => setTripDetailsVisible(false)}
+        onTripUpdated={() => {
+          setActiveTrip(TripService.getInstance().getActiveTrip());
+          setAllTrips(TripService.getInstance().getTrips());
+        }}
+        onEditTour={() => {
+          setTripDetailsVisible(false);
+          setTimeout(() => {
+            setEditTourVisible(true);
+          }, 350);
+        }}
+      />
     </SafeAreaView>
   );
 };

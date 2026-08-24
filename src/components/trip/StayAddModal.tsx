@@ -371,12 +371,13 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
   const handleSelectPlace = async (pred: PlacePrediction) => {
     setPredictions([]);
     const details = await getPlaceDetails(pred.placeId);
+    const photoRef = details?.photoReference || details?.photos?.[0]?.reference;
     const sel: PlaceSelection = details
       ? {
           placeId: details.placeId,
           name: details.name || pred.mainText,
           address: details.address || pred.secondaryText,
-          photoReference: details.photoReference,
+          photoReference: photoRef,
           photos: details.photos,
         }
       : { placeId: pred.placeId, name: pred.mainText, address: pred.secondaryText };

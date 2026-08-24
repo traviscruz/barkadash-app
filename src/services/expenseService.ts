@@ -1,5 +1,5 @@
 import { supabase } from '../utils/supabase';
-import { Expense, SettleUpItem } from '../types/expense';
+import { Expense, SettleUpItem, ExpenseSettlement, ItemizedDebt } from '../types/expense';
 import { uploadExpensePhotos, deleteExpensePhotos, receiptPublicUrl } from './storageService';
 
 export interface ExpenseMember {
@@ -98,70 +98,130 @@ const mapExpenseRow = (row: ExpenseRow): Expense => {
 };
 
 /**
- * Computes the minimal settle-up transfers ("X pays Y ₱N") for a group.
+ * Computes the itemized settle-up transfers ("X pays Y ₱N") with itemized debt breakdowns.
  *
  * Only "pinaluwal" expenses create debts — the payer advanced the money, so
  * the other members owe the payer their share of the cost.
- *
- *   · split     → everyone already paid their share; the uploader is just
- *                 recording it, so no one owes anything.
- *   · pinaluwal → the payer is owed `share` by every other member.
- *   · solo      → it's a treat; no one owes anything.
  */
-export const computeSettleUps = (expenses: Expense[], memberNames: string[]): SettleUpItem[] => {
-  if (!memberNames.length) return [];
+export const computeSettleUps = (
+  expenses: Expense[],
+  members: ExpenseMember[],
+  settlements: ExpenseSettlement[] = []
+): SettleUpItem[] => {
+  if (!members.length) return [];
 
-  const balances: Record<string, number> = {};
-  memberNames.forEach((m) => (balances[m] = 0));
+  // Map of settlement by expense_id + debtor_id
+  const settlementByExpenseAndDebtor = new Map<string, ExpenseSettlement>();
+  for (const s of settlements) {
+    if (s.status === 'rejected') continue;
+    for (const item of s.items || []) {
+      settlementByExpenseAndDebtor.set(`${item.expenseId}_${s.payerId}`, s);
+    }
+  }
+
+  // Create itemized debts for every pinaluwal expense and non-paying member
+  const allDebts: ItemizedDebt[] = [];
 
   for (const exp of expenses) {
     if (exp.splitMode !== 'pinaluwal') continue;
-    const share = exp.amount / (exp.splitCount || memberNames.length);
-    for (const m of memberNames) {
-      if (m === exp.paidBy) balances[m] += exp.amount - share;
-      else balances[m] -= share;
-    }
-  }
+    const splitCount = exp.splitCount || members.length;
+    const share = Math.round((exp.amount / splitCount) * 100) / 100;
+    const creditor = members.find((m) => m.id === exp.payerId);
+    const creditorName = creditor?.name || exp.paidBy || 'Payer';
+    const creditorId = exp.payerId || '';
 
-  const debtors = memberNames
-    .filter((m) => balances[m] < -0.01)
-    .map((m) => ({ name: m, debt: Math.abs(balances[m]) }));
-  const creditors = memberNames
-    .filter((m) => balances[m] > 0.01)
-    .map((m) => ({ name: m, credit: balances[m] }));
+    for (const debtor of members) {
+      if (debtor.id === creditorId) continue; // Skip payer themselves
 
-  const items: SettleUpItem[] = [];
-  let i = 0;
-  let j = 0;
+      const key = `${exp.id}_${debtor.id}`;
+      const activeSettlement = settlementByExpenseAndDebtor.get(key);
 
-  while (i < debtors.length && j < creditors.length) {
-    const d = debtors[i];
-    const c = creditors[j];
-    const settled = Math.min(d.debt, c.credit);
+      let status: 'unpaid' | 'pending' | 'verified' = 'unpaid';
+      if (activeSettlement) {
+        if (activeSettlement.status === 'verified') {
+          status = 'verified';
+        } else if (activeSettlement.status === 'pending') {
+          status = 'pending';
+        }
+      }
 
-    if (settled > 1) {
-      items.push({
-        id: `s_${i}_${j}`,
-        fromUser: d.name,
-        toUser: c.name,
-        amount: Math.round(settled),
+      allDebts.push({
+        id: key,
+        expenseId: exp.id,
+        expenseTitle: exp.title,
+        category: exp.category,
+        categoryIconName: exp.categoryIconName,
+        categoryBg: exp.categoryBg,
+        iconColor: exp.iconColor,
+        date: exp.date,
+        totalExpenseAmount: exp.amount,
+        splitCount,
+        debtorId: debtor.id,
+        debtorName: debtor.name,
+        creditorId,
+        creditorName,
+        amountOwed: share,
+        status,
+        settlement: activeSettlement,
       });
     }
-
-    d.debt -= settled;
-    c.credit -= settled;
-
-    if (d.debt <= 1) i++;
-    if (c.credit <= 1) j++;
   }
 
-  return items;
+  // Group debts by (debtorId -> creditorId)
+  const groupMap = new Map<string, { fromUser: string; toUser: string; fromUserId: string; toUserId: string; items: ItemizedDebt[] }>();
+
+  for (const debt of allDebts) {
+    const groupKey = `${debt.debtorId}_${debt.creditorId}`;
+    if (!groupMap.has(groupKey)) {
+      groupMap.set(groupKey, {
+        fromUser: debt.debtorName,
+        toUser: debt.creditorName,
+        fromUserId: debt.debtorId,
+        toUserId: debt.creditorId,
+        items: [],
+      });
+    }
+    groupMap.get(groupKey)!.items.push(debt);
+  }
+
+  const result: SettleUpItem[] = [];
+
+  groupMap.forEach((group, groupKey) => {
+    const unpaidAmount = group.items
+      .filter((i) => i.status === 'unpaid')
+      .reduce((sum, i) => sum + i.amountOwed, 0);
+    const pendingAmount = group.items
+      .filter((i) => i.status === 'pending')
+      .reduce((sum, i) => sum + i.amountOwed, 0);
+    const verifiedAmount = group.items
+      .filter((i) => i.status === 'verified')
+      .reduce((sum, i) => sum + i.amountOwed, 0);
+
+    // Outstanding active balance (unpaid + pending)
+    const amount = unpaidAmount + pendingAmount;
+
+    result.push({
+      id: groupKey,
+      fromUser: group.fromUser,
+      toUser: group.toUser,
+      fromUserId: group.fromUserId,
+      toUserId: group.toUserId,
+      amount: Math.round(amount),
+      unpaidAmount: Math.round(unpaidAmount),
+      pendingAmount: Math.round(pendingAmount),
+      verifiedAmount: Math.round(verifiedAmount),
+      items: group.items,
+    });
+  });
+
+  return result;
 };
 
 export class ExpenseService {
   private static instance: ExpenseService;
 
   private expenses: Expense[] = [];
+  private settlements: ExpenseSettlement[] = [];
   private listeners: (() => void)[] = [];
 
   private constructor() {}
@@ -188,13 +248,19 @@ export class ExpenseService {
     return [...this.expenses];
   }
 
+  public getSettlements(): ExpenseSettlement[] {
+    return [...this.settlements];
+  }
+
   public async fetchExpensesDB(tripId: string): Promise<Expense[]> {
     try {
       const { data, error } = await supabase
         .from('expenses')
         .select('*, expense_photos (storage_path), profiles!expenses_payer_id_fkey (first_name, last_name)')
         .eq('trip_id', tripId)
-        .order('created_at', { ascending: false });      if (error) throw error;
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
 
       this.expenses = (data || []).map((row: ExpenseRow) => mapExpenseRow(row));
       this.notify();
@@ -204,6 +270,236 @@ export class ExpenseService {
       this.expenses = [];
       this.notify();
       return [];
+    }
+  }
+
+  public async fetchSettlementsDB(tripId: string): Promise<ExpenseSettlement[]> {
+    try {
+      const { data, error } = await supabase
+        .from('expense_settlements')
+        .select(`
+          *,
+          payer:profiles!expense_settlements_payer_id_fkey (first_name, last_name),
+          payee:profiles!expense_settlements_payee_id_fkey (first_name, last_name),
+          expense_settlement_items (
+            id,
+            settlement_id,
+            expense_id,
+            amount,
+            created_at,
+            expenses (title)
+          )
+        `)
+        .eq('trip_id', tripId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      this.settlements = (data || []).map((row: any) => {
+        const payerObj = row.payer || {};
+        const payeeObj = row.payee || {};
+        const payerName = [payerObj.first_name, payerObj.last_name].filter(Boolean).join(' ').trim() || 'Debtor';
+        const payeeName = [payeeObj.first_name, payeeObj.last_name].filter(Boolean).join(' ').trim() || 'Creditor';
+
+        const items = (row.expense_settlement_items || []).map((it: any) => ({
+          id: it.id,
+          settlementId: it.settlement_id,
+          expenseId: it.expense_id,
+          amount: Number(it.amount) || 0,
+          createdAt: it.created_at,
+          expenseTitle: it.expenses?.title || 'Expense',
+        }));
+
+        return {
+          id: row.id,
+          tripId: row.trip_id,
+          payerId: row.payer_id,
+          payeeId: row.payee_id,
+          payerName,
+          payeeName,
+          amount: Number(row.amount) || 0,
+          proofUrl: row.proof_url ? (row.proof_url.startsWith('http') ? row.proof_url : receiptPublicUrl(row.proof_url)) : undefined,
+          rawProofPath: row.proof_url || undefined,
+          notes: row.notes || undefined,
+          status: row.status || 'pending',
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          verifiedAt: row.verified_at,
+          items,
+        };
+      });
+
+      this.notify();
+      return this.settlements;
+    } catch (e) {
+      console.warn('fetchSettlementsDB error:', e);
+      this.settlements = [];
+      this.notify();
+      return [];
+    }
+  }
+
+  public async addSettlementDB(params: {
+    tripId: string;
+    payerId: string;
+    payeeId: string;
+    amount: number;
+    proofUri?: string;
+    notes?: string;
+    items: { expenseId: string; amount: number }[];
+  }): Promise<ExpenseSettlement | null> {
+    let uploadedPath: string | undefined;
+    if (params.proofUri) {
+      const uploaded = await uploadExpensePhotos([params.proofUri]);
+      uploadedPath = uploaded[0]?.path;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('expense_settlements')
+        .insert({
+          trip_id: params.tripId,
+          payer_id: params.payerId,
+          payee_id: params.payeeId,
+          amount: params.amount,
+          proof_url: uploadedPath || null,
+          notes: params.notes || null,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (params.items.length) {
+        const itemRows = params.items.map((it) => ({
+          settlement_id: data.id,
+          expense_id: it.expenseId,
+          amount: it.amount,
+        }));
+        const { error: itemsError } = await supabase.from('expense_settlement_items').insert(itemRows);
+        if (itemsError) throw itemsError;
+      }
+
+      await this.fetchSettlementsDB(params.tripId);
+      return this.settlements.find((s) => s.id === data.id) || null;
+    } catch (e) {
+      console.warn('addSettlementDB error:', e);
+      if (uploadedPath) {
+        await deleteExpensePhotos([uploadedPath]);
+      }
+      return null;
+    }
+  }
+
+  public async editSettlementDB(
+    settlementId: string,
+    tripId: string,
+    params: {
+      proofUri?: string;
+      notes?: string;
+      removePhoto?: boolean;
+    }
+  ): Promise<boolean> {
+    let newPath: string | undefined;
+    if (params.proofUri) {
+      const uploaded = await uploadExpensePhotos([params.proofUri]);
+      newPath = uploaded[0]?.path;
+    }
+
+    try {
+      const existing = this.settlements.find((s) => s.id === settlementId);
+      const updates: any = {
+        updated_at: new Date().toISOString(),
+      };
+      if (params.notes !== undefined) {
+        updates.notes = params.notes || null;
+      }
+      if (newPath) {
+        updates.proof_url = newPath;
+      } else if (params.removePhoto) {
+        updates.proof_url = null;
+      }
+
+      const { error } = await supabase
+        .from('expense_settlements')
+        .update(updates)
+        .eq('id', settlementId);
+
+      if (error) throw error;
+
+      const oldPhoto = existing?.rawProofPath || existing?.proofUrl;
+      if ((newPath || params.removePhoto) && oldPhoto) {
+        await deleteExpensePhotos([oldPhoto]);
+      }
+
+      await this.fetchSettlementsDB(tripId);
+      return true;
+    } catch (e) {
+      console.warn('editSettlementDB error:', e);
+      if (newPath) {
+        await deleteExpensePhotos([newPath]);
+      }
+      return false;
+    }
+  }
+
+  public async deleteSettlementDB(settlementId: string, tripId: string): Promise<boolean> {
+    const existing = this.settlements.find((s) => s.id === settlementId);
+    const rawPhotoPath = existing?.rawProofPath;
+    console.log('[deleteSettlementDB] id:', settlementId, 'rawPhotoPath:', rawPhotoPath);
+
+    try {
+      // 1. Delete the parent settlement row — CASCADE will delete settlement_items too
+      const { error } = await supabase
+        .from('expense_settlements')
+        .delete()
+        .eq('id', settlementId);
+
+      if (error) {
+        console.warn('[deleteSettlementDB] DB delete error:', JSON.stringify(error));
+        throw error;
+      }
+
+      console.log('[deleteSettlementDB] DB delete OK');
+
+      // 2. Remove proof photo from storage AFTER successful DB delete
+      if (rawPhotoPath) {
+        await deleteExpensePhotos([rawPhotoPath]);
+        console.log('[deleteSettlementDB] storage delete sent for path:', rawPhotoPath);
+      }
+
+      // 3. Update local cache immediately
+      this.settlements = this.settlements.filter((s) => s.id !== settlementId);
+      this.notify();
+
+      // 4. Re-sync with DB
+      await this.fetchSettlementsDB(tripId);
+      return true;
+    } catch (e) {
+      console.warn('[deleteSettlementDB] error:', e);
+      return false;
+    }
+  }
+
+  public async verifySettlementDB(settlementId: string, tripId: string, status: 'verified' | 'rejected' = 'verified'): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('expense_settlements')
+        .update({
+          status,
+          verified_at: status === 'verified' ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', settlementId);
+
+      if (error) throw error;
+
+      await this.fetchSettlementsDB(tripId);
+      return true;
+    } catch (e) {
+      console.warn('verifySettlementDB error:', e);
+      return false;
     }
   }
 

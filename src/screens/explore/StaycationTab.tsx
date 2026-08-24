@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   ImageBackground,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { Search, Star, Hotel, MapPin, Sparkles } from 'lucide-react-native';
 import { useResponsive } from '../../utils/responsive';
@@ -149,6 +150,14 @@ export const StaycationTab: React.FC<StaycationTabProps> = ({ accentColor, onScr
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={handleSearch}
+          tintColor={accentColor}
+          colors={[accentColor]}
+        />
+      }
       onScroll={(e) => {
         const currentY = e.nativeEvent.contentOffset.y;
         const delta = currentY - lastOffsetY.current;

@@ -19,6 +19,7 @@ import { SlideUpModal } from '../common/SlideUpModal';
 import { Trip } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import { ConnectionService, DBUserConnection } from '../../services/connectionService';
+import { isWithinTripDates, getTripDayInfo } from '../../utils/tripDates';
 import {
   X,
   Copy,
@@ -33,6 +34,13 @@ import {
   Clock,
   UserMinus,
   LogOut,
+  RotateCcw,
+  AlertTriangle,
+  Flag,
+  Pencil,
+  Settings,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 
 interface TripDetailsModalProps {
@@ -40,6 +48,7 @@ interface TripDetailsModalProps {
   trip: Trip | null;
   onClose: () => void;
   onTripUpdated?: () => void;
+  onEditTour?: () => void;
 }
 
 export interface TripMember {
@@ -58,6 +67,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
   trip,
   onClose,
   onTripUpdated,
+  onEditTour,
 }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
@@ -66,6 +76,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [members, setMembers] = useState<TripMember[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [isParticipantsCollapsed, setIsParticipantsCollapsed] = useState(false);
 
   // Invite more friends mode
   const [isInviteMode, setIsInviteMode] = useState(false);
@@ -119,13 +130,66 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
   };
 
   const isCurrentHost =
+    (!!profile?.id && trip?.hostId === profile.id) ||
+    trip?.hostName === 'You' ||
     members.some((m) => m.id === profile?.id && m.role === 'host') ||
-    trip?.hostName === 'You';
+    members.length === 0 ||
+    !trip?.hostId;
 
   const [kickTarget, setKickTarget] = useState<{ id: string; name: string } | null>(null);
   const [loadingKick, setLoadingKick] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [loadingLeave, setLoadingLeave] = useState(false);
+
+  // Complete Trip & Undo Complete State
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [loadingComplete, setLoadingComplete] = useState(false);
+  const [showUndoModal, setShowUndoModal] = useState(false);
+  const [loadingUndo, setLoadingUndo] = useState(false);
+
+  const withinDates = trip ? isWithinTripDates(trip.dateRange) : false;
+  const dayInfo = trip ? getTripDayInfo(trip.dateRange) : null;
+  const isTripCompleted = trip?.status === 'Completed';
+
+  // Tour has started ONLY if today is within trip dates and on/after Day 1
+  const hasTourStarted = !!withinDates && !dayInfo?.isBeforeStart;
+
+  // Edit Tour: ONLY if the tour hasn't started yet
+  const canEditTour = isCurrentHost && !hasTourStarted && !isTripCompleted;
+
+  // End Tour (End Trip Early / Complete): ONLY if Day 1 has started
+  const canEndTour = isCurrentHost && hasTourStarted && !isTripCompleted;
+
+  // Reopen Tour: ONLY if completed
+  const canReopenTour = isCurrentHost && isTripCompleted;
+
+  const confirmCompleteTrip = async () => {
+    if (!trip || !profile?.id) return;
+    setLoadingComplete(true);
+    try {
+      const res = await TripService.getInstance().completeTripDB(trip.id, profile.id);
+      if (res.success) {
+        setShowCompleteModal(false);
+        onTripUpdated?.();
+      }
+    } finally {
+      setLoadingComplete(false);
+    }
+  };
+
+  const confirmUndoCompleteTrip = async () => {
+    if (!trip || !profile?.id) return;
+    setLoadingUndo(true);
+    try {
+      const res = await TripService.getInstance().reopenTripDB(trip.id, profile.id);
+      if (res.success) {
+        setShowUndoModal(false);
+        onTripUpdated?.();
+      }
+    } finally {
+      setLoadingUndo(false);
+    }
+  };
 
   const handleKickPress = (memberId: string, memberName: string) => {
     setKickTarget({ id: memberId, name: memberName });
@@ -335,184 +399,469 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                   </View>
                 </View>
 
-                {/* Trip Members Section */}
-                <View>
+                {/* 1. Trip Participants Section (ABOVE & COLLAPSIBLE) */}
+                <View
+                  style={{
+                    backgroundColor: colors.card,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                    padding: 14,
+                    gap: 10,
+                  }}
+                >
                   <View
                     style={{
                       flexDirection: 'row',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      marginBottom: 8,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => setIsParticipantsCollapsed(!isParticipantsCollapsed)}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 }}
+                    >
                       <Users size={16} color={colors.ink} />
-                      <Text style={{ fontSize: 14, fontWeight: '900', color: colors.ink }}>
+                      <Text style={{ fontSize: 13.5, fontWeight: '900', color: colors.ink }}>
                         Trip Participants ({members.length || trip.memberCount})
                       </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={handleOpenInviteMode}
-                      style={{
-                        backgroundColor: colors.lightOrangeBg,
-                        paddingHorizontal: 10,
-                        paddingVertical: 6,
-                        borderRadius: 100,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      <UserPlus size={12} color={colors.orangeAccent} />
-                      <Text style={{ fontSize: 11, fontWeight: '900', color: colors.orangeAccent }}>
-                        + Invite More
-                      </Text>
+                      {isParticipantsCollapsed ? (
+                        <ChevronDown size={16} color={colors.inkSoft} />
+                      ) : (
+                        <ChevronUp size={16} color={colors.inkSoft} />
+                      )}
                     </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={handleOpenInviteMode}
+                        style={{
+                          backgroundColor: colors.lightOrangeBg,
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 100,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        <UserPlus size={12} color={colors.orangeAccent} />
+                        <Text style={{ fontSize: 10.5, fontWeight: '900', color: colors.orangeAccent }}>
+                          + Invite
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
-                  {loadingMembers ? (
-                    <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-                      <ActivityIndicator color={colors.tealDark} />
-                    </View>
-                  ) : members.length === 0 ? (
-                    <View
+                  {/* Collapsed State Preview */}
+                  {isParticipantsCollapsed ? (
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => setIsParticipantsCollapsed(false)}
                       style={{
-                        padding: 12,
-                        backgroundColor: colors.card,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+                        padding: 8,
                         borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: colors.cardBorder,
+                        marginTop: 2,
                       }}
                     >
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft }}>
-                        Host & Barkada members joined via trip code will appear here.
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 4 }}>
+                        {members.slice(0, 4).map((m, idx) => (
+                          <View
+                            key={m.id}
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: 13,
+                              backgroundColor: m.avatarBg,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 2,
+                              borderColor: colors.card,
+                              marginLeft: idx === 0 ? 0 : -8,
+                            }}
+                          >
+                            <Text style={{ color: '#FFF', fontSize: 9.5, fontWeight: '900' }}>
+                              {m.initials}
+                            </Text>
+                          </View>
+                        ))}
+                        {members.length > 4 && (
+                          <View
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: 13,
+                              backgroundColor: colors.subtleBg,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderWidth: 2,
+                              borderColor: colors.card,
+                              marginLeft: -8,
+                            }}
+                          >
+                            <Text style={{ color: colors.inkSoft, fontSize: 8.5, fontWeight: '800' }}>
+                              +{members.length - 4}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.tealDark }}>
+                        Show All Members ↓
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   ) : (
-                    <View style={{ gap: 8 }}>
-                      {members.map((member) => (
+                    /* Expanded Participants List */
+                    <>
+                      {loadingMembers ? (
+                        <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                          <ActivityIndicator color={colors.tealDark} />
+                        </View>
+                      ) : members.length === 0 ? (
                         <View
-                          key={member.id}
                           style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            backgroundColor: colors.card,
                             padding: 10,
-                            borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: colors.cardBorder,
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+                            borderRadius: 10,
                           }}
                         >
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft }}>
+                            Host & Barkada members joined via trip code will appear here.
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={{ gap: 6, marginTop: 4 }}>
+                          {members.map((member) => (
                             <View
+                              key={member.id}
                               style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 18,
-                                backgroundColor: member.avatarBg,
+                                flexDirection: 'row',
                                 alignItems: 'center',
-                                justifyContent: 'center',
+                                justifyContent: 'space-between',
+                                backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+                                padding: 8,
+                                borderRadius: 10,
+                                borderWidth: 1,
+                                borderColor: colors.cardBorder,
                               }}
                             >
-                              <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '900' }}>
-                                {member.initials}
-                              </Text>
-                            </View>
-                            <View>
-                              <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
-                                {member.name}
-                              </Text>
-                              <Text style={{ fontSize: 10, fontWeight: '600', color: colors.inkSoft }}>
-                                {member.handle}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            {member.role === 'host' ? (
-                              <View
-                                style={{
-                                  backgroundColor: colors.lightOrangeBg,
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 3,
-                                  borderRadius: 100,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 3,
-                                }}
-                              >
-                                <Crown size={10} color={colors.orangeAccent} />
-                                <Text style={{ fontSize: 9, fontWeight: '900', color: colors.orangeAccent }}>
-                                  HOST
-                                </Text>
-                              </View>
-                            ) : member.status === 'pending' ? (
-                              <>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
                                 <View
                                   style={{
-                                    backgroundColor: '#FEF3C7',
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 3,
-                                    borderRadius: 100,
-                                    flexDirection: 'row',
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 16,
+                                    backgroundColor: member.avatarBg,
                                     alignItems: 'center',
-                                    gap: 3,
+                                    justifyContent: 'center',
                                   }}
                                 >
-                                  <Clock size={10} color="#D97706" />
-                                  <Text style={{ fontSize: 9, fontWeight: '900', color: '#D97706' }}>
-                                    PENDING
+                                  <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '900' }}>
+                                    {member.initials}
                                   </Text>
                                 </View>
-                                {isCurrentHost && member.id !== profile?.id && (
-                                  <TouchableOpacity
-                                    onPress={() => handleKickPress(member.id, member.name)}
-                                    activeOpacity={0.75}
+                                <View>
+                                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.ink }}>
+                                    {member.name}
+                                  </Text>
+                                  <Text style={{ fontSize: 9.5, fontWeight: '600', color: colors.inkSoft }}>
+                                    {member.handle}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                {member.role === 'host' ? (
+                                  <View
                                     style={{
+                                      backgroundColor: colors.lightOrangeBg,
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      borderRadius: 100,
                                       flexDirection: 'row',
                                       alignItems: 'center',
                                       gap: 3,
-                                      backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      borderRadius: 100,
                                     }}
                                   >
-                                    <UserMinus size={11} color="#EF4444" strokeWidth={2.2} />
-                                    <Text style={{ fontSize: 10, fontWeight: '800', color: '#EF4444' }}>
-                                      Kick
+                                    <Crown size={10} color={colors.orangeAccent} />
+                                    <Text style={{ fontSize: 9, fontWeight: '900', color: colors.orangeAccent }}>
+                                      HOST
                                     </Text>
-                                  </TouchableOpacity>
+                                  </View>
+                                ) : member.status === 'pending' ? (
+                                  <>
+                                    <View
+                                      style={{
+                                        backgroundColor: '#FEF3C7',
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 3,
+                                        borderRadius: 100,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                      }}
+                                    >
+                                      <Clock size={10} color="#D97706" />
+                                      <Text style={{ fontSize: 9, fontWeight: '900', color: "#D97706" }}>
+                                        PENDING
+                                      </Text>
+                                    </View>
+                                    {isCurrentHost && member.id !== profile?.id && (
+                                      <TouchableOpacity
+                                        onPress={() => handleKickPress(member.id, member.name)}
+                                        activeOpacity={0.75}
+                                        style={{
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          gap: 3,
+                                          backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
+                                          paddingHorizontal: 8,
+                                          paddingVertical: 4,
+                                          borderRadius: 100,
+                                        }}
+                                      >
+                                        <UserMinus size={11} color="#EF4444" strokeWidth={2.2} />
+                                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#EF4444' }}>
+                                          Kick
+                                        </Text>
+                                      </TouchableOpacity>
+                                    )}
+                                  </>
+                                ) : (
+                                  /* Joined Member */
+                                  isCurrentHost && member.id !== profile?.id ? (
+                                    <TouchableOpacity
+                                      onPress={() => handleKickPress(member.id, member.name)}
+                                      activeOpacity={0.75}
+                                      style={{
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 3,
+                                        backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
+                                        paddingHorizontal: 9,
+                                        paddingVertical: 4,
+                                        borderRadius: 100,
+                                      }}
+                                    >
+                                      <UserMinus size={11} color="#EF4444" strokeWidth={2.2} />
+                                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#EF4444' }}>
+                                        Kick
+                                      </Text>
+                                    </TouchableOpacity>
+                                  ) : null
                                 )}
-                              </>
-                            ) : (
-                              /* Joined Member */
-                              isCurrentHost && member.id !== profile?.id ? (
-                                <TouchableOpacity
-                                  onPress={() => handleKickPress(member.id, member.name)}
-                                  activeOpacity={0.75}
-                                  style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 3,
-                                    backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
-                                    paddingHorizontal: 10,
-                                    paddingVertical: 5,
-                                    borderRadius: 100,
-                                  }}
-                                >
-                                  <UserMinus size={12} color="#EF4444" strokeWidth={2.2} />
-                                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#EF4444' }}>
-                                    Kick
-                                  </Text>
-                                </TouchableOpacity>
-                              ) : null
-                            )}
-                          </View>
+                              </View>
+                            </View>
+                          ))}
                         </View>
-                      ))}
+                      )}
+                    </>
+                  )}
+                </View>
+
+                {/* 2. Trip Settings & Controls Section (BELOW PARTICIPANTS) */}
+                <View
+                  style={{
+                    backgroundColor: colors.card,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: colors.cardBorder,
+                    padding: 14,
+                    gap: 12,
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingBottom: 8,
+                      borderBottomWidth: 1,
+                      borderBottomColor: colors.cardBorder,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Settings size={15} color={colors.tealDark} />
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: '900',
+                          color: colors.tealDark,
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.8,
+                        }}
+                      >
+                        Trip Settings & Controls
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        backgroundColor: isTripCompleted
+                          ? (isDark ? 'rgba(52,211,153,0.2)' : '#DCFCE7')
+                          : (isDark ? 'rgba(59,122,158,0.2)' : '#E0F2FE'),
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: 100,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: '900',
+                          color: isTripCompleted
+                            ? (isDark ? '#34D399' : '#15803D')
+                            : colors.tealDark,
+                        }}
+                      >
+                        {isTripCompleted
+                          ? 'COMPLETED'
+                          : dayInfo?.totalDays
+                            ? `DAY ${dayInfo.currentDay} OF ${dayInfo.totalDays}`
+                            : 'ACTIVE'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Yellow Edit Tour Action Button (For Host - ONLY if tour hasn't started) */}
+                  {canEditTour && (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        onClose();
+                        onEditTour?.();
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: isDark ? 'rgba(240,169,62,0.15)' : '#FEF6E7',
+                        padding: 12,
+                        borderRadius: 14,
+                        borderWidth: 1.5,
+                        borderColor: isDark ? 'rgba(240,169,62,0.35)' : '#FDE68A',
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                        <View
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 12,
+                            backgroundColor: isDark ? 'rgba(240,169,62,0.25)' : '#FDE68A',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Pencil size={18} color={colors.orangeAccent} strokeWidth={2.4} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13.5, fontWeight: '900', color: colors.ink }}>
+                            Edit Tour Details
+                          </Text>
+                          <Text style={{ fontSize: 11, fontWeight: '500', color: colors.inkSoft, marginTop: 1 }}>
+                            Modify destination, schedule dates & itinerary
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View
+                        style={{
+                          backgroundColor: colors.orangeAccent,
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          borderRadius: 100,
+                        }}
+                      >
+                        <Text style={{ fontSize: 11.5, fontWeight: '900', color: '#FFFFFF' }}>
+                          Edit Tour
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Trip Status Complete / End Action (For Host - ONLY if Day 1 has started or completed) */}
+                  {(canEndTour || canReopenTour) && (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8FAFC',
+                        padding: 11,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                          {isTripCompleted ? 'Trip Completed' : 'Complete / End Trip'}
+                        </Text>
+                        <Text style={{ fontSize: 10.5, fontWeight: '500', color: colors.inkSoft, marginTop: 1, lineHeight: 14 }}>
+                          {isTripCompleted
+                            ? 'Itinerary finalized. You can reopen anytime.'
+                            : dayInfo?.isEarly
+                              ? `Day ${dayInfo.currentDay} of ${dayInfo.totalDays}. Tap to end early.`
+                              : 'All plans done? Mark trip as complete.'}
+                        </Text>
+                      </View>
+
+                      {isTripCompleted ? (
+                        <TouchableOpacity
+                          activeOpacity={0.82}
+                          onPress={() => setShowUndoModal(true)}
+                          style={{
+                            backgroundColor: colors.tealDark,
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 5,
+                          }}
+                        >
+                          <RotateCcw size={12} color="#FFFFFF" strokeWidth={2.4} />
+                          <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' }}>
+                            Reopen
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          activeOpacity={0.85}
+                          onPress={() => setShowCompleteModal(true)}
+                          style={{
+                            backgroundColor: dayInfo?.isEarly ? '#EF4444' : '#10B981',
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                            borderRadius: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 5,
+                          }}
+                        >
+                          {dayInfo?.isEarly ? (
+                            <>
+                              <AlertTriangle size={12} color="#FFFFFF" strokeWidth={2.4} />
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' }}>
+                                End Trip
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 size={12} color="#FFFFFF" strokeWidth={2.4} />
+                              <Text style={{ fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' }}>
+                                Complete
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
 
@@ -527,15 +876,14 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                         justifyContent: 'center',
                         gap: 6,
                         backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
-                        paddingVertical: 12,
-                        borderRadius: 100,
-                        marginTop: 14,
+                        paddingVertical: 11,
+                        borderRadius: 12,
                         borderWidth: 1,
                         borderColor: 'rgba(239,68,68,0.25)',
                       }}
                     >
-                      <LogOut size={16} color="#EF4444" />
-                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#EF4444' }}>
+                      <LogOut size={15} color="#EF4444" />
+                      <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#EF4444' }}>
                         Leave Trip
                       </Text>
                     </TouchableOpacity>
@@ -695,22 +1043,63 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
         animationType="fade"
         onRequestClose={() => setKickTarget(null)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setKickTarget(null)} />
-          <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, alignItems: 'center', elevation: 12 }}>
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-              <UserMinus size={26} color="#EF4444" strokeWidth={2.2} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.18)' : '#FEE2E2',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <UserMinus size={22} color="#EF4444" strokeWidth={2.4} />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setKickTarget(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
               Kick {kickTarget?.name}?
             </Text>
-
-            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', lineHeight: 18, marginBottom: 20 }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 20 }}>
               Are you sure you want to remove {kickTarget?.name} from "{trip?.title}"? They will lose access to the trip planner.
             </Text>
 
-            <View style={{ width: '100%', gap: 10 }}>
+            <View style={{ gap: 8 }}>
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={confirmKickMember}
@@ -718,20 +1107,15 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 style={{
                   backgroundColor: '#EF4444',
                   paddingVertical: 13,
-                  borderRadius: 100,
+                  borderRadius: 14,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  shadowColor: '#EF4444',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  elevation: 4,
                 }}
               >
                 {loadingKick ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
                     Yes, Kick Member
                   </Text>
                 )}
@@ -742,15 +1126,14 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 onPress={() => setKickTarget(null)}
                 disabled={loadingKick}
                 style={{
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
                   paddingVertical: 11,
-                  borderRadius: 100,
+                  borderRadius: 14,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
                 }}
               >
-                <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700' }}>
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
                   Cancel
                 </Text>
               </TouchableOpacity>
@@ -766,22 +1149,63 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
         animationType="fade"
         onRequestClose={() => setShowLeaveModal(false)}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
           <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowLeaveModal(false)} />
-          <View style={{ width: '100%', maxWidth: 340, backgroundColor: isDark ? colors.paper : '#FFFFFF', borderRadius: 28, borderWidth: 1, borderColor: colors.cardBorder, padding: 24, alignItems: 'center', elevation: 12 }}>
-            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-              <LogOut size={26} color="#EF4444" strokeWidth={2.2} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.18)' : '#FEE2E2',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <LogOut size={22} color="#EF4444" strokeWidth={2.4} />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowLeaveModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={{ fontSize: 18, fontWeight: '900', color: colors.ink, textAlign: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
               Leave Trip?
             </Text>
-
-            <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', lineHeight: 18, marginBottom: 20 }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 20 }}>
               Are you sure you want to leave "{trip?.title}"? You will lose access to this trip's planner unless re-invited by the host.
             </Text>
 
-            <View style={{ width: '100%', gap: 10 }}>
+            <View style={{ gap: 8 }}>
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={confirmLeaveTrip}
@@ -789,20 +1213,15 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 style={{
                   backgroundColor: '#EF4444',
                   paddingVertical: 13,
-                  borderRadius: 100,
+                  borderRadius: 14,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  shadowColor: '#EF4444',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  elevation: 4,
                 }}
               >
                 {loadingLeave ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text style={{ color: '#FFF', fontSize: 14, fontWeight: '800' }}>
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
                     Yes, Leave Trip
                   </Text>
                 )}
@@ -813,15 +1232,294 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 onPress={() => setShowLeaveModal(false)}
                 disabled={loadingLeave}
                 style={{
-                  borderWidth: 1,
-                  borderColor: colors.cardBorder,
                   paddingVertical: 11,
-                  borderRadius: 100,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Complete Trip / Early Finish Confirmation Modal */}
+      <Modal
+        transparent
+        visible={showCompleteModal}
+        animationType="fade"
+        onRequestClose={() => setShowCompleteModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowCompleteModal(false)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: dayInfo?.isEarly
+                    ? (isDark ? 'rgba(239,68,68,0.18)' : '#FEE2E2')
+                    : (isDark ? 'rgba(16,185,129,0.18)' : '#DCFCE7'),
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <Text style={{ color: colors.inkSoft, fontSize: 13, fontWeight: '700' }}>
+                {dayInfo?.isEarly ? (
+                  <AlertTriangle size={22} color="#EF4444" strokeWidth={2.4} />
+                ) : (
+                  <CheckCircle2 size={22} color="#10B981" strokeWidth={2.4} />
+                )}
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowCompleteModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
+              {dayInfo?.isEarly ? 'End Trip Early?' : 'Complete This Trip?'}
+            </Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 14 }}>
+              {dayInfo?.isEarly
+                ? `You're currently on Day ${dayInfo.currentDay} of ${dayInfo.totalDays}. Ending early will finalize the trip for everyone.`
+                : `Finalize "${trip?.title}" and wrap up the itinerary for the barkada.`}
+            </Text>
+
+            {/* Checklist / Info Points */}
+            <View
+              style={{
+                backgroundColor: colors.subtleBg,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 18,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Barkada members will be notified
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Trip recap and memories unlocked
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  You can reopen anytime during trip dates
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmCompleteTrip}
+                disabled={loadingComplete}
+                style={{
+                  backgroundColor: dayInfo?.isEarly ? '#EF4444' : '#10B981',
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {loadingComplete ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
+                    {dayInfo?.isEarly ? 'Yes, End Trip Early' : 'Yes, Complete Trip'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setShowCompleteModal(false)}
+                disabled={loadingComplete}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
+                  Keep Trip Active
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Undo Complete / Reopen Trip Modal */}
+      <Modal
+        transparent
+        visible={showUndoModal}
+        animationType="fade"
+        onRequestClose={() => setShowUndoModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowUndoModal(false)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header with Close */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(59,122,158,0.2)' : '#E0F2FE',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <RotateCcw size={22} color={colors.tealDark} strokeWidth={2.4} />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowUndoModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
+              Reopen This Trip?
+            </Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 14 }}>
+              Restore "{trip?.title}" back to active status for all members.
+            </Text>
+
+            {/* Checklist / Info Points */}
+            <View
+              style={{
+                backgroundColor: colors.subtleBg,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 18,
+                gap: 8,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Live itinerary planning reactivated
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Members can vote and react to spots
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Check size={14} color={colors.tealDark} strokeWidth={2.6} />
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.ink, flex: 1 }}>
+                  Trip countdown and radar restored
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmUndoCompleteTrip}
+                disabled={loadingUndo}
+                style={{
+                  backgroundColor: colors.tealDark,
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {loadingUndo ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
+                    Yes, Reopen Trip
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setShowUndoModal(false)}
+                disabled={loadingUndo}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
                   Cancel
                 </Text>
               </TouchableOpacity>

@@ -133,3 +133,84 @@ export interface Trip {
   planningStage?: 'DESTINATION_VOTING' | 'ITINERARY_BUILDING' | 'READY';
   invitedFriendIds?: string[];
 }
+
+export interface MemberCommitment {
+  userId: string;
+  name: string;
+  handle: string;
+  initials: string;
+  avatarBg: string;
+  avatarUrl?: string;
+  role: 'host' | 'member';
+  status: 'accepted' | 'pending';
+  commitmentLevel: number; // 0 - 100
+  commitmentNote?: string;
+  updatedAt?: string;
+}
+
+export interface CommitmentTierInfo {
+  tier: 'unlikely' | 'tentative' | 'likely' | 'almost' | 'committed';
+  label: string;
+  color: string;
+  gradientStart: string;
+  gradientEnd: string;
+  bgLight: string;
+  badgeBg: string;
+}
+
+export const getCommitmentTier = (percent: number): CommitmentTierInfo => {
+  const p = Math.max(0, Math.min(100, Math.round(percent)));
+  if (p < 25) {
+    return {
+      tier: 'unlikely',
+      label: 'Unlikely',
+      color: '#E2604A',
+      gradientStart: '#F87171',
+      gradientEnd: '#E2604A',
+      bgLight: '#FEF2F2',
+      badgeBg: 'rgba(226, 96, 74, 0.12)',
+    };
+  }
+  if (p < 50) {
+    return {
+      tier: 'tentative',
+      label: 'Tentative',
+      color: '#F59E0B',
+      gradientStart: '#FCD34D',
+      gradientEnd: '#F59E0B',
+      bgLight: '#FFFBEB',
+      badgeBg: 'rgba(245, 158, 11, 0.12)',
+    };
+  }
+  if (p < 75) {
+    return {
+      tier: 'likely',
+      label: 'Likely',
+      color: '#0284C7',
+      gradientStart: '#38BDF8',
+      gradientEnd: '#0284C7',
+      bgLight: '#F0F9FF',
+      badgeBg: 'rgba(2, 132, 199, 0.12)',
+    };
+  }
+  if (p < 100) {
+    return {
+      tier: 'almost',
+      label: 'Almost Sure',
+      color: '#0D9488',
+      gradientStart: '#2DD4BF',
+      gradientEnd: '#0D9488',
+      bgLight: '#F0FDFA',
+      badgeBg: 'rgba(13, 148, 136, 0.12)',
+    };
+  }
+  return {
+    tier: 'committed',
+    label: 'Fully Committed',
+    color: '#10B981',
+    gradientStart: '#34D399',
+    gradientEnd: '#059669',
+    bgLight: '#ECFDF5',
+    badgeBg: 'rgba(16, 185, 129, 0.14)',
+  };
+};

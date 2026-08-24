@@ -8,6 +8,7 @@ import {
   Image,
   Platform,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { ArrowUpDown, Search, CalendarDays, Clock, ArrowRight, Sparkles, ExternalLink } from 'lucide-react-native';
@@ -108,6 +109,14 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={handleSearch}
+          tintColor={accentColor}
+          colors={[accentColor]}
+        />
+      }
       onScroll={(e) => {
         const currentY = e.nativeEvent.contentOffset.y;
         const delta = currentY - lastOffsetY.current;

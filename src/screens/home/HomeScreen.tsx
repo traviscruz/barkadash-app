@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Animated,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TripService } from '../../services/tripService';
@@ -20,6 +21,8 @@ import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { PolaroidStack } from '../../components/home/PolaroidStack';
 import { NoTripWelcome } from '../../components/home/NoTripWelcome';
 import { TripCalendarCard } from '../../components/home/TripCalendarCard';
+import { CommitmentTrackerCard } from '../../components/home/CommitmentTrackerCard';
+import { PackingChecklistCard } from '../../components/home/PackingChecklistCard';
 import { TripMember } from '../../components/trip/TripDetailsModal';
 import { TripFeedScreen } from '../feed/TripFeedScreen';
 import { TripRecapScreen } from '../feed/TripRecapScreen';
@@ -88,6 +91,7 @@ const findNextUp = (items: ItineraryItem[], now: Date, tripStart: Date): Itinera
 
   const upcoming = items
     .filter((i) => {
+      if (i.isCompleted) return false;
       const d = i.dayNumber || 1;
       return d > todayDayNum || (d === todayDayNum && timeToMinutes(i.time) >= nowMin);
     })
@@ -214,6 +218,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setNextUpItem(next);
     setNextUpLoaded(true);
   }, []);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const service = TripService.getInstance();
+      await service.fetchUserTripsDB(profile?.id);
+      const trip = service.getActiveTrip();
+      setActiveTrip(trip);
+      await Promise.all([
+        refreshPolls(trip?.id || null),
+        refreshMembers(trip?.id || null),
+        loadNextUp(trip),
+        fetchUnread(),
+      ]);
+    } catch (e) {
+      console.warn('Home refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     const service = TripService.getInstance();
@@ -431,6 +457,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {homeTab === 'mytrip' ? (
         <ScrollView
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.tealDark}
+              colors={[colors.tealDark]}
+            />
+          }
           onScroll={(e) => {
             const currentY = e.nativeEvent.contentOffset.y;
             const delta = currentY - lastOffsetY.current;
@@ -465,14 +499,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             {activeTrip ? (
             <>
-              {/* Active Trip Card */}
+            {/* Active Trip Card */}
             <TripCard
               trip={activeTrip}
               members={members}
               onPress={() => onNavigateToTab && onNavigateToTab(1)}
             />
 
-            {/* Next Up Banner */}
+            {/* Commitment Tracker Widget (visible if trip has not yet started) */}
+            {!tripHappening && (
+              <CommitmentTrackerCard
+                trip={activeTrip}
+                onPress={() => onNavigateToSubScreen?.('commitment')}
+              />
+            )}
+
+            {/* Packing Checklist Widget (visible always when trip exists) */}
+            <PackingChecklistCard
+              trip={activeTrip}
+              onPress={() => onNavigateToSubScreen?.('checklist')}
+            />
+
+            {/* Next Up Banner / View Itinerary — placed above the Polaroid */}
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => onNavigateToTab && onNavigateToTab(1)}
@@ -510,11 +558,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <ChevronRight size={icon.lg} color="#FFFFFF" />
             </TouchableOpacity>
 
-            {/* Polaroid Winner Gallery */}
-            {winnerPlace && (
+            {/* Polaroid shuffle — all options while voting is in progress */}
+            {!isTripLocked && placePolls.length > 0 && (
               <>
                 <SectionHeader
-                  title={isTripLocked ? `PICKED TRIP · ${activeTrip?.title?.toUpperCase() || 'LOCKED'}` : 'TOP PICK DESTINATION'}
+                  title="VOTE ON A DESTINATION"
+                  actionText="View Poll"
+                  onActionPress={() => onNavigateToTab && onNavigateToTab(1)}
+                />
+                <PolaroidStack polls={placePolls} isLocked={false} />
+              </>
+            )}
+
+            {/* Polaroid Winner Gallery — only when locked and there's a winner */}
+            {isTripLocked && winnerPlace && (
+              <>
+                <SectionHeader
+                  title={`PICKED TRIP · ${activeTrip?.title?.toUpperCase() || 'LOCKED'}`}
                   actionText="View Trip"
                   onActionPress={() => onNavigateToTab && onNavigateToTab(1)}
                 />

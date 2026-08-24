@@ -1,6 +1,7 @@
-import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment } from '../types/trip';
+import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment, MemberCommitment } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
+import { sortItineraryChronological } from '../utils/tripDates';
 import { NotificationService } from './notificationService';
 
 const sagadaImg = require('../../assets/images/sagada.jpeg');
@@ -498,6 +499,19 @@ export class TripService {
       }
       this.notify();
 
+      // Check if any trip's voting deadline has passed while still in voting stage — auto-finalize winners
+      for (const trip of fetchedTrips) {
+        if (
+          trip.votingDeadline &&
+          new Date(trip.votingDeadline).getTime() <= Date.now() &&
+          (trip.planningStage === 'DESTINATION_VOTING' || !trip.planningStage)
+        ) {
+          this.finalizeEndedPollDB(trip.id).catch((e) =>
+            console.warn('Auto finalizeEndedPollDB notice:', e?.message)
+          );
+        }
+      }
+
       return this.trips;
     } catch (err: any) {
       console.warn('fetchUserTripsDB exception:', err?.message);
@@ -957,7 +971,7 @@ export class TripService {
 
       const me = (await supabase.auth.getUser()).data?.user?.id;
 
-      return data.map((row: any) => {
+      const items: ItineraryItem[] = data.map((row: any) => {
         const reactions: ItineraryReaction[] = (row.reactions || []).map((r: any) => {
           const prof = r.user_profile || {};
           const fn = prof.first_name || '';
@@ -1007,6 +1021,8 @@ export class TripService {
           myReaction: mine as 'like' | 'dislike' | null,
         };
       });
+
+      return sortItineraryChronological(items);
     } catch (err: any) {
       console.warn('fetchTripItineraryDB exception:', err?.message);
       return [];
@@ -1141,6 +1157,30 @@ export class TripService {
       return true;
     } catch (err: any) {
       console.warn('updateItineraryItemDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Toggle completion status of an itinerary item (done / strikethrough).
+   */
+  public async toggleItineraryCompletedDB(itemId: string, isCompleted: boolean): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('trip_itinerary_items')
+        .update({
+          is_completed: isCompleted,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) {
+        console.warn('toggleItineraryCompletedDB error:', error?.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('toggleItineraryCompletedDB exception:', err?.message);
       return false;
     }
   }
@@ -1439,7 +1479,7 @@ export class TripService {
    */
   public async updateTripStayDB(
     stayId: string,
-    params: {
+    params: Partial<{
       title: string;
       startDay: number;
       endDay: number;
@@ -1449,26 +1489,25 @@ export class TripService {
       photoReference?: string;
       link?: string;
       note?: string;
-    }
+    }>
   ): Promise<boolean> {
     try {
-      const startDay = Math.max(1, params.startDay);
-      const endDay = Math.max(startDay, params.endDay);
+      const updatePayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (params.title !== undefined) updatePayload.title = params.title.trim();
+      if (params.startDay !== undefined) updatePayload.start_day = Math.max(1, params.startDay);
+      if (params.endDay !== undefined) updatePayload.end_day = Math.max(1, params.endDay);
+      if (params.placeId !== undefined) updatePayload.place_id = params.placeId || null;
+      if (params.placeName !== undefined) updatePayload.place_name = params.placeName || null;
+      if (params.placeAddress !== undefined) updatePayload.place_address = params.placeAddress || null;
+      if (params.photoReference !== undefined) updatePayload.photo_reference = params.photoReference || null;
+      if (params.link !== undefined) updatePayload.link = params.link?.trim() || null;
+      if (params.note !== undefined) updatePayload.note = params.note?.trim() || null;
 
       const { error } = await supabase
         .from('trip_stays')
-        .update({
-          title: params.title.trim(),
-          start_day: startDay,
-          end_day: endDay,
-          place_id: params.placeId || null,
-          place_name: params.placeName || null,
-          place_address: params.placeAddress || null,
-          photo_reference: params.photoReference || null,
-          link: params.link?.trim() || null,
-          note: params.note?.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq('id', stayId);
 
       if (error) {
@@ -1675,6 +1714,7 @@ export class TripService {
 
   /**
    * Set or clear the host-only voting deadline on a trip.
+   * Also updates the local in-memory cache so the UI reflects immediately.
    */
   public async setTripVotingDeadlineDB(tripId: string, deadline: string | null): Promise<boolean> {
     try {
@@ -1687,10 +1727,132 @@ export class TripService {
         console.warn('setTripVotingDeadlineDB error:', error.message);
         return false;
       }
+
+      // Update local cache so deadlinePassed state reflects immediately
+      this.trips = this.trips.map((t) =>
+        t.id === tripId ? { ...t, votingDeadline: deadline } : t
+      );
+      this.notify();
       return true;
     } catch (err: any) {
       console.warn('setTripVotingDeadlineDB exception:', err?.message);
       return false;
+    }
+  }
+
+  /**
+   * Finalizes an ended poll by extracting the winning destination (place poll)
+   * and date range (date poll) from the poll options and uploading them to
+   * Supabase trips table. Sets planning_stage to 'READY' and updates local cache.
+   * Can be called when the host locks the trip or automatically when the voting deadline expires.
+   *
+   * Only finalizes if there is at least one poll option with at least one vote.
+   * If no votes exist, still marks as READY but keeps placeholder destination/date.
+   */
+  public async finalizeEndedPollDB(
+    tripId: string
+  ): Promise<{ success: boolean; destination?: string; dateRange?: string; message?: string }> {
+    try {
+      // Fetch current trip data from DB to get the freshest state
+      const { data: tripRow, error: tripFetchErr } = await supabase
+        .from('trips')
+        .select('destination, date_range, planning_stage, voting_deadline')
+        .eq('id', tripId)
+        .maybeSingle();
+
+      if (tripFetchErr) {
+        console.warn('finalizeEndedPollDB trip fetch error:', tripFetchErr.message);
+      }
+
+      // Already finalized — don't run again
+      if (tripRow?.planning_stage === 'READY' || tripRow?.planning_stage === 'ITINERARY_BUILDING') {
+        const existingDest = tripRow.destination || 'Destination Locked';
+        const existingDate = tripRow.date_range || 'Dates TBD';
+        return { success: true, destination: existingDest, dateRange: existingDate };
+      }
+
+      // Fetch all poll options + votes for this trip
+      const { data: pollRows, error: pollErr } = await supabase
+        .from('trip_poll_options')
+        .select('id, type, title, created_at, trip_poll_votes ( user_id )')
+        .eq('trip_id', tripId);
+
+      if (pollErr) {
+        console.warn('finalizeEndedPollDB poll fetch error:', pollErr.message);
+      }
+
+      const options = (pollRows || []) as Array<{
+        id: string;
+        type: string;
+        title: string;
+        created_at: string;
+        trip_poll_votes: Array<{ user_id: string }>;
+      }>;
+
+      const pickWinner = (list: typeof options) => {
+        if (!list || list.length === 0) return null;
+        const withVotes = list.filter((o) => o.trip_poll_votes.length > 0);
+        if (withVotes.length === 0) return null; // no votes at all
+        return withVotes.slice().sort((a, b) => {
+          if (b.trip_poll_votes.length !== a.trip_poll_votes.length)
+            return b.trip_poll_votes.length - a.trip_poll_votes.length;
+          return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+        })[0];
+      };
+
+      const placePoll = options.filter((o) => (o.type || '').toLowerCase().trim() === 'place');
+      const datePoll = options.filter((o) => (o.type || '').toLowerCase().trim() === 'date');
+
+      const placeWinner = pickWinner(placePoll);
+      const dateWinner = pickWinner(datePoll);
+
+      // Build the update payload — always set planning_stage to READY
+      const updatePayload: Record<string, any> = {
+        planning_stage: 'READY',
+        updated_at: new Date().toISOString(),
+      };
+
+      const winningDestination = placeWinner?.title?.trim() || null;
+      const winningDateRange = dateWinner?.title?.trim() || null;
+
+      if (winningDestination) {
+        updatePayload.destination = winningDestination;
+      }
+      if (winningDateRange) {
+        updatePayload.date_range = winningDateRange;
+      }
+
+      const { error: updateErr } = await supabase
+        .from('trips')
+        .update(updatePayload)
+        .eq('id', tripId);
+
+      if (updateErr) {
+        console.warn('finalizeEndedPollDB update error:', updateErr.message);
+        return { success: false, message: updateErr.message };
+      }
+
+      // Resolve the final values for local cache update
+      const existingTrip = this.trips.find((t) => t.id === tripId);
+      const finalDestination = winningDestination || (tripRow?.destination && !/^(Voting in Progress|Planning Stage|Destination Voting)$/i.test(tripRow.destination) ? tripRow.destination : existingTrip?.destination || 'Destination Locked');
+      const finalDateRange = winningDateRange || (tripRow?.date_range && !/^(Dates TBD|TBD|Upcoming|Planning Phase|Planning Stage)$/i.test(tripRow.date_range) ? tripRow.date_range : existingTrip?.dateRange || 'Dates TBD');
+
+      this.trips = this.trips.map((t) =>
+        t.id === tripId
+          ? {
+              ...t,
+              destination: finalDestination,
+              dateRange: finalDateRange,
+              planningStage: 'READY' as Trip['planningStage'],
+            }
+          : t
+      );
+
+      this.notify();
+      return { success: true, destination: finalDestination, dateRange: finalDateRange };
+    } catch (err: any) {
+      console.warn('finalizeEndedPollDB exception:', err?.message);
+      return { success: false, message: err?.message };
     }
   }
 
@@ -1714,42 +1876,8 @@ export class TripService {
         return { success: false, message: 'Only the trip host can lock the tour.' };
       }
 
-      const polls = await this.fetchTripPollsDB(tripId);
-      const pickWinner = (list: DestinationPollOption[]) =>
-        list.slice().sort((a, b) => {
-          if (b.votes !== a.votes) return b.votes - a.votes;
-          return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
-        })[0];
-
-      const placeWinner = pickWinner(polls.filter((p) => p.type === 'place'));
-      const dateWinner = pickWinner(polls.filter((p) => p.type === 'date'));
-
-      const destination = placeWinner?.title || '';
-      const dateRange = dateWinner?.title || '';
-
-      const { error } = await supabase
-        .from('trips')
-        .update({
-          destination,
-          date_range: dateRange,
-          planning_stage: 'READY',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', tripId);
-
-      if (error) {
-        console.warn('lockTripDB error:', error.message);
-        return { success: false, message: error.message };
-      }
-
-      this.trips = this.trips.map((t) =>
-        t.id === tripId
-          ? { ...t, destination, dateRange, planningStage: 'READY' as Trip['planningStage'] }
-          : t
-      );
-
-      this.notify();
-      return { success: true };
+      const res = await this.finalizeEndedPollDB(tripId);
+      return { success: res.success, message: res.message };
     } catch (err: any) {
       console.warn('lockTripDB exception:', err?.message);
       return { success: false, message: err?.message };
@@ -1783,6 +1911,10 @@ export class TripService {
         .update({
           planning_stage: 'DESTINATION_VOTING',
           voting_deadline: deadline,
+          // Reset destination and date_range to placeholders so old winning
+          // values don't leak through while voting is still in progress.
+          destination: 'Voting in Progress',
+          date_range: 'Dates TBD',
           updated_at: new Date().toISOString(),
         })
         .eq('id', tripId);
@@ -1794,7 +1926,13 @@ export class TripService {
 
       this.trips = this.trips.map((t) =>
         t.id === tripId
-          ? { ...t, planningStage: 'DESTINATION_VOTING' as Trip['planningStage'] }
+          ? {
+              ...t,
+              planningStage: 'DESTINATION_VOTING' as Trip['planningStage'],
+              destination: 'Voting in Progress',
+              dateRange: 'Dates TBD',
+              votingDeadline: deadline,
+            }
           : t
       );
 
@@ -1802,6 +1940,151 @@ export class TripService {
       return { success: true };
     } catch (err: any) {
       console.warn('reactivateTripVotingDB exception:', err?.message);
+      return { success: false, message: err?.message };
+    }
+  }
+
+  /**
+   * Host-only: Mark a trip as Completed.
+   * Can be triggered at the end of the trip or early in emergencies/plan changes.
+   */
+  public async completeTripDB(
+    tripId: string,
+    userId?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return { success: false, message: 'Not signed in.' };
+
+      const settings = await this.fetchTripSettingsDB(tripId);
+      if (!settings.hostId || settings.hostId !== effectiveUserId) {
+        return { success: false, message: 'Only the trip host can complete the trip.' };
+      }
+
+      const { error } = await supabase
+        .from('trips')
+        .update({
+          status: 'Completed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('completeTripDB error:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      // Update local cache
+      this.trips = this.trips.map((t) =>
+        t.id === tripId ? { ...t, status: 'Completed' as Trip['status'] } : t
+      );
+
+      // Notify other participants
+      const tripObj = this.trips.find((t) => t.id === tripId);
+      const tripTitle = tripObj?.title || 'Your Barkada trip';
+      try {
+        const { data: participants } = await supabase
+          .from('trip_participants')
+          .select('user_id')
+          .eq('trip_id', tripId)
+          .neq('user_id', effectiveUserId);
+
+        if (participants && participants.length > 0) {
+          const notifications = participants.map((p) => ({
+            user_id: p.user_id,
+            actor_id: effectiveUserId,
+            type: 'system',
+            title: 'Trip Completed',
+            message: `"${tripTitle}" has been marked as completed by the host.`,
+            is_read: false,
+            trip_id: tripId,
+          }));
+          await supabase.from('notifications').insert(notifications);
+        }
+      } catch (notifErr) {
+        console.warn('completeTripDB notification notice:', notifErr);
+      }
+
+      this.notify();
+      return { success: true };
+    } catch (err: any) {
+      console.warn('completeTripDB exception:', err?.message);
+      return { success: false, message: err?.message };
+    }
+  }
+
+  /**
+   * Host-only: Reopen a completed trip (Undo Complete) back to Active.
+   */
+  public async reopenTripDB(
+    tripId: string,
+    userId?: string
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { data: authData } = await supabase.auth.getUser();
+        effectiveUserId = authData?.user?.id;
+      }
+      if (!effectiveUserId) return { success: false, message: 'Not signed in.' };
+
+      const settings = await this.fetchTripSettingsDB(tripId);
+      if (!settings.hostId || settings.hostId !== effectiveUserId) {
+        return { success: false, message: 'Only the trip host can reopen the trip.' };
+      }
+
+      const { error } = await supabase
+        .from('trips')
+        .update({
+          status: 'Active',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', tripId);
+
+      if (error) {
+        console.warn('reopenTripDB error:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      // Update local cache
+      this.trips = this.trips.map((t) =>
+        t.id === tripId ? { ...t, status: 'Active' as Trip['status'] } : t
+      );
+
+      // Notify other participants
+      const tripObj = this.trips.find((t) => t.id === tripId);
+      const tripTitle = tripObj?.title || 'Your Barkada trip';
+      try {
+        const { data: participants } = await supabase
+          .from('trip_participants')
+          .select('user_id')
+          .eq('trip_id', tripId)
+          .neq('user_id', effectiveUserId);
+
+        if (participants && participants.length > 0) {
+          const notifications = participants.map((p) => ({
+            user_id: p.user_id,
+            actor_id: effectiveUserId,
+            type: 'system',
+            title: 'Trip Reopened',
+            message: `"${tripTitle}" has been reopened by the host.`,
+            is_read: false,
+            trip_id: tripId,
+          }));
+          await supabase.from('notifications').insert(notifications);
+        }
+      } catch (notifErr) {
+        console.warn('reopenTripDB notification notice:', notifErr);
+      }
+
+      this.notify();
+      return { success: true };
+    } catch (err: any) {
+      console.warn('reopenTripDB exception:', err?.message);
       return { success: false, message: err?.message };
     }
   }
@@ -1926,14 +2209,14 @@ export class TripService {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trip_poll_options' },
         () => {
-          this.notify();
+          this.fetchUserTripsDB(userId);
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'trip_poll_votes' },
         () => {
-          this.notify();
+          this.fetchUserTripsDB(userId);
         }
       )
       .on(
@@ -2047,6 +2330,162 @@ export class TripService {
     } catch (err: any) {
       console.warn('fetchTripParticipantsDB exception:', err?.message);
       return [];
+    }
+  }
+
+  /**
+   * Fetch all trip participants with their commitment levels and notes
+   */
+  public async fetchTripCommitmentsDB(tripId: string): Promise<MemberCommitment[]> {
+    try {
+      const { data, error } = await supabase
+        .from('trip_participants')
+        .select(`
+          user_id,
+          role,
+          status,
+          joined_at,
+          commitment_level,
+          commitment_note,
+          commitment_updated_at,
+          profiles:user_id (
+            id,
+            first_name,
+            last_name,
+            username,
+            avatar_url
+          )
+        `)
+        .eq('trip_id', tripId);
+
+      if (error || !data || data.length === 0) {
+        // Fallback: fetch without new columns if migration not yet applied
+        const fallbackMembers = await this.fetchTripParticipantsDB(tripId);
+        return fallbackMembers.map((m) => ({
+          userId: m.id,
+          name: m.name,
+          handle: m.handle,
+          initials: m.initials,
+          avatarBg: m.avatarBg,
+          avatarUrl: m.avatarUrl,
+          role: m.role,
+          status: m.status,
+          commitmentLevel: 100,
+          commitmentNote: undefined,
+          updatedAt: undefined,
+        }));
+      }
+
+      const AVATAR_BG_COLORS = ['#0171F8', '#4F86C6', '#E11D48', '#8B5CF6', '#10B981', '#F59E0B', '#3B82F6', '#EC4899'];
+      const getBg = (id: string) => {
+        let sum = 0;
+        for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
+        return AVATAR_BG_COLORS[sum % AVATAR_BG_COLORS.length];
+      };
+
+      return data
+        .filter((p: any) => p.status !== 'declined')
+        .map((p: any) => {
+          const prof = p.profiles || {};
+          const fn = prof.first_name || 'User';
+          const ln = prof.last_name || '';
+          const name = `${fn} ${ln}`.trim();
+          const handle = prof.username ? `@${prof.username}` : '@user';
+          const initials = `${(fn[0] || '').toUpperCase()}${(ln[0] || '').toUpperCase()}` || 'U';
+          const rawLevel = p.commitment_level;
+          const commitmentLevel = typeof rawLevel === 'number' ? Math.max(0, Math.min(100, rawLevel)) : 100;
+
+          return {
+            userId: p.user_id,
+            name,
+            handle,
+            initials,
+            avatarBg: getBg(p.user_id),
+            avatarUrl: prof.avatar_url || undefined,
+            role: p.role === 'host' ? 'host' : 'member',
+            status: p.role === 'host' ? 'accepted' : ((p.status || 'accepted') as 'accepted' | 'pending'),
+            commitmentLevel,
+            commitmentNote: p.commitment_note || undefined,
+            updatedAt: p.commitment_updated_at || p.joined_at || undefined,
+          };
+        });
+    } catch (err: any) {
+      console.warn('fetchTripCommitmentsDB exception:', err?.message);
+      return [];
+    }
+  }
+
+  /**
+   * Update a user's commitment level and note for a specific trip
+   */
+  public async updateTripCommitmentDB(
+    tripId: string,
+    userId: string,
+    level: number,
+    note?: string
+  ): Promise<boolean> {
+    try {
+      const sanitizedLevel = Math.max(0, Math.min(100, Math.round(level)));
+      const { error } = await supabase
+        .from('trip_participants')
+        .update({
+          commitment_level: sanitizedLevel,
+          commitment_note: note !== undefined ? note.trim() : null,
+          commitment_updated_at: new Date().toISOString(),
+        })
+        .eq('trip_id', tripId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.warn('updateTripCommitmentDB error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('updateTripCommitmentDB exception:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Send a fun nudge notification to a member or to all pending/undecided members
+   */
+  public async sendCommitmentNudgeDB(
+    tripId: string,
+    senderId: string,
+    senderName: string,
+    tripTitle: string,
+    targetUserId?: string
+  ): Promise<boolean> {
+    try {
+      let recipientIds: string[] = [];
+
+      if (targetUserId) {
+        recipientIds = [targetUserId];
+      } else {
+        const commitments = await this.fetchTripCommitmentsDB(tripId);
+        recipientIds = commitments
+          .filter((c) => c.userId !== senderId && c.commitmentLevel < 100)
+          .map((c) => c.userId);
+      }
+
+      if (recipientIds.length === 0) return true;
+
+      const notifs = recipientIds.map((rId) => ({
+        user_id: rId,
+        actor_id: senderId,
+        trip_id: tripId,
+        type: 'commitment_nudge',
+        title: 'Barkada Nudge! 📣',
+        message: `${senderName} is asking: "G ka na ba sa ${tripTitle}?" Pa-update ng commitment level mo! 🚀`,
+        is_read: false,
+      }));
+
+      await supabase.from('notifications').insert(notifs);
+      return true;
+    } catch (err: any) {
+      console.warn('sendCommitmentNudgeDB exception:', err?.message);
+      return false;
     }
   }
 

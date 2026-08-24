@@ -849,7 +849,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   const surface = isDark ? 'rgba(255,255,255,0.04)' : colors.card;
 
   const votingDeadline = tripSettings?.votingDeadline || null;
-  const deadlinePassed = votingDeadline ? new Date(votingDeadline).getTime() < Date.now() : false;
+  const deadlinePassed = votingDeadline ? new Date(votingDeadline).getTime() <= Date.now() : false;
 
   const refresh = useCallback(async () => {
     const p = await TripService.getInstance().fetchTripPollsDB(tripId);
@@ -873,6 +873,19 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
       setTripSettings(settings);
       setPolls(pollsRes);
       setLoading(false);
+
+      if (
+        settings.votingDeadline &&
+        new Date(settings.votingDeadline).getTime() <= Date.now() &&
+        (settings.planningStage === 'DESTINATION_VOTING' || !settings.planningStage)
+      ) {
+        TripService.getInstance().finalizeEndedPollDB(tripId).then((res) => {
+          if (res.success) {
+            setTripSettings((s) => ({ ...s, planningStage: 'READY' }));
+            onPollsUpdated?.();
+          }
+        });
+      }
     };
     load();
     return () => { cancelled = true; };
@@ -1006,10 +1019,26 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
 
   const saveDeadline = async (date: Date | null) => {
     const iso = date ? date.toISOString() : null;
-    await TripService.getInstance().setTripVotingDeadlineDB(tripId, iso);
-    setTripSettings((s) => ({ ...s, votingDeadline: iso }));
+    const isFutureDeadline = iso ? new Date(iso).getTime() > Date.now() : false;
+
+    // If the trip was already finalized (auto-locked on deadline expiry) and the host
+    // is now setting a NEW future deadline, we need to reopen voting and clear the
+    // previously-finalized destination/date so they don't keep showing.
+    if (isFutureDeadline && tripSettings.planningStage === 'READY') {
+      const service = TripService.getInstance();
+      await service.reactivateTripVotingDB(tripId, iso!, userId);
+      setTripSettings((s) => ({
+        ...s,
+        votingDeadline: iso,
+        planningStage: 'DESTINATION_VOTING',
+      }));
+    } else {
+      await TripService.getInstance().setTripVotingDeadlineDB(tripId, iso);
+      setTripSettings((s) => ({ ...s, votingDeadline: iso }));
+    }
     setDeadlineVisible(false);
     refresh();
+    onPollsUpdated?.();
   };
 
   const confirmLockTour = async () => {
@@ -1020,6 +1049,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
     if (res.success) {
       setTripSettings((s) => ({ ...s, planningStage: 'READY' }));
       refresh();
+      onPollsUpdated?.();
     } else {
       console.warn('lockTripDB failed:', res.message);
     }

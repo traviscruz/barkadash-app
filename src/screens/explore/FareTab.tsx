@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  RefreshControl,
 } from 'react-native';
 import {
   ArrowDownUp,
@@ -597,6 +598,14 @@ export const FareTab: React.FC<FareTabProps> = ({ accentColor, onScrollDirection
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={loading}
+          onRefresh={handleEstimate}
+          tintColor={accentColor}
+          colors={[accentColor]}
+        />
+      }
       onScroll={(e) => {
         const currentY = e.nativeEvent.contentOffset.y;
         const delta = currentY - lastOffsetY.current;

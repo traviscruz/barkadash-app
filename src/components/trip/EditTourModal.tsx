@@ -44,7 +44,7 @@ export const EditTourModal: React.FC<EditTourModalProps> = ({
     if (visible) {
       setDeadline(null);
       setSaving(false);
-      setShowAndroidPicker(Platform.OS === 'android');
+      setShowAndroidPicker(false);
     }
   }, [visible]);
 
@@ -163,6 +163,6 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   sheet: { width: '100%', borderRadius: 24, borderWidth: 1, padding: 22, elevation: 16 },
   sheetHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 20 },
-  pill: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 100, alignItems: 'center', justifyContent: 'center' },
+  actions: { flexDirection: 'row', gap: 10, marginTop: 20 },
+  pill: { flex: 1, paddingVertical: 13, borderRadius: 100, alignItems: 'center', justifyContent: 'center' },
 });
