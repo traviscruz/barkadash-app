@@ -21,9 +21,9 @@ export type {
 } from './aiAssistantCommon';
 
 const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
 const MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
-
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${GEMINI_KEY}`;
 
 /**
  * Convert chat history into Gemini contents. Gemini requires alternating
@@ -47,9 +47,9 @@ const buildContents = (messages: ChatMessageLike[]): any[] => {
   return contents;
 };
 
-const runGemini = async (contents: any[], trip?: TripContext): Promise<NaviReply> => {
-  if (!GEMINI_KEY) {
-    throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY');
+const runGemini = async (contents: any[], key: string, trip?: TripContext): Promise<NaviReply> => {
+  if (!key) {
+    throw new Error('Missing Gemini API Key');
   }
 
   const body = {
@@ -63,10 +63,11 @@ const runGemini = async (contents: any[], trip?: TripContext): Promise<NaviReply
     },
   };
 
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
   let current = contents;
   const tools: ChatToolResult[] = [];
   for (let i = 0; i < 4; i++) {
-    const res = await fetch(API_URL, {
+    const res = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, contents: current }),
@@ -132,10 +133,28 @@ export async function generateReply(messages: ChatMessageLike[], trip?: TripCont
     );
   }
 
-  try {
-    return await runGemini(contents, trip);
-  } catch (err: any) {
-    console.warn('Gemini failed, falling back to Groq:', err?.message);
+  if (GEMINI_KEY) {
+    try {
+      return await runGemini(contents, GEMINI_KEY, trip);
+    } catch (err: any) {
+      console.warn('Primary Gemini failed, falling back to backup Gemini:', err?.message);
+    }
+  }
+
+  if (GEMINI_KEY_BACKUP) {
+    try {
+      return await runGemini(contents, GEMINI_KEY_BACKUP, trip);
+    } catch (err: any) {
+      console.warn('Backup Gemini failed, falling back to second backup:', err?.message);
+    }
+  }
+
+  if (GEMINI_KEY_BACKUP2) {
+    try {
+      return await runGemini(contents, GEMINI_KEY_BACKUP2, trip);
+    } catch (err: any) {
+      console.warn('Second Backup Gemini failed, falling back to Groq:', err?.message);
+    }
   }
 
   try {

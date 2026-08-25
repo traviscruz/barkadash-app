@@ -262,6 +262,7 @@ export class TripRecapService {
       let summaryNote: string | undefined;
       let coverPhotoUrl: string | undefined;
       let isPublic = false;
+      let visibility: RecapVisibility = 'private';
       try {
         const { data: recapSettings } = await supabase
           .from('trip_recaps')
@@ -273,6 +274,7 @@ export class TripRecapService {
           summaryNote = recapSettings.summary_notes;
           coverPhotoUrl = recapSettings.cover_photo_url;
           isPublic = recapSettings.is_public ?? false;
+          visibility = (recapSettings.visibility || (recapSettings.is_public ? 'public' : 'private')) as RecapVisibility;
         }
       } catch (e) {}
 
@@ -311,6 +313,7 @@ export class TripRecapService {
         summaryNote,
         coverPhotoUrl,
         isPublic,
+        visibility,
       };
     } catch (e) {
       console.warn('fetchTripRecap error:', e);

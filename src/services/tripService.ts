@@ -1907,8 +1907,8 @@ export class TripService {
       const pickWinner = (list: typeof options) => {
         if (!list || list.length === 0) return null;
         const withVotes = list.filter((o) => o.trip_poll_votes.length > 0);
-        if (withVotes.length === 0) return null; // no votes at all
-        return withVotes.slice().sort((a, b) => {
+        const candidates = withVotes.length > 0 ? withVotes : list;
+        return candidates.slice().sort((a, b) => {
           if (b.trip_poll_votes.length !== a.trip_poll_votes.length)
             return b.trip_poll_votes.length - a.trip_poll_votes.length;
           return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();

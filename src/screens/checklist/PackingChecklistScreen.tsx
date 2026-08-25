@@ -117,7 +117,31 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
   useEffect(() => {
     setLoading(true);
     loadData();
-  }, [loadData]);
+
+    const active = TripService.getInstance().getActiveTrip();
+    const targetTripId = propTripId || active?.id;
+    if (!targetTripId) return;
+
+    const channel = supabase
+      .channel(`screen_checklist:${targetTripId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_checklist_items',
+          filter: `trip_id=eq.${targetTripId}`,
+        },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadData, propTripId]);
 
   const handleRefresh = async () => {
     setRefreshing(true);

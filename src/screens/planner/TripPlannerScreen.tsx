@@ -736,7 +736,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
   const getDayDate = (offset: number): Date => {
     if (tripDates) {
-      return new Date(tripDates.start.getTime() + offset * 86400000);
+      const d = new Date(tripDates.start);
+      d.setDate(d.getDate() + offset);
+      return d;
     }
     const d = new Date();
     d.setDate(d.getDate() + offset);
@@ -1105,7 +1107,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             </View>
           )}
 
-          {!isTripEnded && (
+          {isLocked && !isTripEnded && (
             <View
               style={{
                 flexDirection: 'row',
@@ -1144,7 +1146,8 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           )}
 
           {/* ================= WHERE YOU'LL STAY ================= */}
-          <View style={{ marginTop: sp.lg, marginBottom: sp.lg }}>
+          {isLocked && (
+            <View style={{ marginTop: sp.lg, marginBottom: sp.lg }}>
             {/* Header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md, gap: 8 }}>
               {/* Left Title, Count & Collapse Toggle */}
@@ -1473,9 +1476,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
             )}
           </View>
+          )}
 
           {/* ================= ITINERARY ================= */}
-          {activeSubTab === 'Itinerary' && (
+          {isLocked && activeSubTab === 'Itinerary' && (
             <View>
               {/* Premium Segmented Day Selector */}
               <View style={{ 
@@ -1905,7 +1909,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           )}
 
           {/* ================= SPOTS ================= */}
-          {activeSubTab === 'Spots' && (
+          {isLocked && activeSubTab === 'Spots' && (
             <View>
               {/* Soft Category Links — smart filters chosen from the destination */}
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: sp.xl }}>

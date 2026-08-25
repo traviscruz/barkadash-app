@@ -214,7 +214,9 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
 
   const getDayDate = (day: number): Date => {
     if (tripStartDate) {
-      return new Date(tripStartDate.getTime() + (day - 1) * 86400000);
+      const d = new Date(tripStartDate);
+      d.setDate(d.getDate() + (day - 1));
+      return d;
     }
     const d = new Date();
     d.setDate(d.getDate() + (day - 1));

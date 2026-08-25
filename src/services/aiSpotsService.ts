@@ -214,12 +214,14 @@ export async function saveAiSpots(tripId: string, category: string, spots: AiSpo
 // ---------------------------------------------------------------------------
 
 const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
 const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 
-const geminiJson = async (system: string, prompt: string): Promise<any> => {
-  if (!GEMINI_KEY) throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY');
-  const res = await fetch(GEMINI_URL, {
+const geminiJson = async (apiKey: string, system: string, prompt: string): Promise<any> => {
+  if (!apiKey) throw new Error('Missing Gemini API Key');
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const res = await fetch(geminiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -254,6 +256,32 @@ const geminiJson = async (system: string, prompt: string): Promise<any> => {
   }
 };
 
+const callGeminiJson = async (system: string, prompt: string): Promise<any> => {
+  if (GEMINI_KEY) {
+    try {
+      return await geminiJson(GEMINI_KEY, system, prompt);
+    } catch (err: any) {
+      console.warn('Primary Gemini failed for spots, trying backup:', err?.message);
+    }
+  }
+  if (GEMINI_KEY_BACKUP) {
+    try {
+      return await geminiJson(GEMINI_KEY_BACKUP, system, prompt);
+    } catch (err: any) {
+      console.warn('Backup Gemini failed for spots, trying second backup:', err?.message);
+    }
+  }
+  if (GEMINI_KEY_BACKUP2) {
+    try {
+      return await geminiJson(GEMINI_KEY_BACKUP2, system, prompt);
+    } catch (err: any) {
+      console.warn('Second Backup Gemini failed for spots:', err?.message);
+      throw err;
+    }
+  }
+  throw new Error('No Gemini keys configured');
+};
+
 const CURATE_SYSTEM = `You are Navi, a friendly Filipino trip navigator for a barkada (friend group) planning a trip.
 You pick real Google Places spots, give each a short, lively description written for a group trip, and a match score (0-100)
 for how well it fits a barkada. Keep descriptions to one or two punchy sentences. Never invent facts — only use the provided data.`;
@@ -277,7 +305,7 @@ export async function generateAiSpots(
     //    category at the destination (e.g. "seafood restaurant", "sunset bar").
     let queries: string[] = [];
     try {
-      const q = await geminiJson(
+      const q = await callGeminiJson(
         'You propose Google Places text-search queries for finding spots. Reply with strict JSON: {"queries":["...","...","..."]} with 4 queries.',
         `Trip destination: ${destination}. Category: ${label} (${baseQuery}).\nPropose 4 specific, varied Google Places text-search queries that would surface the best real spots for this category here. They should be specific (e.g. "seafood restaurant", "sunset beach bar"), not generic.`
       );
@@ -321,7 +349,7 @@ export async function generateAiSpots(
         reviews: p.userRatingsTotal,
         priceLevel: p.priceLevel,
       }));
-      const s = await geminiJson(
+      const s = await callGeminiJson(
         CURATE_SYSTEM,
         `Trip destination: ${destination}. Category: ${label}.\nHere are real Google Places candidates:\n${JSON.stringify(payload)}\n\nReply with strict JSON:\n{"spots":[{"i":0,"description":"...","matchScore":92,"featured":false}, ...]}\n- "description" is a 1-2 sentence lively blurb for a barkada group.\n- "matchScore" 0-100.\n- Set "featured":true on exactly ONE best overall pick.\n- Use the "i" field to reference candidates; include every candidate.`
       );

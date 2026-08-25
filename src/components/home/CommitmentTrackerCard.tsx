@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { Trip, MemberCommitment, getCommitmentTier } from '../../types/trip';
 import { TripService } from '../../services/tripService';
+import { supabase } from '../../utils/supabase';
 import { ChevronRight, Users, CheckCircle2 } from 'lucide-react-native';
 
 interface CommitmentTrackerCardProps {
@@ -43,14 +44,38 @@ export const CommitmentTrackerCard: React.FC<CommitmentTrackerCardProps> = ({
   const [commitments, setCommitments] = useState<MemberCommitment[]>([]);
   const pressScale = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    if (trip?.id) {
-      TripService.getInstance()
-        .fetchTripCommitmentsDB(trip.id)
-        .then((res) => setCommitments(res))
-        .catch(() => {});
-    }
+  const loadCommitments = useCallback(async () => {
+    if (!trip?.id) return;
+    try {
+      const res = await TripService.getInstance().fetchTripCommitmentsDB(trip.id);
+      setCommitments(res);
+    } catch (e) {}
   }, [trip?.id]);
+
+  useEffect(() => {
+    loadCommitments();
+
+    if (!trip?.id) return;
+    const channel = supabase
+      .channel(`card_commitments:${trip.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_participants',
+          filter: `trip_id=eq.${trip.id}`,
+        },
+        () => {
+          loadCommitments();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [trip?.id, loadCommitments]);
 
   if (!trip) return null;
 

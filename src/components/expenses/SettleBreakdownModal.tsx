@@ -20,7 +20,7 @@ import { PaymentMethod, POPULAR_PROVIDERS } from '../../types/paymentMethod';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ReceiptPhotoCarousel } from './ReceiptPhotoCarousel';
 import { QrPhotoOverlay } from './QrPhotoOverlay';
-import { MemberPaymentMethodsModal } from './MemberPaymentMethodsModal';
+
 import { ExpenseService } from '../../services/expenseService';
 import { PaymentMethodService } from '../../services/paymentMethodService';
 import { useTheme } from '../../context/ThemeContext';
@@ -102,7 +102,7 @@ export const SettleBreakdownModal: React.FC<SettleBreakdownModalProps> = ({
   const [selectedSettlement, setSelectedSettlement] = useState<ExpenseSettlement | null>(null);
   const [carouselVisible, setCarouselVisible] = useState(false);
   const [sheetHeight, setSheetHeight] = useState(0);
-  const [memberPaymentModalVisible, setMemberPaymentModalVisible] = useState(false);
+
 
   // In-modal Member Payment View state
   const [isViewingMemberPayment, setIsViewingMemberPayment] = useState(false);
@@ -690,35 +690,7 @@ export const SettleBreakdownModal: React.FC<SettleBreakdownModalProps> = ({
                   </View>
                 </View>
 
-                {/* View Payee's Bank / QR Info Card */}
-                <TouchableOpacity
-                  onPress={() => setMemberPaymentModalVisible(true)}
-                  activeOpacity={0.8}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    backgroundColor: isDark ? 'rgba(13,148,136,0.12)' : '#F0FDFA',
-                    borderWidth: 1,
-                    borderColor: colors.tealDark,
-                    borderRadius: 14,
-                    padding: sp.sm + 2,
-                    marginBottom: sp.md,
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 6 }}>
-                    <QrCode size={18} color={colors.tealDark} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: fs.xs, fontWeight: '900', color: colors.tealDark }}>
-                        View {effectivePayeeName}'s E-Wallet & Bank Info
-                      </Text>
-                      <Text style={{ fontSize: 11, color: colors.inkSoft }}>
-                        GCash, Maya, Bank numbers & QR codes
-                      </Text>
-                    </View>
-                  </View>
-                  <ChevronRight size={16} color={colors.tealDark} />
-                </TouchableOpacity>
+
 
                 {/* Items Covered */}
                 {selectedSettlement.items && selectedSettlement.items.length > 0 && (
@@ -1263,35 +1235,7 @@ export const SettleBreakdownModal: React.FC<SettleBreakdownModalProps> = ({
                 </View>
               </View>
 
-              {/* View Payee's Bank / QR Info Card in View 3 */}
-              <TouchableOpacity
-                onPress={() => setMemberPaymentModalVisible(true)}
-                activeOpacity={0.8}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  backgroundColor: isDark ? 'rgba(13,148,136,0.12)' : '#F0FDFA',
-                  borderWidth: 1,
-                  borderColor: colors.tealDark,
-                  borderRadius: 14,
-                  padding: sp.sm + 2,
-                  marginBottom: sp.md,
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 6 }}>
-                  <QrCode size={18} color={colors.tealDark} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: fs.xs, fontWeight: '900', color: colors.tealDark }}>
-                      View {effectivePayeeName}'s E-Wallet & Bank Info
-                    </Text>
-                    <Text style={{ fontSize: 11, color: colors.inkSoft }}>
-                      GCash, Maya, Bank numbers & QR codes
-                    </Text>
-                  </View>
-                </View>
-                <ChevronRight size={16} color={colors.tealDark} />
-              </TouchableOpacity>
+
 
               {/* Selected Items List */}
               <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.inkSoft, textTransform: 'uppercase', marginBottom: sp.xs, letterSpacing: 0.5 }}>
@@ -2110,15 +2054,7 @@ export const SettleBreakdownModal: React.FC<SettleBreakdownModalProps> = ({
         />
       )}
 
-      {/* Member Payment & Bank Details Modal */}
-      {settleUpItem && (
-        <MemberPaymentMethodsModal
-          visible={memberPaymentModalVisible}
-          onClose={() => setMemberPaymentModalVisible(false)}
-          memberId={settleUpItem.toUserId || effectivePayeeId || ''}
-          memberName={settleUpItem.toUser || effectivePayeeName}
-        />
-      )}
+
     </>
   );
 };

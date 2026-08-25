@@ -2,6 +2,8 @@
 // Groq (JSON mode) if Gemini is unavailable, so callers always get structured
 // data instead of a raw chat string.
 const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
 const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
 const GROQ_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
 // Groq rotates/retires models — try the configured one first, then known-good
@@ -14,7 +16,6 @@ const GROQ_MODELS = [
   'qwen/qwen3.6-27b',
 ];
 
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 /** Strip markdown fences and pull the first balanced {...} block out of text. */
@@ -35,9 +36,10 @@ export function extractJson<T = any>(text: string): T | null {
   }
 }
 
-async function runGeminiJson(system: string, user: string, maxTokens = 2048): Promise<any> {
-  if (!GEMINI_KEY) throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY');
-  const res = await fetch(GEMINI_URL, {
+async function runGeminiJson(apiKey: string, system: string, user: string, maxTokens = 2048): Promise<any> {
+  if (!apiKey) throw new Error('Missing Gemini API Key');
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const res = await fetch(geminiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -130,11 +132,31 @@ export async function requestJson<T = any>(
   system: string,
   user: string
 ): Promise<StructuredAiResult<T> | null> {
-  try {
-    const data = await runGeminiJson(system, user);
-    if (data) return { data, source: 'gemini' };
-  } catch (err: any) {
-    console.warn('Gemini JSON failed, falling back to Groq:', err?.message);
+  if (GEMINI_KEY) {
+    try {
+      const data = await runGeminiJson(GEMINI_KEY, system, user);
+      if (data) return { data, source: 'gemini' };
+    } catch (err: any) {
+      console.warn('Primary Gemini JSON failed, falling back to backup Gemini:', err?.message);
+    }
+  }
+
+  if (GEMINI_KEY_BACKUP) {
+    try {
+      const data = await runGeminiJson(GEMINI_KEY_BACKUP, system, user);
+      if (data) return { data, source: 'gemini' };
+    } catch (err: any) {
+      console.warn('Backup Gemini JSON failed, falling back to second backup:', err?.message);
+    }
+  }
+
+  if (GEMINI_KEY_BACKUP2) {
+    try {
+      const data = await runGeminiJson(GEMINI_KEY_BACKUP2, system, user);
+      if (data) return { data, source: 'gemini' };
+    } catch (err: any) {
+      console.warn('Second Backup Gemini JSON failed, falling back to Groq:', err?.message);
+    }
   }
 
   try {
@@ -159,7 +181,7 @@ export async function requestJsonRace<T = any>(
 ): Promise<StructuredAiResult<T> | null> {
   const maxTokens = opts?.maxTokens ?? 2048;
 
-  if (!GEMINI_KEY && !GROQ_KEY) return null;
+  if (!GEMINI_KEY && !GEMINI_KEY_BACKUP && !GROQ_KEY) return null;
 
   const run = async (fn: () => Promise<any>, source: StructuredAiSource): Promise<StructuredAiResult<T> | null> => {
     try {
@@ -171,32 +193,28 @@ export async function requestJsonRace<T = any>(
     return null;
   };
 
-  if (!GEMINI_KEY) {
-    try {
-      const data = await runGroqJson(system, user, maxTokens);
-      return data ? { data, source: 'groq' } : null;
-    } catch (err: any) {
-      console.warn('Groq JSON failed:', err?.message);
-      return null;
-    }
+  const promises: Promise<StructuredAiResult<T> | null>[] = [];
+
+  if (GEMINI_KEY) {
+    promises.push(run(() => runGeminiJson(GEMINI_KEY, system, user, maxTokens), 'gemini'));
+  }
+  if (GEMINI_KEY_BACKUP) {
+    promises.push(run(() => runGeminiJson(GEMINI_KEY_BACKUP, system, user, maxTokens), 'gemini'));
+  }
+  if (GEMINI_KEY_BACKUP2) {
+    promises.push(run(() => runGeminiJson(GEMINI_KEY_BACKUP2, system, user, maxTokens), 'gemini'));
+  }
+  if (GROQ_KEY) {
+    promises.push(run(() => runGroqJson(system, user, maxTokens), 'groq'));
   }
 
-  if (!GROQ_KEY) {
-    try {
-      const data = await runGeminiJson(system, user, maxTokens);
-      return data ? { data, source: 'gemini' } : null;
-    } catch (err: any) {
-      console.warn('Gemini JSON failed:', err?.message);
-      return null;
-    }
+  if (promises.length === 1) {
+    return promises[0];
   }
-
-  const gemini = run(() => runGeminiJson(system, user, maxTokens), 'gemini');
-  const groq = run(() => runGroqJson(system, user, maxTokens), 'groq');
 
   return new Promise((resolve) => {
     let settled = false;
-    let remaining = 2;
+    let remaining = promises.length;
 
     const settle = (res: StructuredAiResult<T> | null) => {
       if (settled) return;
@@ -209,7 +227,8 @@ export async function requestJsonRace<T = any>(
       if (remaining === 0) resolve(null);
     };
 
-    gemini.then(settle, () => settle(null));
-    groq.then(settle, () => settle(null));
+    for (const p of promises) {
+      p.then(settle, () => settle(null));
+    }
   });
 }

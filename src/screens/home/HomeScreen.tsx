@@ -66,6 +66,8 @@ interface HomeScreenProps {
   onLogout?: () => void;
   onOpenCabinet?: () => void;
   onSelectPost?: (post: TripRecapPost) => void;
+  activeSubScreen?: string | null;
+  currentTab?: number;
 }
 
 /** "8:00 AM" / "14:30" → minutes since midnight (used to pick the next-up item). */
@@ -124,6 +126,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onLogout,
   onOpenCabinet,
   onSelectPost,
+  activeSubScreen,
+  currentTab,
 }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
@@ -513,6 +517,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Commitment Tracker Widget (visible if trip has not yet started) */}
             {!tripHappening && (
               <CommitmentTrackerCard
+                key={`commitment_${currentTab}_${activeSubScreen === 'commitment' ? 'inactive' : 'active'}`}
                 trip={activeTrip}
                 onPress={() => onNavigateToSubScreen?.('commitment')}
               />
@@ -520,6 +525,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
             {/* Packing Checklist Widget (visible always when trip exists) */}
             <PackingChecklistCard
+              key={`checklist_${currentTab}_${activeSubScreen === 'checklist' ? 'inactive' : 'active'}`}
               trip={activeTrip}
               onPress={() => onNavigateToSubScreen?.('checklist')}
             />

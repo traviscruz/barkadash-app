@@ -20,6 +20,8 @@ export interface ReceiptScanResult {
 
 // Configured AI / Free OCR Keys
 const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
 const GEMINI_MODELS = [
   process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-2.5-flash',
   'gemini-2.5-flash',
@@ -211,54 +213,8 @@ async function scanWithOcrSpace(imageBase64: string): Promise<ReceiptScanResult 
     if (!parsedText || parsedText.trim().length === 0) return null;
 
     // Fast AI structuring of the OCR text if Groq/Gemini key exists
-    if (GROQ_KEY) {
-      try {
-        const aiRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${GROQ_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
-            messages: [
-              {
-                role: 'user',
-                content: `You are a receipt text parser. Given this OCR text from a receipt, extract details in JSON format:
-{
-  "merchantName": "Store/vendor name or null",
-  "total": 0.00 (grand total amount as number or null),
-  "date": "YYYY-MM-DD or null",
-  "tax": 0.00 (or null),
-  "category": "Food" | "Stay" | "Activities" | "Groceries" | "Transport" | "General",
-  "note": "Short 1-sentence note of items bought",
-  "items": [{"name": "Item", "quantity": 1, "price": 0.00}]
-}
-
-OCR Text:
-"""
-${parsedText.slice(0, 3000)}
-"""
-
-Return only valid JSON.`,
-              },
-            ],
-            temperature: 0.1,
-            response_format: { type: 'json_object' },
-          }),
-        });
-
-        if (aiRes.ok) {
-          const aiJson = await aiRes.json();
-          const parsed = parseReceiptJson(aiJson?.choices?.[0]?.message?.content?.trim() || '');
-          if (parsed && (parsed.total || parsed.merchantName)) {
-            return parsed;
-          }
-        }
-      } catch (aiErr) {
-        console.warn('OCR.Space fast text structuring exception:', aiErr);
-      }
-    }
+    const structured = await structureOcrText(parsedText);
+    if (structured) return structured;
 
     // Heuristic Regex Fallback for pure OCR text
     const lines = parsedText.split('\n').map((l: string) => l.trim()).filter(Boolean);
@@ -283,14 +239,127 @@ Return only valid JSON.`,
 }
 
 /**
+ * Helper to structure OCR parsed text using Groq or Gemini
+ */
+async function structureOcrText(parsedText: string): Promise<ReceiptScanResult | null> {
+  // 1. Try Groq first
+  if (GROQ_KEY) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${GROQ_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-8b-instant',
+          messages: [
+            {
+              role: 'user',
+              content: `You are a receipt text parser. Given this OCR text from a receipt, extract details in JSON format:
+{
+  "merchantName": "Store/vendor name or null",
+  "total": 0.00 (grand total amount as number or null),
+  "date": "YYYY-MM-DD or null",
+  "tax": 0.00 (or null),
+  "category": "Food" | "Stay" | "Activities" | "Groceries" | "Transport" | "General",
+  "note": "Short 1-sentence note of items bought",
+  "items": [{"name": "Item", "quantity": 1, "price": 0.00}]
+}
+
+OCR Text:
+"""
+${parsedText.slice(0, 3000)}
+"""
+
+Return only valid JSON.`,
+            },
+          ],
+          temperature: 0.1,
+          response_format: { type: 'json_object' },
+        }),
+      });
+
+      if (response.ok) {
+        const aiJson = await response.json();
+        const parsed = parseReceiptJson(aiJson?.choices?.[0]?.message?.content?.trim() || '');
+        if (parsed && (parsed.total || parsed.merchantName)) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn('Groq OCR text structuring failed, trying Gemini:', err);
+    }
+  }
+
+  // 2. Try Gemini (Primary then Backup)
+  const geminiKeys = [GEMINI_KEY, GEMINI_KEY_BACKUP, GEMINI_KEY_BACKUP2].filter(Boolean);
+  const geminiModel = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
+  for (const key of geminiKeys) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${key}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `You are a receipt text parser. Given this OCR text from a receipt, extract details in JSON format:
+{
+  "merchantName": "Store/vendor name or null",
+  "total": 0.00 (grand total amount as number or null),
+  "date": "YYYY-MM-DD or null",
+  "tax": 0.00 (or null),
+  "category": "Food" | "Stay" | "Activities" | "Groceries" | "Transport" | "General",
+  "note": "Short 1-sentence note of items bought",
+  "items": [{"name": "Item", "quantity": 1, "price": 0.00}]
+}
+
+OCR Text:
+"""
+${parsedText.slice(0, 3000)}
+"""
+
+Return only valid JSON.`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        const text = json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+        const parsed = parseReceiptJson(text);
+        if (parsed && (parsed.total || parsed.merchantName)) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn(`Gemini OCR text structuring failed with key ending in ...${key.slice(-5)}:`, err);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Tier 3: Google Gemini Multimodal Vision API
  */
-async function scanWithGeminiVision(imageBase64: string, mimeType = 'image/jpeg'): Promise<ReceiptScanResult | null> {
-  if (!GEMINI_KEY) return null;
+async function scanWithGeminiVision(apiKey: string, imageBase64: string, mimeType = 'image/jpeg'): Promise<ReceiptScanResult | null> {
+  if (!apiKey) return null;
 
   for (const model of GEMINI_MODELS) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -462,10 +531,24 @@ export const scanReceiptImage = async (uri: string): Promise<ReceiptScanResult> 
     }
   }
 
-  // 2. Google Gemini Vision OCR
-  const geminiResult = await scanWithGeminiVision(imageBase64, 'image/jpeg');
-  if (geminiResult && (geminiResult.total || geminiResult.merchantName)) {
-    return geminiResult;
+  // 2. Google Gemini Vision OCR (Primary then Backup)
+  if (GEMINI_KEY) {
+    const geminiResult = await scanWithGeminiVision(GEMINI_KEY, imageBase64, 'image/jpeg');
+    if (geminiResult && (geminiResult.total || geminiResult.merchantName)) {
+      return geminiResult;
+    }
+  }
+  if (GEMINI_KEY_BACKUP) {
+    const geminiResult = await scanWithGeminiVision(GEMINI_KEY_BACKUP, imageBase64, 'image/jpeg');
+    if (geminiResult && (geminiResult.total || geminiResult.merchantName)) {
+      return geminiResult;
+    }
+  }
+  if (GEMINI_KEY_BACKUP2) {
+    const geminiResult = await scanWithGeminiVision(GEMINI_KEY_BACKUP2, imageBase64, 'image/jpeg');
+    if (geminiResult && (geminiResult.total || geminiResult.merchantName)) {
+      return geminiResult;
+    }
   }
 
   // 3. Groq Vision OCR (Llama 3.2 Vision)

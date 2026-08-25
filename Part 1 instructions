@@ -1,0 +1,56 @@
+☑  Project Title and Description – provide this Project Title
+Barkadash – A Collaborative Trip Planning Application give the description based on the app
+
+☑  Project Objectives Defined – provide this
+☑  Scope and Limitations Identified – rely on this Scope and Limitations Identified
+Scope
+Authentication and Profiles
+•	Email/OTP registration and login without direct magic links.
+•	Password recovery through OTP verification.
+•	User profile editing.
+•	Light and dark theme toggle.
+Social Connections
+•	Friend search.
+•	Follow and unfollow functionality.
+•	Notifications for social activities.
+Trip Host and Member Management
+•	Host-controlled trip creation.
+•	Trip invitations through 6-digit short codes.
+•	Pending invitation banners.
+•	Member role and permission management.
+Collaborative Trip Planning
+•	Real-time destination polling.
+•	Trip locking and unlocking.
+•	Voting deadline management.
+•	Tabbed itinerary organization:
+o	Activities
+o	Stays
+o	Transpo
+•	Custom text-based itinerary notes.
+•	Google Places spot recommendations.
+Group Expense Ledger
+•	Categorized expense tracking.
+•	Multi-member expense splitting.
+•	Debt calculation and audit previews.
+Barkada Radar
+•	Live member location visibility.
+•	Trip-based location context.
+•	Real-time member markers on the map.
+AI Travel Assistant
+•	Dual-engine AI using Google Gemini with Groq as a fallback.
+•	Travel chatbot functionality.
+•	PHP currency conversion.
+•	Place photos.
+•	Google Maps links.
+•	Local spot caching through Supabase.
+Limitations
+•	Third-Party API Limits: AI recommendation throughput and Google Places image fetching are subject to external API rate limits, quotas, and service availability.
+•	Device GPS Dependency: Real-time Barkada Radar updates depend on active internet connectivity, user-granted location permissions, and device GPS availability.
+•	Trip Coordination Only: The application is intended for trip coordination purposes only and does not process actual bank transfers or payments.
+•	No Direct Booking or Navigation: The application does not provide real-time turn-by-turn navigation or handle actual flight and hotel bookings. It only provides travel suggestions and links to external booking platforms.
+•	Currency Conversion: Currency conversion figures are provided for reference purposes only and do not represent guaranteed exchange rates or actual currency exchange execution.
+•	Opt-In Location Tracking: Location tracking is opt-in, trip-scoped, and automatically disabled once a trip ends.
+
+☐  Updated System Flowchart (GIVE ME THE PROMPT TO TELL THE AI TO CREATE AN HTML AND CSS FLOWCHART FOR ME.
+☑  Database Design (ERD or Schema) – will do this
+☑  Project Progress Report (Current Accomplishments) – just list the features that is working on my app!

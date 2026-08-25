@@ -251,6 +251,8 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
         <View style={styles.mainTabsWrapper}>
           <View style={[styles.tabScreenContainer, { display: currentTab === 0 ? 'flex' : 'none' }]}>
             <HomeScreen
+              activeSubScreen={activeSubScreen}
+              currentTab={currentTab}
               onNavigateToTab={handleTabChange}
               onNavigateToSubScreen={(screen) => handleOpenSubScreen(screen)}
               onScrollDirection={handleScrollDirection}
