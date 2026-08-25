@@ -243,14 +243,6 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({
     }
   };
 
-  const handleGoogleSignup = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      if (onSignupSuccess) onSignupSuccess();
-    }, 900);
-  };
-
   const handleBack = () => {
     setErrorMessage(null);
     if (step > 1) {
@@ -402,22 +394,6 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({
                   style={[styles.mainBtn, { backgroundColor: colors.tealDark, marginTop: 28 }]}
                 >
                   <Text style={styles.mainBtnText}>Next Step</Text>
-                </TouchableOpacity>
-
-                <View style={styles.divider}>
-                  <View style={[styles.dividerLine, { backgroundColor: colors.cardBorder }]} />
-                  <Text style={[styles.dividerLabel, { color: colors.inkSoft }]}>or</Text>
-                  <View style={[styles.dividerLine, { backgroundColor: colors.cardBorder }]} />
-                </View>
-
-                {/* Google Sign-up Button */}
-                <TouchableOpacity
-                  onPress={handleGoogleSignup}
-                  activeOpacity={0.8}
-                  style={[styles.googleBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-                >
-                  <Text style={styles.googleIconText}>G</Text>
-                  <Text style={[styles.googleBtnText, { color: colors.ink }]}>Continue with Google</Text>
                 </TouchableOpacity>
               </View>
             ) : null}

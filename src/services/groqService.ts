@@ -7,6 +7,7 @@ import {
   TripContext,
   SEARCH_PLACES_DECL,
   GET_WEATHER_DECL,
+  SUGGEST_ITINERARY_DECL,
   buildSystemPrompt,
   executeTool,
   textReply,
@@ -25,7 +26,7 @@ const GROQ_MODELS = [
 
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-const OPENAI_TOOLS = [SEARCH_PLACES_DECL, GET_WEATHER_DECL].map((decl) => ({
+const OPENAI_TOOLS = [SEARCH_PLACES_DECL, GET_WEATHER_DECL, SUGGEST_ITINERARY_DECL].map((decl) => ({
   type: 'function',
   function: decl,
 }));
@@ -122,6 +123,8 @@ async function runGroqWithModel(
         if (name === 'get_weather' && result && !result.error) {
           tools.push({ type: 'weather', weather: result });
         } else if (name === 'search_places' && Array.isArray(result?.places)) {
+          tools.push({ type: 'places', places: result.places });
+        } else if (name === 'suggest_itinerary_items' && Array.isArray(result?.places)) {
           tools.push({ type: 'places', places: result.places });
         }
         current = [

@@ -8,6 +8,7 @@ import {
   TripContext,
   SEARCH_PLACES_DECL,
   GET_WEATHER_DECL,
+  SUGGEST_ITINERARY_DECL,
   buildSystemPrompt,
   executeTool,
   textReply,
@@ -54,7 +55,7 @@ const runGemini = async (contents: any[], trip?: TripContext): Promise<NaviReply
   const body = {
     contents,
     systemInstruction: { parts: [{ text: buildSystemPrompt(trip) }] },
-    tools: [{ functionDeclarations: [SEARCH_PLACES_DECL, GET_WEATHER_DECL] }],
+    tools: [{ functionDeclarations: [SEARCH_PLACES_DECL, GET_WEATHER_DECL, SUGGEST_ITINERARY_DECL] }],
     generationConfig: {
       temperature: 0.8,
       topP: 0.95,
@@ -91,6 +92,8 @@ const runGemini = async (contents: any[], trip?: TripContext): Promise<NaviReply
         if (name === 'get_weather' && result && !result.error) {
           tools.push({ type: 'weather', weather: result });
         } else if (name === 'search_places' && Array.isArray(result?.places)) {
+          tools.push({ type: 'places', places: result.places });
+        } else if (name === 'suggest_itinerary_items' && Array.isArray(result?.places)) {
           tools.push({ type: 'places', places: result.places });
         }
         responses.push({

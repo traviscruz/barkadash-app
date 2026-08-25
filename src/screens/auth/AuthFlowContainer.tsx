@@ -26,7 +26,7 @@ interface AuthFlowContainerProps {
 
 export const AuthFlowContainer: React.FC<AuthFlowContainerProps> = ({ onAuthenticated }) => {
   const { colors } = useTheme();
-  const [currentScreen, setCurrentScreen] = useState<AuthScreenType>('landing');
+  const [currentScreen, setCurrentScreen] = useState<AuthScreenType>('login');
   const [showNotification, setShowNotification] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;

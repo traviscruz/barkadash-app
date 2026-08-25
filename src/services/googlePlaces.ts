@@ -125,6 +125,8 @@ export interface NearbyPlace {
   userRatingsTotal: number | null;
   priceLevel: number | null;
   photoReference?: string;
+  suggestedDay?: number;
+  suggestedTime?: string;
 }
 
 export interface LatLng {

@@ -16,6 +16,7 @@ import {
   ThermometerSun,
   Check,
   X,
+  Clock,
 } from 'lucide-react-native';
 import { AiChatMessage } from '../../services/aiChatService';
 import { ChatToolResult, WeatherToolData, PlaceToolData } from '../../services/geminiService';
@@ -247,6 +248,14 @@ const PlaceCard: React.FC<{
 
         {/* Body */}
         <View style={{ padding: 12, gap: 5 }}>
+          {place.suggestedDay != null && place.suggestedTime ? (
+            <View style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: `${colors.tealDark}15`, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, marginBottom: 2 }}>
+              <Clock size={10} color={colors.tealDark} strokeWidth={2.5} />
+              <Text style={{ fontSize: 9.5, fontWeight: '900', color: colors.tealDark, letterSpacing: 0.3 }}>
+                DAY {place.suggestedDay} · {place.suggestedTime}
+              </Text>
+            </View>
+          ) : null}
           <Text numberOfLines={1} style={{ fontSize: 13.5, fontWeight: '800', color: colors.ink }}>
             {place.name}
           </Text>

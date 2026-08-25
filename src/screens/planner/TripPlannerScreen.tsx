@@ -296,7 +296,25 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     if (!silent) setItineraryLoading(true);
     const items = await TripService.getInstance().fetchTripItineraryDB(tripId, day);
     if (seq !== itineraryLoadSeq.current) return; // stale response — drop it
-    setItineraryItems(sortItineraryChronological(items));
+    setItineraryItems((currentItems) => {
+      const merged = (items || []).map((fetchedItem) => {
+        const hasPending = pendingReactionOps.current[fetchedItem.id] != null;
+        if (hasPending) {
+          const currentItem = currentItems.find((ci) => ci.id === fetchedItem.id);
+          if (currentItem) {
+            return {
+              ...fetchedItem,
+              reactions: currentItem.reactions,
+              myReaction: currentItem.myReaction,
+              likeCount: currentItem.likeCount,
+              dislikeCount: currentItem.dislikeCount,
+            };
+          }
+        }
+        return fetchedItem;
+      });
+      return sortItineraryChronological(merged);
+    });
     setItineraryLoading(false);
   }, []);
 
@@ -384,7 +402,25 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     if (!silent) setStaysLoading(true);
     const fetched = await TripService.getInstance().fetchTripStaysDB(tripId);
     if (seq !== stayLoadSeq.current) return; // stale response — drop it
-    setStays(fetched);
+    setStays((currentStays) => {
+      const merged = (fetched || []).map((fetchedStay) => {
+        const hasPending = pendingStayReactionOps.current[fetchedStay.id] != null;
+        if (hasPending) {
+          const currentStay = currentStays.find((cs) => cs.id === fetchedStay.id);
+          if (currentStay) {
+            return {
+              ...fetchedStay,
+              reactions: currentStay.reactions,
+              myReaction: currentStay.myReaction,
+              likeCount: currentStay.likeCount,
+              dislikeCount: currentStay.dislikeCount,
+            };
+          }
+        }
+        return fetchedStay;
+      });
+      return merged;
+    });
     if (fetched && fetched.length > 0) {
       setStaysCollapsed(true);
     }

@@ -14,7 +14,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Eye, EyeOff, Check, Database, AlertCircle } from 'lucide-react-native';
+import { Eye, EyeOff, Check } from 'lucide-react-native';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
@@ -40,13 +40,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const [dbStatus, setDbStatus] = useState<{
-    tested: boolean;
-    success: boolean;
-    message: string;
-  } | null>(null);
-  const [isTestingDb, setIsTestingDb] = useState(false);
 
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
@@ -86,35 +79,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       await AsyncStorage.setItem('@barkadash_logged_in', 'true');
     } catch (e) {
       console.warn('Error saving login state:', e);
-    }
-  };
-
-  const handleTestDatabase = async () => {
-    setIsTestingDb(true);
-    setDbStatus(null);
-    try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error) {
-        setDbStatus({
-          tested: true,
-          success: false,
-          message: `Database error: ${error.message}`,
-        });
-      } else {
-        setDbStatus({
-          tested: true,
-          success: true,
-          message: 'Supabase Database Connected Successfully!',
-        });
-      }
-    } catch (err: any) {
-      setDbStatus({
-        tested: true,
-        success: false,
-        message: `Connection failed: ${err.message || 'Network error'}`,
-      });
-    } finally {
-      setIsTestingDb(false);
     }
   };
 
@@ -166,15 +130,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    await saveLoginState(email.trim() || 'demo@barkadash.com');
-    setTimeout(() => {
-      setIsLoading(false);
-      if (onLoginSuccess) onLoginSuccess();
-    }, 900);
   };
 
   return (
@@ -295,7 +250,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               onPress={handleLogin}
               disabled={isLoading}
               activeOpacity={0.88}
-              style={[styles.mainBtn, { backgroundColor: colors.tealDark }]}
+              style={[styles.mainBtn, { backgroundColor: colors.tealDark, marginBottom: 20 }]}
             >
               {isLoading ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -303,63 +258,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <Text style={styles.mainBtnText}>Sign In</Text>
               )}
             </TouchableOpacity>
-
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View style={[styles.dividerLine, { backgroundColor: colors.cardBorder }]} />
-              <Text style={[styles.dividerLabel, { color: colors.inkSoft }]}>or</Text>
-              <View style={[styles.dividerLine, { backgroundColor: colors.cardBorder }]} />
-            </View>
-
-            {/* Continue with Google Button */}
-            <TouchableOpacity
-              onPress={handleGoogleLogin}
-              activeOpacity={0.8}
-              style={[styles.googleBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
-            >
-              <Text style={styles.googleIconText}>G</Text>
-              <Text style={[styles.googleBtnText, { color: colors.ink }]}>Continue with Google</Text>
-            </TouchableOpacity>
-
-            {/* Test Database Connection Section */}
-            <View style={styles.dbTestContainer}>
-              <TouchableOpacity
-                onPress={handleTestDatabase}
-                disabled={isTestingDb}
-                activeOpacity={0.8}
-                style={[styles.dbTestBtn, { backgroundColor: colors.subtleBg, borderColor: colors.cardBorder }]}
-              >
-                <Database size={16} color={colors.tealDark} />
-                {isTestingDb ? (
-                  <ActivityIndicator size="small" color={colors.tealDark} />
-                ) : (
-                  <Text style={[styles.dbTestBtnText, { color: colors.tealDark }]}>Test Database Connection</Text>
-                )}
-              </TouchableOpacity>
-
-              {dbStatus && (
-                <View
-                  style={[
-                    styles.dbStatusBox,
-                    dbStatus.success ? styles.dbStatusSuccess : styles.dbStatusError,
-                  ]}
-                >
-                  {dbStatus.success ? (
-                    <Check size={16} color="#059669" />
-                  ) : (
-                    <AlertCircle size={16} color="#DC2626" />
-                  )}
-                  <Text
-                    style={[
-                      styles.dbStatusText,
-                      dbStatus.success ? styles.dbStatusTextSuccess : styles.dbStatusTextError,
-                    ]}
-                  >
-                    {dbStatus.message}
-                  </Text>
-                </View>
-              )}
-            </View>
 
             {/* Footer Links */}
             <View style={styles.footer}>

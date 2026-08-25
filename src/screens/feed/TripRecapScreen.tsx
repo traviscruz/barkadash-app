@@ -103,7 +103,11 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
       setLoading(false);
       return;
     }
-    if (!silent) setLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setRecapData(null);
+      setSelectedDayFilterIndex(0);
+    }
     try {
       const data = await TripRecapService.getInstance().fetchTripRecap(targetId);
       setRecapData(data);
@@ -312,6 +316,8 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
           currentUserId={profile?.id}
           onClose={() => setTripSelectorVisible(false)}
           onSelectTrip={(id) => {
+            setRecapData(null);
+            setLoading(true);
             TripService.getInstance().setActiveTripId(id);
             setTripSelectorVisible(false);
           }}
@@ -321,14 +327,15 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
     );
   }
 
-  const dayInfo = getTripDayInfo(activeTrip.dateRange);
-  const isCompleted = activeTrip.status === 'Completed' || recapData?.isCompleted;
-  const isHappeningNow = isWithinTripDates(activeTrip.dateRange) || recapData?.isHappeningNow;
-  const isAfterTrip = !!dayInfo?.isEnded || recapData?.isAfterTrip;
+  const hasMatchingRecap = recapData && activeTrip?.id && recapData.tripId === activeTrip.id;
+  const dayInfo = activeTrip?.dateRange ? getTripDayInfo(activeTrip.dateRange) : null;
+  const isCompleted = activeTrip.status === 'Completed' || (hasMatchingRecap && Boolean(recapData?.isCompleted));
+  const isHappeningNow = Boolean(isWithinTripDates(activeTrip.dateRange)) || (hasMatchingRecap && Boolean(recapData?.isHappeningNow));
+  const isAfterTrip = Boolean(dayInfo?.isEnded) || (hasMatchingRecap && Boolean(recapData?.isAfterTrip));
   const isUnlocked = isCompleted || isHappeningNow || isAfterTrip;
 
   // Itinerary items & strikethrough completed counts
-  const placesVisited = recapData?.placesVisited || [];
+  const placesVisited = hasMatchingRecap ? (recapData?.placesVisited || []) : [];
   const completedSpotsCount = placesVisited.filter((p) => p.isCompleted).length;
   const totalSpotsCount = placesVisited.length;
 
@@ -344,8 +351,8 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
   // Collect all photos from recapData and individual memories
   const allReelPhotos = Array.from(
     new Set([
-      ...(recapData?.photos || []),
-      ...(recapData?.memories?.flatMap((m) => m.photos || (m.photoUrl ? [m.photoUrl] : [])) || []),
+      ...(hasMatchingRecap ? (recapData?.photos || []) : []),
+      ...(hasMatchingRecap ? (recapData?.memories?.flatMap((m) => m.photos || (m.photoUrl ? [m.photoUrl] : [])) || []) : []),
     ])
   );
 
@@ -455,7 +462,7 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
             borderRadius: 24,
             paddingHorizontal: 20,
             paddingVertical: 20,
-            marginBottom: sp.lg,
+            marginBottom: 12,
             position: 'relative',
             overflow: 'hidden',
             borderWidth: 1,
@@ -616,13 +623,13 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
         </View>
 
         {/* ================= HOST SHARE / POST TRIP TO FEED CARD ================= */}
-        {activeTrip.hostId === profile?.id && (
+        {isUnlocked && activeTrip.hostId === profile?.id && (
           <TouchableOpacity
             onPress={() => setPublishModalVisible(true)}
             activeOpacity={0.85}
             style={{
-              marginTop: 20,
-              marginBottom: 20,
+              marginTop: 0,
+              marginBottom: 14,
               backgroundColor: isDark ? 'rgba(59,122,158,0.16)' : '#E0F2FE',
               borderColor: isDark ? 'rgba(59,122,158,0.35)' : '#BAE6FD',
               borderWidth: 1,
@@ -689,7 +696,8 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
               borderColor: colors.cardBorder,
               padding: 24,
               alignItems: 'center',
-              marginTop: 4,
+              marginTop: 0,
+              marginBottom: 16,
             }}
           >
             <View

@@ -112,7 +112,23 @@ export interface ItineraryPlacePrefill {
   name: string;
   address?: string;
   photoReference?: string;
+  suggestedDay?: number;
+  suggestedTime?: string;
 }
+
+export const parseTimeStr = (t?: string): Date | null => {
+  if (!t) return null;
+  const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = (m[3] || '').toUpperCase();
+  if (ap === 'PM' && h < 12) h += 12;
+  if (ap === 'AM' && h === 12) h = 0;
+  const d = new Date();
+  d.setHours(h, min, 0, 0);
+  return d;
+};
 
 interface ItineraryAddModalProps {
   visible: boolean;
@@ -237,7 +253,16 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
         }
       } else {
         setTitle(initialPlace?.name || '');
-        setTimeDate(null);
+        if (initialPlace?.suggestedTime) {
+          setTimeDate(parseTimeStr(initialPlace.suggestedTime));
+        } else {
+          setTimeDate(null);
+        }
+        if (initialPlace?.suggestedDay) {
+          setSelectedDay(initialPlace.suggestedDay);
+        } else {
+          setSelectedDay(dayNumber);
+        }
         setTag('ACTIVITY');
         setNote('');
         setEstCost('');
@@ -276,20 +301,6 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
 
   const fmtTime = (d: Date) =>
     d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-
-  const parseTimeStr = (t?: string): Date | null => {
-    if (!t) return null;
-    const m = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-    if (!m) return null;
-    let h = parseInt(m[1], 10);
-    const min = parseInt(m[2], 10);
-    const ap = (m[3] || '').toUpperCase();
-    if (ap === 'PM' && h < 12) h += 12;
-    if (ap === 'AM' && h === 12) h = 0;
-    const d = new Date();
-    d.setHours(h, min, 0, 0);
-    return d;
-  };
 
   // "8:00 AM" -> minutes since midnight, for conflict checking.
   const timeToMinutes = (t?: string): number | null => {

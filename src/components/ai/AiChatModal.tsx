@@ -589,6 +589,8 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
                   name: acceptingPlace.name,
                   address: acceptingPlace.address || undefined,
                   photoReference: acceptingPlace.photoReference,
+                  suggestedDay: acceptingPlace.suggestedDay,
+                  suggestedTime: acceptingPlace.suggestedTime,
                 }
               : null
           }

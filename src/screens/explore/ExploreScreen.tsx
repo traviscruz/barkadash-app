@@ -15,17 +15,14 @@ import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { FareTab } from './FareTab';
 import { StaycationTab } from './StaycationTab';
 import { FlightTab } from './FlightTab';
-import { TripFeedScreen } from '../feed/TripFeedScreen';
-import { Compass } from 'lucide-react-native';
 import { TripRecapPost } from '../../types/tripRecap';
 
-type ExploreTabKey = 'fare' | 'staycation' | 'flights' | 'recaps';
+type ExploreTabKey = 'fare' | 'staycation' | 'flights';
 
 const EXPLORE_TABS: { key: ExploreTabKey; label: string; icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }> }[] = [
   { key: 'fare', label: 'Fare', icon: Ticket },
   { key: 'staycation', label: 'Staycation', icon: BedDouble },
   { key: 'flights', label: 'Flights', icon: Plane },
-  { key: 'recaps', label: 'Trips', icon: Compass },
 ];
 
 interface ExploreScreenProps {
@@ -45,15 +42,13 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
 
   const activeLayout = tabLayouts[activeTab];
 
-  // Blue for fares, green for staycations, violet for flights, teal for public trips.
+  // Blue for fares, green for staycations, violet for flights.
   const accentFor = (key: ExploreTabKey): string =>
     key === 'fare'
       ? (isDark ? '#38BDF8' : '#4F86C6')
       : key === 'staycation'
         ? (isDark ? '#34D399' : '#2A8563')
-        : key === 'flights'
-          ? (isDark ? '#A78BFA' : '#7C3AED')
-          : (isDark ? '#38BDF8' : '#3B7A9E');
+        : (isDark ? '#A78BFA' : '#7C3AED');
 
   const activeAccent = accentFor(activeTab);
 
@@ -106,7 +101,7 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
           Explore
         </Text>
         <Text style={{ fontSize: 12.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, marginBottom: sp.md, lineHeight: 18 }}>
-          Browse fares and staycation spots for your next barkada trip.
+          Browse fares, staycations, and flights for your next barkada trip.
         </Text>
 
         {/* Segmented pill tabs */}
@@ -163,10 +158,8 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
         <FareTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
       ) : activeTab === 'staycation' ? (
         <StaycationTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
-      ) : activeTab === 'flights' ? (
-        <FlightTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
       ) : (
-        <TripFeedScreen embedded onScrollDirection={onScrollDirection} onSelectPost={onSelectPost} />
+        <FlightTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
       )}
     </SafeAreaView>
   );
