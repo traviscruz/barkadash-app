@@ -93,6 +93,8 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
     ]).start(() => setToastMessage(null));
   };
 
+  const isTripEnded = trip ? TripService.getInstance().isTripEnded(trip) : false;
+
   const loadData = useCallback(async () => {
     const active = TripService.getInstance().getActiveTrip();
     const targetTripId = propTripId || active?.id;
@@ -125,6 +127,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
   // Toggle item completed status
   const handleToggleItem = async (item: ChecklistItem) => {
+    if (isTripEnded) return;
     const nextVal = !item.isCompleted;
     // Instant optimistic update
     setItems((prev) =>
@@ -144,18 +147,21 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
   // Delete item
   const handleDeleteItem = async (itemId: string) => {
+    if (isTripEnded) return;
     setItems((prev) => prev.filter((i) => i.id !== itemId));
     await ChecklistService.getInstance().deleteChecklistItemDB(itemId);
   };
 
   // Start inline rename on word tap
   const handleStartRename = (item: ChecklistItem) => {
+    if (isTripEnded) return;
     setEditingItemId(item.id);
     setEditingTitle(item.title);
   };
 
   // Save renamed item
   const handleSaveRename = async (itemId: string) => {
+    if (isTripEnded) return;
     const trimmed = editingTitle.trim();
     setEditingItemId(null);
     if (!trimmed) return;
@@ -280,7 +286,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
   // Auto-tag / Categorize existing items
   const handleAutoTagCategories = async () => {
-    if (items.length === 0) return;
+    if (isTripEnded || items.length === 0) return;
     setIsAutoTagging(true);
 
     const updatedItems = items.map((i) => ({
@@ -312,6 +318,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
    * Also supports pasting multi-line items.
    */
   const handleReturnPress = async () => {
+    if (isTripEnded) return;
     const rawText = inputText.trim();
     if (!rawText || !profile?.id) return;
     const targetTripId = propTripId || trip?.id;
@@ -403,6 +410,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
   // Pre-fill / Auto-Generate Trigger
   const handleRunGenerator = async (vibeOverride?: string) => {
+    if (isTripEnded) return;
     const targetTripId = propTripId || trip?.id;
     if (!targetTripId) return;
 
@@ -424,6 +432,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
   };
 
   const handleOpenAutoFill = () => {
+    if (isTripEnded) return;
     setIsAutoModalOpen(true);
     if (previewItems.length === 0) {
       handleRunGenerator();
@@ -431,7 +440,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
   };
 
   const handleImportItems = async () => {
-    if (previewItems.length === 0 || !profile?.id) return;
+    if (isTripEnded || previewItems.length === 0 || !profile?.id) return;
     const targetTripId = propTripId || trip?.id;
     if (!targetTripId) return;
 
@@ -598,44 +607,53 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
               </View>
 
               {/* Action Toolbar: Single Auto-Generate Button + Auto-Tag Categories Button */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                {/* Single Auto-Generate Button Above List */}
-                <TouchableOpacity
-                  onPress={handleOpenAutoFill}
-                  activeOpacity={0.8}
-                  style={[
-                    styles.primaryActionBtn,
-                    { backgroundColor: colors.tealDark },
-                  ]}
-                >
-                  <Layers size={14} color="#FFFFFF" strokeWidth={2.2} />
-                  <Text style={styles.primaryActionBtnText}>Auto-Generate List</Text>
-                </TouchableOpacity>
+              {!isTripEnded ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  {/* Single Auto-Generate Button Above List */}
+                  <TouchableOpacity
+                    onPress={handleOpenAutoFill}
+                    activeOpacity={0.8}
+                    style={[
+                      styles.primaryActionBtn,
+                      { backgroundColor: colors.tealDark },
+                    ]}
+                  >
+                    <Layers size={14} color="#FFFFFF" strokeWidth={2.2} />
+                    <Text style={styles.primaryActionBtnText}>Auto-Generate List</Text>
+                  </TouchableOpacity>
 
-                {/* Auto-Tag Categories Button */}
-                <TouchableOpacity
-                  onPress={handleAutoTagCategories}
-                  disabled={isAutoTagging || items.length === 0}
-                  activeOpacity={0.75}
-                  style={[
-                    styles.secondaryActionBtn,
-                    {
-                      backgroundColor: colors.card,
-                      borderColor: colors.cardBorder,
-                      opacity: items.length > 0 ? 1 : 0.5,
-                    },
-                  ]}
-                >
-                  {isAutoTagging ? (
-                    <ActivityIndicator size="small" color={colors.tealDark} />
-                  ) : (
-                    <>
-                      <Tag size={13} color={colors.tealDark} strokeWidth={2.2} />
-                      <Text style={[styles.secondaryActionBtnText, { color: colors.tealDark }]}>Auto-Tag</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
+                  {/* Auto-Tag Categories Button */}
+                  <TouchableOpacity
+                    onPress={handleAutoTagCategories}
+                    disabled={isAutoTagging || items.length === 0}
+                    activeOpacity={0.75}
+                    style={[
+                      styles.secondaryActionBtn,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.cardBorder,
+                        opacity: items.length > 0 ? 1 : 0.5,
+                      },
+                    ]}
+                  >
+                    {isAutoTagging ? (
+                      <ActivityIndicator size="small" color={colors.tealDark} />
+                    ) : (
+                      <>
+                        <Tag size={13} color={colors.tealDark} strokeWidth={2.2} />
+                        <Text style={[styles.secondaryActionBtnText, { color: colors.tealDark }]}>Auto-Tag</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, backgroundColor: isDark ? 'rgba(59,122,158,0.12)' : '#F0FDF4', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: isDark ? 'rgba(59,122,158,0.25)' : '#BBF7D0' }}>
+                  <Check size={13} color="#10B981" strokeWidth={2.6} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink }}>
+                    Trip Ended · Checklist is in read-only mode
+                  </Text>
+                </View>
+              )}
 
               {/* Category Filter Chips */}
               <ScrollView
@@ -724,7 +742,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                     {selectedCategory === 'All' ? 'Packing Items' : `${selectedCategory}`}
                   </Text>
                   <Text style={{ fontSize: 10, fontWeight: '700', color: colors.inkSoft }}>
-                    Type on line & press Return ↵
+                    {isTripEnded ? 'Read-only' : 'Type on line & press Return ↵'}
                   </Text>
                 </View>
 
@@ -741,11 +759,13 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                       {/* Signature Yellow Checkbox Button */}
                       <TouchableOpacity
                         onPress={() => handleToggleItem(item)}
+                        disabled={isTripEnded}
                         style={[
                           styles.noteCheckbox,
                           {
                             backgroundColor: item.isCompleted ? '#F0A93E' : 'transparent',
                             borderColor: item.isCompleted ? '#F0A93E' : (isDark ? 'rgba(255,255,255,0.25)' : '#CBD5E1'),
+                            opacity: isTripEnded ? 0.75 : 1,
                           },
                         ]}
                         activeOpacity={0.7}
@@ -754,7 +774,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                       </TouchableOpacity>
 
                       {/* Title Text (Tap word to rename) or Inline Rename Input */}
-                      {editingItemId === item.id ? (
+                      {editingItemId === item.id && !isTripEnded ? (
                         <TextInput
                           value={editingTitle}
                           onChangeText={setEditingTitle}
@@ -773,7 +793,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                         />
                       ) : (
                         <TouchableOpacity
-                          onPress={() => handleStartRename(item)}
+                          onPress={isTripEnded ? undefined : () => handleStartRename(item)}
                           style={{ flex: 1, paddingVertical: 4 }}
                           activeOpacity={0.7}
                         >
@@ -802,70 +822,80 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                       )}
 
                       {/* Delete Action */}
-                      <TouchableOpacity
-                        onPress={() => handleDeleteItem(item.id)}
-                        style={styles.noteDeleteBtn}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        activeOpacity={0.6}
-                      >
-                        <Trash2 size={13} color={colors.inkSoft} />
-                      </TouchableOpacity>
+                      {!isTripEnded && (
+                        <TouchableOpacity
+                          onPress={() => handleDeleteItem(item.id)}
+                          style={styles.noteDeleteBtn}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          activeOpacity={0.6}
+                        >
+                          <Trash2 size={13} color={colors.inkSoft} />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   );
                 })}
 
                 {/* ACTIVE NEW ENTRY LINE (Continuous Return-to-Add) */}
-                <View
-                  style={[
-                    styles.activeNoteLine,
-                    { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F6' },
-                  ]}
-                >
+                {!isTripEnded ? (
                   <View
                     style={[
-                      styles.noteCheckbox,
-                      {
-                        borderColor: isDark ? 'rgba(255,255,255,0.2)' : '#CBD5E1',
-                        borderStyle: 'dashed',
-                      },
+                      styles.activeNoteLine,
+                      { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F6' },
                     ]}
-                  />
+                  >
+                    <View
+                      style={[
+                        styles.noteCheckbox,
+                        {
+                          borderColor: isDark ? 'rgba(255,255,255,0.2)' : '#CBD5E1',
+                          borderStyle: 'dashed',
+                        },
+                      ]}
+                    />
 
-                  <TextInput
-                    ref={inputRef}
-                    value={inputText}
-                    onChangeText={setInputText}
-                    onSubmitEditing={handleReturnPress}
-                    blurOnSubmit={false}
-                    returnKeyType="done"
-                    placeholder={
-                      selectedCategory === 'All'
-                        ? 'Add item (press Return)...'
-                        : `Add to ${selectedCategory} (press Return)...`
-                    }
-                    placeholderTextColor={isDark ? 'rgba(255,255,255,0.35)' : '#94A3B8'}
-                    style={[
-                      styles.noteLineInput,
-                      {
-                        color: colors.ink,
-                      },
-                    ]}
-                  />
+                    <TextInput
+                      ref={inputRef}
+                      value={inputText}
+                      onChangeText={setInputText}
+                      onSubmitEditing={handleReturnPress}
+                      blurOnSubmit={false}
+                      returnKeyType="done"
+                      placeholder={
+                        selectedCategory === 'All'
+                          ? 'Add item (press Return)...'
+                          : `Add to ${selectedCategory} (press Return)...`
+                      }
+                      placeholderTextColor={isDark ? 'rgba(255,255,255,0.35)' : '#94A3B8'}
+                      style={[
+                        styles.noteLineInput,
+                        {
+                          color: colors.ink,
+                        },
+                      ]}
+                    />
 
-                  {inputText.trim().length > 0 && (
-                    <TouchableOpacity
-                      onPress={handleReturnPress}
-                      style={[styles.returnSendBtn, { backgroundColor: '#F0A93E' }]}
-                      activeOpacity={0.8}
-                    >
-                      {isSavingLine ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <CornerDownLeft size={13} color="#FFFFFF" strokeWidth={2.4} />
-                      )}
-                    </TouchableOpacity>
-                  )}
-                </View>
+                    {inputText.trim().length > 0 && (
+                      <TouchableOpacity
+                        onPress={handleReturnPress}
+                        style={[styles.returnSendBtn, { backgroundColor: '#F0A93E' }]}
+                        activeOpacity={0.8}
+                      >
+                        {isSavingLine ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <CornerDownLeft size={13} color="#FFFFFF" strokeWidth={2.4} />
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : (
+                  <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft }}>
+                      Checklist is read-only because this trip has ended
+                    </Text>
+                  </View>
+                )}
 
                 {/* Extended blank ruled lines to give long notepad feel */}
                 {Array.from({ length: Math.max(6, 12 - filteredItems.length) }).map((_, idx) => (

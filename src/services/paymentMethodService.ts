@@ -43,30 +43,111 @@ export class PaymentMethodService {
     }
   }
 
-  public async getPaymentMethods(userId: string): Promise<PaymentMethod[]> {
-    if (!userId) return [];
+  public async getPaymentMethods(userId: string, memberName?: string): Promise<PaymentMethod[]> {
+    if (!userId && !memberName) return [];
 
-    // Check in-memory cache first
-    if (this.cache.has(userId) && (this.cache.get(userId)?.length || 0) > 0) {
-      // Background re-fetch to keep up to date
+    // 1. Instant in-memory cache check (0ms)
+    if (userId && this.cache.has(userId) && (this.cache.get(userId)?.length || 0) > 0) {
+      // Background sync from Supabase without blocking UI
       this.fetchFromSupabase(userId).catch(() => {});
       return this.cache.get(userId)!;
     }
 
-    // Try fetching from Supabase
-    try {
-      const remote = await this.fetchFromSupabase(userId);
-      if (remote && remote.length > 0) {
-        return remote;
+    // 2. Instant local storage cache check (fast disk read)
+    if (userId) {
+      const local = await this.loadFromLocalStorage(userId);
+      if (local && local.length > 0) {
+        this.cache.set(userId, local);
+        // Background sync from Supabase without blocking UI
+        this.fetchFromSupabase(userId).catch(() => {});
+        return local;
       }
-    } catch (e) {
-      console.warn('getPaymentMethods remote fetch failed, falling back to local storage:', e);
+
+      // 3. If no local cache yet, fetch from Supabase
+      try {
+        const remote = await this.fetchFromSupabase(userId);
+        if (remote && remote.length > 0) {
+          return remote;
+        }
+      } catch (e) {
+        console.warn('getPaymentMethods remote fetch failed:', e);
+      }
     }
 
-    // Fallback to local storage
-    const local = await this.loadFromLocalStorage(userId);
-    this.cache.set(userId, local);
-    return local;
+    // 4. Fallback: fast member search across local storage first, then remote
+    return this.searchPaymentMethodsByMember(userId, memberName);
+  }
+
+  public async searchPaymentMethodsByMember(memberId?: string, memberName?: string): Promise<PaymentMethod[]> {
+    try {
+      const cleanMember = (memberName || '').trim().toLowerCase();
+      const isValidMemberName = cleanMember.length >= 2 && cleanMember !== 'my' && cleanMember !== 'payee' && cleanMember !== 'account holder';
+      const memberTokens = isValidMemberName ? cleanMember.split(/\s+/).filter((t) => t.length >= 2) : [];
+
+      // 1. Fast local storage scan first (<10ms)
+      const allKeys = await AsyncStorage.getAllKeys();
+      const pmKeys = allKeys.filter((k) => k.startsWith(CACHE_KEY_PREFIX));
+      const allFound: PaymentMethod[] = [];
+
+      for (const key of pmKeys) {
+        const raw = await AsyncStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              for (const m of parsed) {
+                if (!m || !m.provider || !m.accountNumber) continue;
+                if (memberId && (m.userId === memberId || key === `${CACHE_KEY_PREFIX}${memberId}`)) {
+                  allFound.push(m);
+                } else if (isValidMemberName) {
+                  const cleanAcc = (m.accountName || '').trim().toLowerCase();
+                  const isExactOrSub = cleanAcc === cleanMember || cleanAcc.includes(cleanMember) || cleanMember.includes(cleanAcc);
+                  const isTokenMatch = memberTokens.some((tok) => tok.length >= 3 && cleanAcc.includes(tok));
+                  if (isExactOrSub || isTokenMatch) {
+                    allFound.push(m);
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (allFound.length > 0) {
+        const unique = Array.from(new Map(allFound.map((m) => [m.id, m])).values());
+        if (memberId) {
+          this.cache.set(memberId, unique);
+        }
+        return unique;
+      }
+
+      // 2. If nothing local and we have a member name, query Supabase
+      if (isValidMemberName) {
+        try {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(`first_name.ilike.%${cleanMember}%,last_name.ilike.%${cleanMember}%,username.ilike.%${cleanMember}%`)
+            .limit(2);
+
+          if (profs && profs.length > 0) {
+            for (const p of profs) {
+              if (p.id && p.id !== memberId) {
+                const found = await this.fetchFromSupabase(p.id);
+                if (found && found.length > 0) {
+                  return found;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // ignore profile lookup error
+        }
+      }
+    } catch (e) {
+      console.warn('searchPaymentMethodsByMember error:', e);
+    }
+    return [];
   }
 
   public async fetchFromSupabase(userId: string): Promise<PaymentMethod[]> {
@@ -81,37 +162,64 @@ export class PaymentMethodService {
         .order('created_at', { ascending: false });
 
       if (error) {
-        // If table doesn't exist yet, return local cache
-        console.warn('user_payment_methods table query notice:', error.message);
+        if (!error.message.includes('permission denied')) {
+          console.warn('user_payment_methods query notice:', error.message);
+        }
         const local = await this.loadFromLocalStorage(userId);
         this.cache.set(userId, local);
         return local;
       }
 
-      const methods: PaymentMethod[] = (data || []).map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        type: row.type || 'ewallet',
-        provider: row.provider,
-        accountName: row.account_name,
-        accountNumber: row.account_number,
-        qrCodeUrl: row.qr_code_url ? receiptPublicUrl(row.qr_code_url) : undefined,
-        rawQrPath: row.qr_code_url || undefined,
-        isPrimary: !!row.is_primary,
-        notes: row.notes || undefined,
-        createdAt: row.created_at || new Date().toISOString(),
-        updatedAt: row.updated_at || new Date().toISOString(),
-      }));
+      if (data && data.length > 0) {
+        const methods: PaymentMethod[] = data.map((row: any) => ({
+          id: row.id,
+          userId: row.user_id,
+          type: row.type || 'ewallet',
+          provider: row.provider,
+          accountName: row.account_name,
+          accountNumber: row.account_number,
+          qrCodeUrl: row.qr_code_url ? receiptPublicUrl(row.qr_code_url) : undefined,
+          rawQrPath: row.qr_code_url || undefined,
+          isPrimary: !!row.is_primary,
+          notes: row.notes || undefined,
+          createdAt: row.created_at || new Date().toISOString(),
+          updatedAt: row.updated_at || new Date().toISOString(),
+        }));
 
-      this.cache.set(userId, methods);
-      await this.saveToLocalStorage(userId, methods);
-      return methods;
-    } catch (err) {
-      console.warn('fetchFromSupabase catch error:', err);
+        this.cache.set(userId, methods);
+        await this.saveToLocalStorage(userId, methods);
+        return methods;
+      }
+
+      // If remote returned 0 rows, check if local storage has previously saved methods
+      const local = await this.loadFromLocalStorage(userId);
+      if (local && local.length > 0) {
+        this.cache.set(userId, local);
+        return local;
+      }
+
+      return [];
+    } catch (err: any) {
+      if (!err?.message?.includes('permission denied')) {
+        console.warn('fetchFromSupabase catch error:', err?.message || err);
+      }
       const local = await this.loadFromLocalStorage(userId);
       this.cache.set(userId, local);
       return local;
     }
+  }
+
+  private generateUUID(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      try {
+        return crypto.randomUUID();
+      } catch {}
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
   }
 
   public async addPaymentMethod(params: AddPaymentMethodParams): Promise<PaymentMethod | null> {
@@ -129,10 +237,7 @@ export class PaymentMethodService {
       }
     }
 
-    const newId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : `pm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
+    const newId = this.generateUUID();
     const now = new Date().toISOString();
 
     const newMethod: PaymentMethod = {
@@ -150,7 +255,7 @@ export class PaymentMethodService {
       updatedAt: now,
     };
 
-    // If isPrimary, unset other primary methods
+    // If isPrimary, unset other primary methods locally
     let currentMethods = await this.loadFromLocalStorage(userId);
     if (isPrimary) {
       currentMethods = currentMethods.map((m) => ({ ...m, isPrimary: false }));
@@ -159,22 +264,8 @@ export class PaymentMethodService {
     this.cache.set(userId, currentMethods);
     await this.saveToLocalStorage(userId, currentMethods);
 
-    // Sync to Supabase
+    // Sync to Supabase table
     try {
-      const dbRow = {
-        id: newId,
-        user_id: userId,
-        type,
-        provider: newMethod.provider,
-        account_name: newMethod.accountName,
-        account_number: newMethod.accountNumber,
-        qr_code_url: uploadedQrPath || null,
-        is_primary: !!isPrimary,
-        notes: newMethod.notes || null,
-        created_at: now,
-        updated_at: now,
-      };
-
       if (isPrimary) {
         await supabase
           .from('user_payment_methods')
@@ -182,12 +273,31 @@ export class PaymentMethodService {
           .eq('user_id', userId);
       }
 
-      const { error } = await supabase.from('user_payment_methods').insert(dbRow);
+      const { data: insertedRow, error } = await supabase
+        .from('user_payment_methods')
+        .insert({
+          id: newId,
+          user_id: userId,
+          type,
+          provider: newMethod.provider,
+          account_name: newMethod.accountName,
+          account_number: newMethod.accountNumber,
+          qr_code_url: uploadedQrPath || null,
+          is_primary: !!isPrimary,
+          notes: newMethod.notes || null,
+          created_at: now,
+          updated_at: now,
+        })
+        .select('*')
+        .single();
+
       if (error) {
         console.warn('Supabase insert user_payment_methods error:', error.message);
+      } else if (insertedRow) {
+        newMethod.id = insertedRow.id;
       }
-    } catch (e) {
-      console.warn('addPaymentMethod Supabase catch error:', e);
+    } catch (e: any) {
+      console.warn('addPaymentMethod Supabase catch error:', e?.message || e);
     }
 
     return newMethod;
@@ -239,7 +349,7 @@ export class PaymentMethodService {
     this.cache.set(userId, currentMethods);
     await this.saveToLocalStorage(userId, currentMethods);
 
-    // Clean up old QR code if replaced
+    // Clean up old QR code from Supabase Storage if replaced
     if ((params.qrUri || params.removeQr) && existing.rawQrPath && existing.rawQrPath !== newQrPath) {
       deleteExpensePhotos([existing.rawQrPath]).catch(() => {});
     }
@@ -264,12 +374,16 @@ export class PaymentMethodService {
           .eq('user_id', userId);
       }
 
-      await supabase
+      const { error } = await supabase
         .from('user_payment_methods')
         .update(updates)
         .eq('id', id);
-    } catch (e) {
-      console.warn('editPaymentMethod Supabase catch error:', e);
+
+      if (error) {
+        console.warn('editPaymentMethod Supabase error:', error.message);
+      }
+    } catch (e: any) {
+      console.warn('editPaymentMethod Supabase catch error:', e?.message || e);
     }
 
     return true;
@@ -282,17 +396,23 @@ export class PaymentMethodService {
     this.cache.set(userId, currentMethods);
     await this.saveToLocalStorage(userId, currentMethods);
 
+    // Delete QR image from Supabase Storage
     if (rawQrPath) {
       deleteExpensePhotos([rawQrPath]).catch(() => {});
     }
 
+    // Delete row from Supabase table
     try {
-      await supabase
+      const { error } = await supabase
         .from('user_payment_methods')
         .delete()
         .eq('id', id);
-    } catch (e) {
-      console.warn('deletePaymentMethod Supabase catch error:', e);
+
+      if (error) {
+        console.warn('deletePaymentMethod Supabase error:', error.message);
+      }
+    } catch (e: any) {
+      console.warn('deletePaymentMethod Supabase catch error:', e?.message || e);
     }
 
     return true;

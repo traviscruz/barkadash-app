@@ -57,12 +57,15 @@ const HOME_TABS: { key: HomeTabKey; label: string; icon: React.ComponentType<{ s
   { key: 'recap', label: 'Recap', icon: Award },
 ];
 
+import { TripRecapPost } from '../../types/tripRecap';
+
 interface HomeScreenProps {
   onNavigateToTab?: (index: number) => void;
   onNavigateToSubScreen?: (screen: SubScreenType) => void;
   onScrollDirection?: (direction: 'up' | 'down') => void;
   onLogout?: () => void;
   onOpenCabinet?: () => void;
+  onSelectPost?: (post: TripRecapPost) => void;
 }
 
 /** "8:00 AM" / "14:30" → minutes since midnight (used to pick the next-up item). */
@@ -120,6 +123,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onScrollDirection,
   onLogout,
   onOpenCabinet,
+  onSelectPost,
 }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
@@ -635,7 +639,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         )}
       </ScrollView>
       ) : homeTab === 'feed' ? (
-        <TripFeedScreen embedded onScrollDirection={onScrollDirection} />
+        <TripFeedScreen embedded onScrollDirection={onScrollDirection} onSelectPost={onSelectPost} />
       ) : (
         <TripRecapScreen embedded onScrollDirection={onScrollDirection} />
       )}

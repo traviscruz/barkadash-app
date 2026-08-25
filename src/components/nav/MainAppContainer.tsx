@@ -14,6 +14,7 @@ import { TermsPrivacyScreen } from '../../screens/auth/TermsPrivacyScreen';
 import { NotificationsScreen } from '../../screens/notifications/NotificationsScreen';
 import { CommitmentTrackerScreen } from '../../screens/trip/CommitmentTrackerScreen';
 import { PackingChecklistScreen } from '../../screens/checklist/PackingChecklistScreen';
+import { MyLikesScreen } from '../../screens/recap/MyLikesScreen';
 import { CabinetDrawerModal } from './CabinetDrawerModal';
 import { PendingTripInvite } from '../trip/TripInvitationModal';
 import { TripInvitationBanner } from '../trip/TripInvitationBanner';
@@ -32,7 +33,10 @@ import { AiChatModal } from '../ai/AiChatModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | 'commitment' | 'checklist' | null;
+import { TripPostDetailScreen } from '../../screens/feed/TripPostDetailScreen';
+import { TripRecapPost } from '../../types/tripRecap';
+
+export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | 'commitment' | 'checklist' | 'my-likes' | 'trip-post-detail' | null;
 
 interface MainAppContainerProps {
   onLogout?: () => void;
@@ -47,10 +51,16 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
   const { colors } = useTheme();
   const { profile } = useUser();
 
+  const [selectedTripPost, setSelectedTripPost] = useState<TripRecapPost | null>(null);
   const [pendingInvites, setPendingInvites] = useState<PendingTripInvite[]>([]);
   const [currentInvite, setCurrentInvite] = useState<PendingTripInvite | null>(null);
   const [bannerQueue, setBannerQueue] = useState<InAppNotifPayload[]>([]);
   const [aiChatVisible, setAiChatVisible] = useState(false);
+
+  const handleOpenTripPostDetail = (post: TripRecapPost) => {
+    setSelectedTripPost(post);
+    handleOpenSubScreen('trip-post-detail');
+  };
 
   const checkPendingInvites = useCallback(async () => {
     if (profile?.id) {
@@ -246,6 +256,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
               onScrollDirection={handleScrollDirection}
               onLogout={onLogout}
               onOpenCabinet={handleOpenCabinet}
+              onSelectPost={handleOpenTripPostDetail}
             />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 1 ? 'flex' : 'none' }]}>
@@ -322,6 +333,26 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
               <PackingChecklistScreen
                 onBack={handleBackRootSub}
               />
+            </View>
+            <View style={[styles.subScreenContainer, { display: activeSubScreen === 'my-likes' ? 'flex' : 'none' }]}>
+              <MyLikesScreen
+                onBack={handleBackRootSub}
+              />
+            </View>
+            <View style={[styles.subScreenContainer, { display: activeSubScreen === 'trip-post-detail' ? 'flex' : 'none' }]}>
+              {selectedTripPost && (
+                <TripPostDetailScreen
+                  post={selectedTripPost}
+                  onBack={handleBackRootSub}
+                  onLikeToggled={(tripId, isLiked, newLikesCount) => {
+                    setSelectedTripPost((prev) =>
+                      prev && prev.tripId === tripId
+                        ? { ...prev, isLikedByMe: isLiked, likesCount: newLikesCount }
+                        : prev
+                    );
+                  }}
+                />
+              )}
             </View>
 
             {/* Level 2 Animated Sub-Screen Overlay: Edit Profile (Slides smoothly over ProfileScreen) */}

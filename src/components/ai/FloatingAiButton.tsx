@@ -28,7 +28,7 @@ export const FloatingAiButton: React.FC<FloatingAiButtonProps> = ({ onPress }) =
   // so we can call setValue() during drags — native-driven values get frozen
   // and throw "attempted to set the key `_value`" errors.
   const clampX = (x: number) => Math.max(sp.md, Math.min(SCREEN_W - BUBBLE_SIZE - sp.md, x));
-  const clampY = (y: number) => Math.max(sp.md, Math.min(SCREEN_H - BUBBLE_SIZE - sp.md, y));
+  const clampY = (y: number) => Math.max(80, Math.min(SCREEN_H - BUBBLE_SIZE - 110, y));
 
   const initial = { x: SCREEN_W - BUBBLE_SIZE - sp.md, y: SCREEN_H * 0.55 };
   const translateX = useRef(new Animated.Value(clampX(initial.x))).current;
@@ -124,7 +124,7 @@ export const FloatingAiButton: React.FC<FloatingAiButtonProps> = ({ onPress }) =
         const margin = sp.md;
         const snapLeft = currentX < SCREEN_W / 2 - BUBBLE_SIZE / 2;
         const targetX = snapLeft ? margin : SCREEN_W - BUBBLE_SIZE - margin;
-        const clampedY = Math.max(margin, Math.min(SCREEN_H - BUBBLE_SIZE - margin, currentY));
+        const clampedY = Math.max(80, Math.min(SCREEN_H - BUBBLE_SIZE - 110, currentY));
 
         Animated.spring(translateX, {
           toValue: targetX,
@@ -230,6 +230,8 @@ export const FloatingAiButton: React.FC<FloatingAiButtonProps> = ({ onPress }) =
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
+    top: 0,
+    left: 0,
     width: BUBBLE_SIZE,
     height: BUBBLE_SIZE,
     zIndex: 999,

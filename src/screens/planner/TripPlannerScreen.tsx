@@ -21,7 +21,7 @@ import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
 import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings } from 'lucide-react-native';
-import { isWithinTripDates, getTripDayInfo, sortItineraryChronological, parseTripDateRange, tripDayCount as calcTripDayCount } from '../../utils/tripDates';
+import { isWithinTripDates, getTripDayInfo, getTodayTripDay, sortItineraryChronological, parseTripDateRange, tripDayCount as calcTripDayCount } from '../../utils/tripDates';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
 import { TripService } from '../../services/tripService';
@@ -121,7 +121,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const { profile } = useUser();
   const { sp, fs, icon, isTablet, insets, width, bottomNavOffset } = useResponsive();
   const [activeSubTab, setActiveSubTab] = useState<'Itinerary' | 'Spots'>('Itinerary');
-  const [selectedDay, setSelectedDay] = useState(1);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const initTrip = TripService.getInstance().getActiveTrip();
+    return getTodayTripDay(initTrip?.dateRange);
+  });
   const [selectedCategory, setSelectedCategory] = useState('DINING');
   const [completedItems, setCompletedItems] = useState<Record<string, boolean>>({});
   const [aiSpots, setAiSpots] = useState<AiSpot[]>([]);
@@ -175,7 +178,8 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const isLocked = activeTrip?.planningStage === 'READY' || activeTrip?.planningStage === 'ITINERARY_BUILDING';
   const withinDates = activeTrip ? isWithinTripDates(activeTrip.dateRange) : false;
   const dayInfo = activeTrip ? getTripDayInfo(activeTrip.dateRange) : null;
-  const isTripCompleted = activeTrip?.status === 'Completed';
+  const isTripEnded = activeTrip ? TripService.getInstance().isTripEnded(activeTrip) : false;
+  const isTripCompleted = isTripEnded;
 
   const confirmCompleteTrip = async () => {
     if (!activeTrip || !profile?.id) return;
@@ -234,6 +238,13 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   }, [profile?.id]);
 
   useEffect(() => {
+    if (activeTrip?.dateRange) {
+      const todayDay = getTodayTripDay(activeTrip.dateRange);
+      setSelectedDay(todayDay);
+    }
+  }, [activeTrip?.id, activeTrip?.dateRange]);
+
+  useEffect(() => {
     Animated.spring(slideAnim, {
       toValue: selectedDay - 1,
       useNativeDriver: true,
@@ -256,6 +267,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   }, [isLocked]);
 
   const handleEditTourSave = async (deadline: string) => {
+    if (isTripEnded) return { success: false, message: 'Trip has ended.' };
     const res = await TripService.getInstance().reactivateTripVotingDB(activeTrip?.id || '', deadline, profile?.id);
     if (res.success) {
       setEditTourVisible(false);
@@ -316,6 +328,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   }, [activeTrip?.id, selectedDay, loadItinerary]);
 
   const openAddItinerary = () => {
+    if (isTripEnded) return;
     setItineraryModalMode('add');
     setEditingItem(null);
     setAddingSpot(null);
@@ -323,6 +336,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const openAddSpotToItinerary = (spot: AiSpot) => {
+    if (isTripEnded) return;
     setItineraryModalMode('add');
     setEditingItem(null);
     setAddingSpot(spot);
@@ -330,13 +344,14 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const openEditItinerary = (item: ItineraryItem) => {
+    if (isTripEnded) return;
     setItineraryModalMode('edit');
     setEditingItem(item);
     setItineraryModalVisible(true);
   };
 
   const handleDeleteItinerary = async (item: ItineraryItem) => {
-    if (!item) return;
+    if (isTripEnded || !item) return;
     setDeletingItem(true);
     const ok = await TripService.getInstance().deleteItineraryItemDB(item.id);
     setDeletingItem(false);
@@ -370,6 +385,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
     const fetched = await TripService.getInstance().fetchTripStaysDB(tripId);
     if (seq !== stayLoadSeq.current) return; // stale response — drop it
     setStays(fetched);
+    if (fetched && fetched.length > 0) {
+      setStaysCollapsed(true);
+    }
     setStaysLoading(false);
 
     // Auto-resolve missing photo references from Google Places API
@@ -435,19 +453,21 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   }, [activeTrip?.id, loadStays]);
 
   const openAddStay = () => {
+    if (isTripEnded) return;
     setStayModalMode('add');
     setEditingStay(null);
     setStayModalVisible(true);
   };
 
   const openEditStay = (stay: TripStay) => {
+    if (isTripEnded) return;
     setStayModalMode('edit');
     setEditingStay(stay);
     setStayModalVisible(true);
   };
 
   const handleDeleteStay = async (stay: TripStay) => {
-    if (!stay) return;
+    if (isTripEnded || !stay) return;
     setDeletingStay(true);
     const ok = await TripService.getInstance().deleteTripStayDB(stay.id);
     setDeletingStay(false);
@@ -464,7 +484,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const handleReactStay = (stay: TripStay, reaction: 'like' | 'dislike') => {
-    if (!profile?.id) return;
+    if (isTripEnded || !profile?.id) return;
     const tripId = activeTrip?.id || '';
     // Optimistic update — same as itinerary reactions.
     setStays((prev) =>
@@ -507,6 +527,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const handleSendStayComment = async (stayId: string) => {
+    if (isTripEnded) return;
     const text = (commentDrafts[stayId] || '').trim();
     if (!text || commentSending) return;
     setCommentSending(true);
@@ -524,6 +545,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const handleDeleteStayComment = async (stayId: string, commentId: string) => {
+    if (isTripEnded) return;
     const ok = await TripService.getInstance().deleteTripStayCommentDB(commentId);
     if (ok) loadStays(activeTrip?.id || '', true);
   };
@@ -561,7 +583,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const handleReact = (item: ItineraryItem, reaction: 'like' | 'dislike') => {
-    if (!profile?.id) return;
+    if (isTripEnded || !profile?.id) return;
     const tripId = activeTrip?.id || '';
     // Optimistic update — the tapped reaction is the single source of truth
     // for the UI: whatever you just clicked becomes your vote, instantly.
@@ -686,6 +708,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   };
 
   const toggleItemCompletion = async (item: ItineraryItem) => {
+    if (isTripEnded) return;
     const isCurrentlyDone = completedItems[item.id] !== undefined ? completedItems[item.id] : !!item.isCompleted;
     const nextVal = !isCurrentlyDone;
     setCompletedItems(prev => ({ ...prev, [item.id]: nextVal }));
@@ -933,6 +956,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 {/* TRIP VOTING POLLS SECTION */}
                 <TripVotingPollsSection
                   tripId={activeTrip?.id || 'default_trip'}
+                  isTripEnded={isTripEnded}
                   onPollsUpdated={() => setActiveTrip(TripService.getInstance().getActiveTrip())}
                 />
               </>
@@ -1045,56 +1069,59 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
             </View>
           )}
 
-          {isLocked && (
-            <>
-              {/* Locked-in note: place & dates are set, start planning */}
+          {!isTripEnded && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+                backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
+                borderColor: isDark ? 'rgba(16,185,129,0.35)' : '#EAFBF4',
+                borderWidth: 1,
+                borderRadius: 18,
+                padding: 14,
+                marginTop: sp.lg,
+                marginBottom: sp.lg,
+              }}
+            >
               <View
                 style={{
-                  flexDirection: 'row',
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
                   alignItems: 'center',
-                  gap: 12,
-                  backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
-                  borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
-                  borderWidth: 1,
-                  borderRadius: 18,
-                  padding: 14,
-                  marginTop: sp.lg,
-                  marginBottom: sp.lg,
+                  justifyContent: 'center',
+                  backgroundColor: '#10B981',
                 }}
               >
-                <View
-                  style={{
-                    width: 42,
-                    height: 42,
-                    borderRadius: 21,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: '#10B981',
-                  }}
-                >
-                  <CheckCircle2 size={20} color="#FFFFFF" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '900', color: colors.ink }}>
-                    Place & dates locked in!
-                  </Text>
-                  <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, lineHeight: 16 }}>
-                    Your barkada's set on {activeTrip?.destination} ({activeTrip?.dateRange}). Now you can plan your itinerary.
-                  </Text>
-                </View>
+                <CheckCircle2 size={20} color="#FFFFFF" />
               </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 13, fontWeight: '900', color: colors.ink }}>
+                  Place & dates locked in!
+                </Text>
+                <Text style={{ fontSize: 11.5, fontWeight: '600', color: colors.inkSoft, marginTop: 2, lineHeight: 16 }}>
+                  Your barkada's set on {activeTrip?.destination} ({activeTrip?.dateRange}). Now you can plan your itinerary.
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* ================= WHERE YOU'LL STAY ================= */}
           <View style={{ marginTop: sp.lg, marginBottom: sp.lg }}>
             {/* Header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md, gap: 8 }}>
-              {/* Left Title & Count */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {/* Left Title, Count & Collapse Toggle */}
+              <TouchableOpacity
+                onPress={isLocked && stays.length > 0 ? () => setStaysCollapsed((prev) => !prev) : undefined}
+                activeOpacity={isLocked && stays.length > 0 ? 0.75 : 1}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}
+              >
+                <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <BedDouble size={16} color={colors.tealDark} strokeWidth={2.4} />
                 </View>
-                <Text numberOfLines={1} style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark, flexShrink: 1 }}>
-                  Where You'll Stay
+                <Text style={{ fontSize: 16, fontWeight: '900', color: COLORS.textDark }}>
+                  {isTripEnded ? 'Where You Stayed' : "Where You'll Stay"}
                 </Text>
                 {isLocked && stays.length > 0 && (
                   <View style={{ backgroundColor: isDark ? 'rgba(59,122,158,0.25)' : '#E0F2FE', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, flexShrink: 0 }}>
@@ -1103,60 +1130,40 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                     </Text>
                   </View>
                 )}
-              </View>
-
-              {/* Right Actions: Collapse/Expand + Add Stay */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 {isLocked && stays.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setStaysCollapsed((prev) => !prev)}
-                    activeOpacity={0.75}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingHorizontal: 9,
-                      paddingVertical: 6,
-                      borderRadius: 100,
-                      backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9',
-                      borderWidth: 1,
-                      borderColor: colors.cardBorder,
-                    }}
-                  >
-                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
-                      {staysCollapsed ? 'Expand' : 'Collapse'}
-                    </Text>
+                  <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9', flexShrink: 0 }}>
                     {staysCollapsed ? (
-                      <ChevronDown size={13} color={colors.inkSoft} strokeWidth={2.4} />
+                      <ChevronDown size={14} color={colors.inkSoft} strokeWidth={2.5} />
                     ) : (
-                      <ChevronUp size={13} color={colors.inkSoft} strokeWidth={2.4} />
+                      <ChevronUp size={14} color={colors.inkSoft} strokeWidth={2.5} />
                     )}
-                  </TouchableOpacity>
+                  </View>
                 )}
+              </TouchableOpacity>
 
-                {isHost && isLocked && (
-                  <TouchableOpacity
-                    onPress={openAddStay}
-                    activeOpacity={0.85}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 4,
-                      paddingHorizontal: 11,
-                      paddingVertical: 6,
-                      borderRadius: 100,
-                      backgroundColor: colors.tealDark,
-                    }}
-                  >
-                    <Plus size={13} color="#FFFFFF" strokeWidth={2.6} />
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Add Stay</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              {/* Right Action: Add Stay */}
+              {isHost && isLocked && !isTripEnded && (
+                <TouchableOpacity
+                  onPress={openAddStay}
+                  activeOpacity={0.85}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 11,
+                    paddingVertical: 6,
+                    borderRadius: 100,
+                    backgroundColor: colors.tealDark,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Plus size={13} color="#FFFFFF" strokeWidth={2.6} />
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF' }}>Add Stay</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
-            {!isLocked ? (
+            {!isLocked && !isTripEnded ? (
               /* Locked hint — stays unlock once place & dates are locked in */
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F1F5F9', borderWidth: 1, borderColor: colors.cardBorder, borderRadius: 16, padding: 14 }}>
                 <Lock size={16} color={COLORS.subtleDark} strokeWidth={2.2} />
@@ -1171,7 +1178,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
             ) : stays.length === 0 ? (
               <TouchableOpacity
-                onPress={isHost ? openAddStay : undefined}
+                onPress={isHost && !isTripEnded ? openAddStay : undefined}
                 activeOpacity={0.85}
                 style={{
                   flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -1185,10 +1192,10 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.tealDark }}>
-                    {isHost ? 'Pick where the barkada stays' : 'No stays yet'}
+                    {isTripEnded ? 'No stays added' : (isHost ? 'Pick where the barkada stays' : 'No stays yet')}
                   </Text>
                   <Text style={{ fontSize: 10.5, fontWeight: '600', color: COLORS.subtleDark, marginTop: 2, lineHeight: 14 }}>
-                    {isHost ? 'Tap to add a hotel, resort, or airbnb.' : "The host hasn't picked a place to stay yet."}
+                    {isTripEnded ? 'Stays are locked for completed trips.' : (isHost ? 'Tap to add a hotel, resort, or airbnb.' : "The host hasn't picked a place to stay yet.")}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1259,7 +1266,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                         </View>
 
                         {/* Edit / Delete — host only (top-right) */}
-                        {isMine && isHost && (
+                        {isMine && isHost && !isTripEnded && (
                           <View style={{ position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6, zIndex: 3 }}>
                             <TouchableOpacity onPress={() => openEditStay(stay)} hitSlop={8} style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.95)' }}>
                               <Pencil size={12} color={colors.tealDark} />
@@ -1319,8 +1326,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 }}>
                           <TouchableOpacity
                             onPress={() => handleReactStay(stay, 'like')}
+                            disabled={isTripEnded}
                             activeOpacity={0.8}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'like' ? (isDark ? 'rgba(16,185,129,0.2)' : '#E6F4EA') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'like' ? '#10B981' : 'transparent' }}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'like' ? (isDark ? 'rgba(16,185,129,0.2)' : '#E6F4EA') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'like' ? '#10B981' : 'transparent', opacity: isTripEnded ? 0.75 : 1 }}
                           >
                             <ThumbsUp size={12} color={stay.myReaction === 'like' ? '#10B981' : COLORS.subtleDark} fill={stay.myReaction === 'like' ? '#10B981' : 'transparent'} />
                             <Text style={{ fontSize: 11, fontWeight: '800', color: stay.myReaction === 'like' ? '#10B981' : COLORS.subtleDark }}>
@@ -1330,8 +1338,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
                           <TouchableOpacity
                             onPress={() => handleReactStay(stay, 'dislike')}
+                            disabled={isTripEnded}
                             activeOpacity={0.8}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'dislike' ? (isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'dislike' ? '#EF4444' : 'transparent' }}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100, backgroundColor: stay.myReaction === 'dislike' ? (isDark ? 'rgba(239,68,68,0.2)' : '#FCE8E6') : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'), borderWidth: 1, borderColor: stay.myReaction === 'dislike' ? '#EF4444' : 'transparent', opacity: isTripEnded ? 0.75 : 1 }}
                           >
                             <ThumbsDown size={12} color={stay.myReaction === 'dislike' ? '#EF4444' : COLORS.subtleDark} fill={stay.myReaction === 'dislike' ? '#EF4444' : 'transparent'} />
                             <Text style={{ fontSize: 11, fontWeight: '800', color: stay.myReaction === 'dislike' ? '#EF4444' : COLORS.subtleDark }}>
@@ -1377,7 +1386,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                                   <Text style={{ fontSize: 10, fontWeight: '800', color: colors.ink }}>
                                     {c.userId === profile?.id ? 'You' : `${c.userFirstName || ''} ${c.userLastName || ''}`.trim() || 'Barkada'}
                                   </Text>
-                                  {c.userId === profile?.id && (
+                                  {c.userId === profile?.id && !isTripEnded && (
                                     <TouchableOpacity onPress={() => handleDeleteStayComment(stay.id, c.id)} hitSlop={8}>
                                       <Trash2 size={11} color={COLORS.subtleDark} />
                                     </TouchableOpacity>
@@ -1391,27 +1400,35 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                           ))}
 
                           {/* Comment input */}
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9', borderRadius: 100, borderWidth: 1, borderColor: colors.cardBorder, paddingLeft: 12, paddingRight: 4 }}>
-                              <TextInput
-                                style={{ flex: 1, paddingVertical: 8, color: colors.ink, fontSize: 11 }}
-                                placeholder="Add a comment…"
-                                placeholderTextColor={COLORS.subtleDark}
-                                value={commentDrafts[stay.id] || ''}
-                                onChangeText={(t) => setCommentDrafts((prev) => ({ ...prev, [stay.id]: t }))}
-                                onSubmitEditing={() => handleSendStayComment(stay.id)}
-                                returnKeyType="send"
-                                blurOnSubmit={false}
-                              />
-                              <TouchableOpacity
-                                onPress={() => handleSendStayComment(stay.id)}
-                                disabled={!(commentDrafts[stay.id] || '').trim() || commentSending}
-                                style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: (commentDrafts[stay.id] || '').trim() ? colors.tealDark : 'transparent' }}
-                              >
-                                <Send size={13} color={(commentDrafts[stay.id] || '').trim() ? '#FFFFFF' : COLORS.subtleDark} />
-                              </TouchableOpacity>
+                          {!isTripEnded ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9', borderRadius: 100, borderWidth: 1, borderColor: colors.cardBorder, paddingLeft: 12, paddingRight: 4 }}>
+                                <TextInput
+                                  style={{ flex: 1, paddingVertical: 8, color: colors.ink, fontSize: 11 }}
+                                  placeholder="Add a comment…"
+                                  placeholderTextColor={COLORS.subtleDark}
+                                  value={commentDrafts[stay.id] || ''}
+                                  onChangeText={(t) => setCommentDrafts((prev) => ({ ...prev, [stay.id]: t }))}
+                                  onSubmitEditing={() => handleSendStayComment(stay.id)}
+                                  returnKeyType="send"
+                                  blurOnSubmit={false}
+                                />
+                                <TouchableOpacity
+                                  onPress={() => handleSendStayComment(stay.id)}
+                                  disabled={!(commentDrafts[stay.id] || '').trim() || commentSending}
+                                  style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: (commentDrafts[stay.id] || '').trim() ? colors.tealDark : 'transparent' }}
+                                >
+                                  <Send size={13} color={(commentDrafts[stay.id] || '').trim() ? '#FFFFFF' : COLORS.subtleDark} />
+                                </TouchableOpacity>
+                              </View>
                             </View>
-                          </View>
+                          ) : (
+                            <View style={{ paddingVertical: 6, alignItems: 'center' }}>
+                              <Text style={{ fontSize: 10.5, fontWeight: '600', color: colors.inkSoft }}>
+                                Comments closed (Trip Ended)
+                              </Text>
+                            </View>
+                          )}
                         </View>
                       </View>
                     </View>
@@ -1499,28 +1516,30 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
 
               {/* Add-to-Itinerary CTA */}
-              <TouchableOpacity
-                onPress={openAddItinerary}
-                activeOpacity={0.85}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  borderWidth: 1.5,
-                  borderStyle: 'dashed',
-                  borderColor: colors.tealDark,
-                  borderRadius: 16,
-                  paddingVertical: 14,
-                  marginBottom: sp.xl,
-                  backgroundColor: isDark ? 'rgba(59,122,158,0.08)' : '#EBF5FB',
-                }}
-              >
-                <Plus size={17} color={colors.tealDark} strokeWidth={2.5} />
-                <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.tealDark }}>
-                  Add a Spot for Day {selectedDay}
-                </Text>
-              </TouchableOpacity>
+              {!isTripEnded && (
+                <TouchableOpacity
+                  onPress={openAddItinerary}
+                  activeOpacity={0.85}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    borderWidth: 1.5,
+                    borderStyle: 'dashed',
+                    borderColor: colors.tealDark,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    marginBottom: sp.xl,
+                    backgroundColor: isDark ? 'rgba(59,122,158,0.08)' : '#EBF5FB',
+                  }}
+                >
+                  <Plus size={17} color={colors.tealDark} strokeWidth={2.5} />
+                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.tealDark }}>
+                    Add a Spot for Day {selectedDay}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* Timeline */}
               {itineraryLoading ? (
@@ -1537,7 +1556,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                     Nothing planned for Day {selectedDay} yet
                   </Text>
                   <Text style={{ fontSize: 11, fontWeight: '600', color: COLORS.subtleDark, textAlign: 'center', lineHeight: 16 }}>
-                    Tap "Add a Spot" above to drop the first stop — everyone in the trip can add and react to it.
+                    {isTripEnded
+                      ? 'No stops were recorded for this day.'
+                      : 'Tap "Add a Spot" above to drop the first stop — everyone in the trip can add and react to it.'}
                   </Text>
                 </View>
               ) : (
@@ -1557,7 +1578,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       {/* Time Column — always a single line, never wraps */}
                       <TouchableOpacity
                         activeOpacity={0.75}
-                        onPress={() => toggleItemCompletion(item)}
+                        onPress={isTripEnded ? undefined : () => toggleItemCompletion(item)}
                         style={{ width: 74, alignItems: 'flex-start', paddingTop: 4 }}
                       >
                         <Text
@@ -1579,7 +1600,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       {/* Timeline Line & Node */}
                       <TouchableOpacity
                         activeOpacity={0.75}
-                        onPress={() => toggleItemCompletion(item)}
+                        onPress={isTripEnded ? undefined : () => toggleItemCompletion(item)}
                         style={{ width: 24, alignItems: 'center' }}
                       >
                         <View
@@ -1607,7 +1628,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       <View style={{ flex: 1, paddingBottom: sp.xl, opacity: isCompleted ? 0.45 : 1 }}>
                         <TouchableOpacity
                           activeOpacity={0.88}
-                          onPress={() => toggleItemCompletion(item)}
+                          onPress={isTripEnded ? undefined : () => toggleItemCompletion(item)}
                         >
                           {!!item.photoReference ? (
                             <View style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
@@ -1637,7 +1658,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                               </View>
 
                               {/* Edit / Delete always on top of the image (top-right) */}
-                              {isMine && (
+                              {isMine && !isTripEnded && (
                                 <View style={{ position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6, zIndex: 3 }}>
                                   <TouchableOpacity
                                     onPress={() => openEditItinerary(item)}
@@ -1691,7 +1712,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                                 </Text>
                               </View>
 
-                              {isMine && (
+                              {isMine && !isTripEnded && (
                                 <View style={{ flexDirection: 'row', gap: 6 }}>
                                   <TouchableOpacity onPress={() => openEditItinerary(item)} hitSlop={8} style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }}>
                                     <Pencil size={11} color={colors.tealDark} />
@@ -1763,6 +1784,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
                             <TouchableOpacity
                               onPress={() => handleReact(item, 'like')}
+                              disabled={isTripEnded}
                               activeOpacity={0.8}
                               style={{
                                 flexDirection: 'row',
@@ -1776,6 +1798,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                                   : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'),
                                 borderWidth: 1,
                                 borderColor: item.myReaction === 'like' ? '#10B981' : 'transparent',
+                                opacity: isTripEnded ? 0.75 : 1,
                               }}
                             >
                               <ThumbsUp size={12} color={item.myReaction === 'like' ? '#10B981' : COLORS.subtleDark} fill={item.myReaction === 'like' ? '#10B981' : 'transparent'} />
@@ -1786,6 +1809,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
                             <TouchableOpacity
                               onPress={() => handleReact(item, 'dislike')}
+                              disabled={isTripEnded}
                               activeOpacity={0.8}
                               style={{
                                 flexDirection: 'row',
@@ -1799,6 +1823,7 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                                   : (isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9'),
                                 borderWidth: 1,
                                 borderColor: item.myReaction === 'dislike' ? '#EF4444' : 'transparent',
+                                opacity: isTripEnded ? 0.75 : 1,
                               }}
                             >
                               <ThumbsDown size={12} color={item.myReaction === 'dislike' ? '#EF4444' : COLORS.subtleDark} fill={item.myReaction === 'dislike' ? '#EF4444' : 'transparent'} />
@@ -1978,15 +2003,18 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                     </Text>
 
                     <TouchableOpacity
-                      onPress={() => openAddSpotToItinerary(selectedSpot)}
+                      onPress={isTripEnded ? undefined : () => openAddSpotToItinerary(selectedSpot)}
+                      disabled={isTripEnded}
                       style={{
-                        backgroundColor: colors.tealDark,
+                        backgroundColor: isTripEnded ? (isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0') : colors.tealDark,
                         paddingVertical: sp.md,
                         borderRadius: 14,
                         alignItems: 'center',
                       }}
                     >
-                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>Add to Itinerary</Text>
+                      <Text style={{ color: isTripEnded ? colors.inkSoft : '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>
+                        {isTripEnded ? 'Trip Ended · Read-Only' : 'Add to Itinerary'}
+                      </Text>
                     </TouchableOpacity>
                   </>
                 ) : (
@@ -1997,11 +2025,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
               </View>
             </View>
           )}
-        </>
+        </ScrollView>
       )}
-    </ScrollView>
-        )}
-      </View>
+    </View>
 
       {/* Host / Join Trip Modal */}
       <HostJoinTripModal

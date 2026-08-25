@@ -157,6 +157,32 @@ export const getTripDayInfo = (range?: string, referenceDate: Date = new Date())
 };
 
 /**
+ * Computes which day index corresponds to Today's date for an active trip.
+ * Defaults to Day 1 if the trip hasn't started yet.
+ */
+export const getTodayTripDay = (range?: string): number => {
+  if (!range) return 1;
+  const parsed = parseTripDateRange(range);
+  if (!parsed) return 1;
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const totalDays = tripDayCount(range);
+
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(parsed.start.getFullYear(), parsed.start.getMonth(), parsed.start.getDate() + i).getTime();
+    if (d === todayMidnight) {
+      return i + 1;
+    }
+  }
+
+  const info = getTripDayInfo(range);
+  if (info && !info.isBeforeStart) {
+    return Math.min(Math.max(info.currentDay, 1), totalDays);
+  }
+  return 1;
+};
+
+/**
  * Converts a time string (e.g. "8:00 AM", "1:30 PM", "14:00") to minutes from midnight (0 - 1439).
  * Returns Number.MAX_SAFE_INTEGER for empty/invalid strings so they sort to the bottom.
  */

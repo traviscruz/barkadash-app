@@ -15,21 +15,26 @@ import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { FareTab } from './FareTab';
 import { StaycationTab } from './StaycationTab';
 import { FlightTab } from './FlightTab';
+import { TripFeedScreen } from '../feed/TripFeedScreen';
+import { Compass } from 'lucide-react-native';
+import { TripRecapPost } from '../../types/tripRecap';
 
-type ExploreTabKey = 'fare' | 'staycation' | 'flights';
+type ExploreTabKey = 'fare' | 'staycation' | 'flights' | 'recaps';
 
 const EXPLORE_TABS: { key: ExploreTabKey; label: string; icon: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }> }[] = [
   { key: 'fare', label: 'Fare', icon: Ticket },
   { key: 'staycation', label: 'Staycation', icon: BedDouble },
   { key: 'flights', label: 'Flights', icon: Plane },
+  { key: 'recaps', label: 'Trips', icon: Compass },
 ];
 
 interface ExploreScreenProps {
   onScrollDirection?: (direction: 'up' | 'down') => void;
   onOpenCabinet?: () => void;
+  onSelectPost?: (post: TripRecapPost) => void;
 }
 
-export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection, onOpenCabinet }) => {
+export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection, onOpenCabinet, onSelectPost }) => {
   const { colors, isDark } = useTheme();
   const { sp } = useResponsive();
 
@@ -40,19 +45,17 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
 
   const activeLayout = tabLayouts[activeTab];
 
-  // Blue for fares, green for staycations, violet for flights.
+  // Blue for fares, green for staycations, violet for flights, teal for public trips.
   const accentFor = (key: ExploreTabKey): string =>
     key === 'fare'
       ? (isDark ? '#38BDF8' : '#4F86C6')
       : key === 'staycation'
         ? (isDark ? '#34D399' : '#2A8563')
-        : (isDark ? '#A78BFA' : '#7C3AED');
+        : key === 'flights'
+          ? (isDark ? '#A78BFA' : '#7C3AED')
+          : (isDark ? '#38BDF8' : '#3B7A9E');
 
   const activeAccent = accentFor(activeTab);
-
-  // Text/icon color on the filled accent pill: light theme uses darker accents
-  // (white text reads best), dark theme uses lighter accents (dark text reads best).
-  const activePillColor = isDark ? colors.paper : '#FFFFFF';
 
   // Bouncy spring slide (same feel as the trip planner day pill).
   useEffect(() => {
@@ -116,7 +119,9 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
                 {
                   left: slideAnim,
                   width: widthAnim,
-                  backgroundColor: activeAccent,
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  shadowColor: isDark ? '#000' : '#8A7F6A',
                 },
               ]}
             />
@@ -141,10 +146,10 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
               >
                 <IconComponent
                   size={15}
-                  color={isSelected ? activePillColor : colors.inkSoft}
+                  color={isSelected ? activeAccent : colors.inkSoft}
                   strokeWidth={isSelected ? 2.6 : 1.9}
                 />
-                <Text style={[styles.tabText, { color: isSelected ? activePillColor : colors.inkSoft }]}>
+                <Text style={[styles.tabText, { color: isSelected ? activeAccent : colors.inkSoft }]}>
                   {tab.label}
                 </Text>
               </TouchableOpacity>
@@ -158,8 +163,10 @@ export const ExploreScreen: React.FC<ExploreScreenProps> = ({ onScrollDirection,
         <FareTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
       ) : activeTab === 'staycation' ? (
         <StaycationTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
-      ) : (
+      ) : activeTab === 'flights' ? (
         <FlightTab accentColor={activeAccent} onScrollDirection={onScrollDirection} />
+      ) : (
+        <TripFeedScreen embedded onScrollDirection={onScrollDirection} onSelectPost={onSelectPost} />
       )}
     </SafeAreaView>
   );
@@ -171,13 +178,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderRadius: 26,
     padding: 4,
-    marginBottom: 6,
+    marginBottom: 14,
   },
   tabHighlight: {
     position: 'absolute',
     top: 4,
     bottom: 4,
     borderRadius: 22,
+    borderWidth: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 2,
   },
   tabItem: {
     flex: 1,

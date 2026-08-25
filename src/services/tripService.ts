@@ -1,7 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment, MemberCommitment } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
-import { sortItineraryChronological } from '../utils/tripDates';
+import { sortItineraryChronological, getTripDayInfo } from '../utils/tripDates';
 import { NotificationService } from './notificationService';
 
 const sagadaImg = require('../../assets/images/sagada.jpeg');
@@ -18,19 +19,47 @@ const cleanInviteField = (value: string | null, placeholders: string[]): string 
 export class TripService {
   private static instance: TripService;
 
+  private static STORAGE_ACTIVE_TRIP_ID = '@barkadash_selected_trip_id';
+  private static STORAGE_ACTIVE_TRIP_NAME = '@barkadash_selected_trip_name';
+
   private trips: Trip[] = [];
+  private reopenedTripIds: Set<string> = new Set();
 
   private activeTripId: string = '';
+  private activeTripName: string = '';
 
   private pollOptions: DestinationPollOption[] = [];
 
   private listeners: (() => void)[] = [];
+
+  private constructor() {
+    this.loadPersistedActiveTrip();
+  }
 
   public static getInstance(): TripService {
     if (!TripService.instance) {
       TripService.instance = new TripService();
     }
     return TripService.instance;
+  }
+
+  public async loadPersistedActiveTrip(): Promise<{ id: string; name: string }> {
+    try {
+      const [savedId, savedName] = await Promise.all([
+        AsyncStorage.getItem(TripService.STORAGE_ACTIVE_TRIP_ID),
+        AsyncStorage.getItem(TripService.STORAGE_ACTIVE_TRIP_NAME),
+      ]);
+      if (savedId) {
+        this.activeTripId = savedId;
+      }
+      if (savedName) {
+        this.activeTripName = savedName;
+      }
+      return { id: savedId || '', name: savedName || '' };
+    } catch (e) {
+      console.warn('loadPersistedActiveTrip error:', e);
+      return { id: '', name: '' };
+    }
   }
 
   public subscribe(listener: () => void) {
@@ -58,13 +87,42 @@ export class TripService {
   }
 
   public getActiveTrip(): Trip | null {
-    const found = this.trips.find((t) => t.id === this.activeTripId);
-    return found || this.trips[0] || null;
+    if (this.activeTripId) {
+      const found = this.trips.find((t) => t.id === this.activeTripId);
+      if (found) return found;
+    }
+    if (this.activeTripName) {
+      const foundByName = this.trips.find(
+        (t) => t.title.trim().toLowerCase() === this.activeTripName.trim().toLowerCase()
+      );
+      if (foundByName) {
+        this.activeTripId = foundByName.id;
+        return foundByName;
+      }
+    }
+    return this.trips[0] || null;
   }
 
   public setActiveTripId(id: string) {
     this.activeTripId = id;
+    const trip = this.trips.find((t) => t.id === id);
+    if (trip?.title) {
+      this.activeTripName = trip.title;
+      AsyncStorage.setItem(TripService.STORAGE_ACTIVE_TRIP_NAME, trip.title).catch(() => {});
+    }
+    AsyncStorage.setItem(TripService.STORAGE_ACTIVE_TRIP_ID, id).catch(() => {});
     this.notify();
+  }
+
+  /**
+   * Returns true if the trip is ended (status is 'Completed' or date range has passed without being reopened).
+   */
+  public isTripEnded(trip: Trip | { id?: string; status?: string; dateRange?: string } | null): boolean {
+    if (!trip) return false;
+    if (trip.status === 'Completed') return true;
+    if (trip.id && this.reopenedTripIds.has(trip.id)) return false;
+    const dayInfo = getTripDayInfo(trip.dateRange);
+    return !!dayInfo?.isEnded;
   }
 
   /**
@@ -408,13 +466,25 @@ export class TripService {
           // Pending or declined invites MUST NOT be shown as joined active trips!
           if (p.role !== 'host' && p.status !== 'accepted') continue;
 
+          const rawStatus = t.status || 'Active';
+          const dayInfo = getTripDayInfo(t.date_range);
+          const isPast = !!dayInfo?.isEnded;
+          const isReopened = this.reopenedTripIds.has(t.id);
+          const effectiveStatus: Trip['status'] = (rawStatus === 'Completed' || (isPast && !isReopened))
+            ? 'Completed'
+            : (rawStatus as Trip['status']);
+
+          if (isPast && rawStatus === 'Active' && !isReopened) {
+            supabase.from('trips').update({ status: 'Completed', updated_at: new Date().toISOString() }).eq('id', t.id).then();
+          }
+
           tripMap.set(t.id, {
             id: t.id,
             title: t.title,
             destination: t.destination || 'Voting in Progress',
             dateRange: t.date_range || 'Dates TBD',
             memberCount: 1,
-            status: t.status || 'Active',
+            status: effectiveStatus,
             imageUrl: elnidoEscapeImg,
             totalBudget: Number(t.total_budget) || 15000,
             spentAmount: Number(t.spent_amount) || 0,
@@ -438,13 +508,25 @@ export class TripService {
       if (hostedData && hostedData.length > 0) {
         for (const t of hostedData) {
           if (!tripMap.has(t.id)) {
+            const rawStatus = t.status || 'Active';
+            const dayInfo = getTripDayInfo(t.date_range);
+            const isPast = !!dayInfo?.isEnded;
+            const isReopened = this.reopenedTripIds.has(t.id);
+            const effectiveStatus: Trip['status'] = (rawStatus === 'Completed' || (isPast && !isReopened))
+              ? 'Completed'
+              : (rawStatus as Trip['status']);
+
+            if (isPast && rawStatus === 'Active' && !isReopened) {
+              supabase.from('trips').update({ status: 'Completed', updated_at: new Date().toISOString() }).eq('id', t.id).then();
+            }
+
             tripMap.set(t.id, {
               id: t.id,
               title: t.title,
               destination: t.destination || 'Voting in Progress',
               dateRange: t.date_range || 'Dates TBD',
               memberCount: 1,
-              status: t.status || 'Active',
+              status: effectiveStatus,
               imageUrl: elnidoEscapeImg,
               totalBudget: Number(t.total_budget) || 15000,
               spentAmount: Number(t.spent_amount) || 0,
@@ -491,11 +573,44 @@ export class TripService {
       this.trips = fetchedTrips;
 
       if (this.trips.length > 0) {
-        if (!this.trips.some((t) => t.id === this.activeTripId)) {
+        // 1. Try matching current activeTripId
+        let match = this.trips.find((t) => t.id === this.activeTripId);
+
+        // 2. Try matching activeTripName
+        if (!match && this.activeTripName) {
+          match = this.trips.find(
+            (t) => t.title.trim().toLowerCase() === this.activeTripName.trim().toLowerCase()
+          );
+        }
+
+        // 3. Try reading from persistent AsyncStorage if in-memory was empty
+        if (!match) {
+          try {
+            const [savedId, savedName] = await Promise.all([
+              AsyncStorage.getItem(TripService.STORAGE_ACTIVE_TRIP_ID),
+              AsyncStorage.getItem(TripService.STORAGE_ACTIVE_TRIP_NAME),
+            ]);
+            if (savedId) {
+              match = this.trips.find((t) => t.id === savedId);
+            }
+            if (!match && savedName) {
+              match = this.trips.find(
+                (t) => t.title.trim().toLowerCase() === savedName.trim().toLowerCase()
+              );
+            }
+          } catch (e) {}
+        }
+
+        if (match) {
+          this.activeTripId = match.id;
+          this.activeTripName = match.title;
+        } else {
           this.activeTripId = this.trips[0].id;
+          this.activeTripName = this.trips[0].title;
         }
       } else {
         this.activeTripId = '';
+        this.activeTripName = '';
       }
       this.notify();
 
@@ -1979,6 +2094,7 @@ export class TripService {
       }
 
       // Update local cache
+      this.reopenedTripIds.delete(tripId);
       this.trips = this.trips.map((t) =>
         t.id === tripId ? { ...t, status: 'Completed' as Trip['status'] } : t
       );
@@ -2037,6 +2153,14 @@ export class TripService {
         return { success: false, message: 'Only the trip host can reopen the trip.' };
       }
 
+      const tripTarget = this.trips.find((t) => t.id === tripId);
+      if (tripTarget) {
+        const dayInfo = getTripDayInfo(tripTarget.dateRange);
+        if (dayInfo?.isEnded) {
+          return { success: false, message: 'Cannot reopen a trip whose registered dates have already passed.' };
+        }
+      }
+
       const { error } = await supabase
         .from('trips')
         .update({
@@ -2051,6 +2175,7 @@ export class TripService {
       }
 
       // Update local cache
+      this.reopenedTripIds.add(tripId);
       this.trips = this.trips.map((t) =>
         t.id === tripId ? { ...t, status: 'Active' as Trip['status'] } : t
       );

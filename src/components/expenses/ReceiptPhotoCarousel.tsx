@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, View, Text, TouchableOpacity, Image, ScrollView, StyleSheet, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, Trash2 } from 'lucide-react-native';
 
 interface ReceiptPhotoCarouselProps {
   photos: string[];
-  initialIndex: number;
+  initialIndex?: number;
   visible: boolean;
   onClose: () => void;
   onDelete?: (index: number) => void;
@@ -15,18 +15,31 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 export const ReceiptPhotoCarousel: React.FC<ReceiptPhotoCarouselProps> = ({
   photos,
-  initialIndex,
+  initialIndex = 0,
   visible,
   onClose,
   onDelete,
 }) => {
   const insets = useSafeAreaInsets();
+  const validPhotos = (photos || []).filter(Boolean);
   const [index, setIndex] = useState(initialIndex);
 
-  if (!visible || photos.length === 0) return null;
+  useEffect(() => {
+    if (visible) {
+      setIndex(Math.min(Math.max(0, initialIndex), Math.max(0, validPhotos.length - 1)));
+    }
+  }, [visible, initialIndex, validPhotos.length]);
+
+  if (!visible || validPhotos.length === 0) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
       <View style={styles.container}>
         <ScrollView
           horizontal
@@ -36,7 +49,7 @@ export const ReceiptPhotoCarousel: React.FC<ReceiptPhotoCarouselProps> = ({
           onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_W))}
           style={styles.carousel}
         >
-          {photos.map((uri, i) => (
+          {validPhotos.map((uri, i) => (
             <Image key={i} source={{ uri }} resizeMode="contain" style={{ width: SCREEN_W, height: SCREEN_H }} />
           ))}
         </ScrollView>
@@ -45,9 +58,11 @@ export const ReceiptPhotoCarousel: React.FC<ReceiptPhotoCarouselProps> = ({
           <TouchableOpacity activeOpacity={0.8} onPress={onClose} style={styles.roundBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <X size={22} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.counter}>
-            {index + 1} / {photos.length}
-          </Text>
+          {validPhotos.length > 1 && (
+            <Text style={styles.counter}>
+              {index + 1} / {validPhotos.length}
+            </Text>
+          )}
           {onDelete && (
             <TouchableOpacity
               activeOpacity={0.8}
@@ -80,6 +95,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
+    zIndex: 100,
   },
   counter: {
     color: '#FFFFFF',

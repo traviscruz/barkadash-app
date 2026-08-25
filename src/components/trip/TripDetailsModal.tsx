@@ -149,19 +149,19 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
 
   const withinDates = trip ? isWithinTripDates(trip.dateRange) : false;
   const dayInfo = trip ? getTripDayInfo(trip.dateRange) : null;
-  const isTripCompleted = trip?.status === 'Completed';
+  const isTripCompleted = trip ? TripService.getInstance().isTripEnded(trip) : false;
 
-  // Tour has started ONLY if today is within trip dates and on/after Day 1
-  const hasTourStarted = !!withinDates && !dayInfo?.isBeforeStart;
+  // Tour has started ONLY if today is within trip dates and on/after Day 1, or already completed
+  const hasTourStarted = (!!withinDates && !dayInfo?.isBeforeStart) || isTripCompleted;
 
-  // Edit Tour: ONLY if the tour hasn't started yet
+  // Edit Tour: ONLY if the tour hasn't started yet and trip is NOT completed
   const canEditTour = isCurrentHost && !hasTourStarted && !isTripCompleted;
 
-  // End Tour (End Trip Early / Complete): ONLY if Day 1 has started
+  // End Tour (End Trip Early / Complete): ONLY if Day 1 has started and NOT completed
   const canEndTour = isCurrentHost && hasTourStarted && !isTripCompleted;
 
-  // Reopen Tour: ONLY if completed
-  const canReopenTour = isCurrentHost && isTripCompleted;
+  // Reopen Tour: ONLY if completed AND trip registered dates are not past today's date
+  const canReopenTour = isCurrentHost && isTripCompleted && !dayInfo?.isEnded;
 
   const confirmCompleteTrip = async () => {
     if (!trip || !profile?.id) return;

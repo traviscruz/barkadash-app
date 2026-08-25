@@ -15,6 +15,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
 import { SlideUpModal } from '../common/SlideUpModal';
+import { QrPhotoOverlay } from './QrPhotoOverlay';
 import { PaymentMethod, POPULAR_PROVIDERS } from '../../types/paymentMethod';
 import { PaymentMethodService } from '../../services/paymentMethodService';
 import { useTheme } from '../../context/ThemeContext';
@@ -261,6 +262,7 @@ export const MyPaymentMethodsModal: React.FC<MyPaymentMethodsModalProps> = ({
             backgroundColor: colors.paper,
             borderTopLeftRadius: 28,
             borderTopRightRadius: 28,
+            minHeight: Math.min(windowHeight * 0.82, 680),
             maxHeight: '94%',
             paddingHorizontal: 20,
             paddingBottom: Platform.OS === 'ios' ? 34 : 22,
@@ -314,7 +316,7 @@ export const MyPaymentMethodsModal: React.FC<MyPaymentMethodsModalProps> = ({
                 {formMode === 'add' ? 'Add E-Wallet / Bank Account' : 'Edit Account Details'}
               </Text>
 
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }} contentContainerStyle={{ paddingBottom: 16 }}>
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(windowHeight * 0.62, 540) }} contentContainerStyle={{ paddingBottom: 16 }}>
                 {/* Provider Selector Pills */}
                 <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.inkSoft, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }}>
                   Select Provider / Bank
@@ -621,7 +623,7 @@ export const MyPaymentMethodsModal: React.FC<MyPaymentMethodsModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 460 }} contentContainerStyle={{ paddingBottom: 12, gap: 10 }}>
+                <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: Math.min(windowHeight * 0.62, 540) }} contentContainerStyle={{ paddingBottom: 12, gap: 10 }}>
                   {methods.map((item) => {
                     const providerInfo = POPULAR_PROVIDERS.find((p) => p.name.toLowerCase() === item.provider.toLowerCase());
                     const badgeBg = providerInfo?.bgColor || (isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6');
@@ -920,118 +922,12 @@ export const MyPaymentMethodsModal: React.FC<MyPaymentMethodsModalProps> = ({
             </View>
           )}
 
-          {/* ======================= FULLSCREEN QR CODE VIEWER OVERLAY ======================= */}
-          {previewQrUrl && (
-            <View
-              style={{
-                position: 'absolute',
-                top: -windowHeight,
-                bottom: -windowHeight,
-                left: -windowWidth,
-                right: -windowWidth,
-                backgroundColor: 'rgba(0,0,0,0.85)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                paddingHorizontal: 20,
-                zIndex: 99999,
-                elevation: 999,
-              }}
-            >
-              <TouchableOpacity
-                style={StyleSheet.absoluteFillObject}
-                activeOpacity={1}
-                onPress={() => setPreviewQrUrl(null)}
-              />
-
-              {/* Close Floating Button */}
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setPreviewQrUrl(null)}
-                style={{
-                  position: 'absolute',
-                  top: Platform.OS === 'ios' ? 60 : 40,
-                  right: 20,
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(255,255,255,0.25)',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  zIndex: 100,
-                }}
-              >
-                <X size={22} color="#FFFFFF" />
-              </TouchableOpacity>
-
-              {/* Centered QR Card */}
-              <View
-                style={{
-                  width: '100%',
-                  maxWidth: 340,
-                  backgroundColor: '#FFFFFF',
-                  borderRadius: 28,
-                  padding: 24,
-                  alignItems: 'center',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 12 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 24,
-                  elevation: 12,
-                  transform: [
-                    {
-                      translateY: sheetHeight ? (sheetHeight - windowHeight) / 2 : 0,
-                    },
-                  ],
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-                  <QrCode size={18} color="#0D9488" />
-                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#111827' }}>
-                    My QR Code
-                  </Text>
-                </View>
-
-                <View
-                  style={{
-                    width: 250,
-                    height: 250,
-                    borderRadius: 16,
-                    overflow: 'hidden',
-                    backgroundColor: '#F9FAFB',
-                    borderWidth: 1,
-                    borderColor: '#E5E7EB',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <RNImage
-                    source={{ uri: previewQrUrl }}
-                    style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
-                  />
-                </View>
-
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#6B7280', marginTop: 14, textAlign: 'center' }}>
-                  Scan with GCash, Maya, or any banking app
-                </Text>
-
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setPreviewQrUrl(null)}
-                  style={{
-                    marginTop: 16,
-                    backgroundColor: '#F3F4F6',
-                    paddingVertical: 10,
-                    paddingHorizontal: 24,
-                    borderRadius: 100,
-                  }}
-                >
-                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#374151' }}>
-                    Done
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+          {/* ======================= FULLSCREEN QR VIEWER OVERLAY ======================= */}
+          <QrPhotoOverlay
+            uri={previewQrUrl}
+            onClose={() => setPreviewQrUrl(null)}
+            sheetHeight={sheetHeight}
+          />
         </View>
       </SlideUpModal>
     </>

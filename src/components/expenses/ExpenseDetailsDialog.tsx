@@ -80,26 +80,44 @@ export const ExpenseDetailsDialog: React.FC<ExpenseDetailsDialogProps> = ({
                 </View>
               </View>
 
-              <View style={{ borderColor: colors.cardBorder }} className="border-t mt-5 pt-5 space-y-4">
-                <View className="flex-row justify-between items-center">
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: colors.cardBorder,
+                  marginTop: 22,
+                  paddingTop: 18,
+                  gap: 16,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <User size={14} color={colors.inkSoft} />
-                    <Text style={{ fontSize: fs.xs, color: colors.inkSoft, fontWeight: '600' }}>Paid by</Text>
+                    <User size={15} color={colors.inkSoft} />
+                    <Text style={{ fontSize: fs.xs, color: colors.inkSoft, fontWeight: '700' }}>Paid by</Text>
                   </View>
                   <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>{payerDisplayName(expense, members)}</Text>
                 </View>
 
-                <View className="flex-row justify-between items-center">
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Split size={14} color={colors.inkSoft} />
-                    <Text style={{ fontSize: fs.xs, color: colors.inkSoft, fontWeight: '600' }}>Split</Text>
+                    <Split size={15} color={colors.inkSoft} />
+                    <Text style={{ fontSize: fs.xs, color: colors.inkSoft, fontWeight: '700' }}>Split</Text>
                   </View>
                   <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>
                     {isSolo ? 'Not split' : `${splitCount} ways · ${formatCurrency(share)} each`}
                   </Text>
                 </View>
 
-                <View style={{ borderColor: colors.cardBorder }} className="flex-row justify-between items-center pt-4 border-t">
+                <View
+                  style={{
+                    borderTopWidth: 1,
+                    borderTopColor: colors.cardBorder,
+                    paddingTop: 16,
+                    marginTop: 4,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
                   <Text style={{ fontSize: fs.sm, fontWeight: '900', color: colors.ink }}>Total</Text>
                   <Text style={{ fontSize: fs.md, fontWeight: '900', color: colors.tealDark }}>
                     {formatCurrency(expense.amount)}

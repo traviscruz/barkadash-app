@@ -786,6 +786,7 @@ const pillStyle = (bg: string): any => ({
 // ──────────────────────────────────────────────
 interface TripVotingPollsSectionProps {
   tripId: string;
+  isTripEnded?: boolean;
   onPollsUpdated?: () => void;
 }
 
@@ -794,7 +795,7 @@ type PollTab = 'place' | 'date';
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 const fmtRange = (s: Date, e: Date) => `${fmtDate(s)} – ${fmtDate(e)}`;
 
-export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ tripId, onPollsUpdated }) => {
+export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ tripId, isTripEnded, onPollsUpdated }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const { fs, scale } = useResponsive();
@@ -919,7 +920,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   }, [tripId, refresh]);
 
   const submitPlace = async () => {
-    if (!placeInput.trim()) return;
+    if (isTripEnded || !placeInput.trim()) return;
     await TripService.getInstance().addTripPollOptionDB({
       tripId,
       title: placeInput.trim(),
@@ -946,12 +947,14 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const submitDate = async (s: Date, e: Date) => {
+    if (isTripEnded) return;
     await TripService.getInstance().addTripPollOptionDB({ tripId, title: fmtRange(s, e), type: 'date', userId });
     setShowAddDate(false); setRangeStart(null); setRangeEnd(null);
     refresh();
   };
 
   const openEdit = (p: DestinationPollOption) => {
+    if (isTripEnded) return;
     setEditPoll(p); setEditTitle(p.title); setEditNote(p.subtitle || '');
     setEditPlace(p.placeId ? {
       placeId: p.placeId,
@@ -963,7 +966,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const saveEdit = async () => {
-    if (!editPoll) return;
+    if (isTripEnded || !editPoll) return;
     const title = editPoll.type === 'date' && editStart && editEnd ? fmtRange(editStart, editEnd) : editTitle.trim();
     await TripService.getInstance().updateTripPollOptionDB({
       pollId: editPoll.id,
@@ -979,6 +982,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const onVote = async (poll: DestinationPollOption) => {
+    if (isTripEnded) return;
     // Optimistic update — reflect the vote instantly (place & date sections independent)
     setPolls(prev => prev.map(p => {
       if (p.type !== poll.type) return p;
@@ -1010,7 +1014,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const confirmDelete = async () => {
-    if (!delPoll) return;
+    if (isTripEnded || !delPoll) return;
     setDeletingPoll(true);
     await TripService.getInstance().deleteTripPollOptionDB(delPoll.id, tripId);
     setDeletingPoll(false);
@@ -1018,6 +1022,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const saveDeadline = async (date: Date | null) => {
+    if (isTripEnded) return;
     const iso = date ? date.toISOString() : null;
     const isFutureDeadline = iso ? new Date(iso).getTime() > Date.now() : false;
 
@@ -1042,6 +1047,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   };
 
   const confirmLockTour = async () => {
+    if (isTripEnded) return;
     setLocking(true);
     const res = await TripService.getInstance().lockTripDB(tripId, userId);
     setLocking(false);
@@ -1198,9 +1204,9 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
         )}
       </View>
 
-      {/* Lock Tour (host only) — shown once there are votes to finalize */}
-      {isHost && polls.length > 0 && (
-        <View style={{ marginHorizontal: 14, marginTop: 12 }}>
+      {/* Host CTA: Lock in tour (sets destination & dates, locks voting) */}
+      {isHost && polls.length > 0 && !isTripEnded && (
+        <View style={{ marginHorizontal: 14, marginTop: 12, marginBottom: 4 }}>
           <TouchableOpacity
             onPress={() => setLockVisible(true)}
             activeOpacity={0.9}
@@ -1294,27 +1300,29 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
         </View>
 
         {/* Add option — round plus (ledger style) */}
-        <TouchableOpacity
-          onPress={() => activeTab === 'place' ? setShowAddPlace(true) : setShowAddDate(true)}
-          disabled={deadlinePassed}
-          activeOpacity={0.8}
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            backgroundColor: accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-            shadowColor: accent,
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            elevation: 4,
-            opacity: deadlinePassed ? 0.45 : 1,
-          }}
-        >
-          <Plus size={22} color="#FFF" strokeWidth={2.5} />
-        </TouchableOpacity>
+        {!isTripEnded && (
+          <TouchableOpacity
+            onPress={() => activeTab === 'place' ? setShowAddPlace(true) : setShowAddDate(true)}
+            disabled={deadlinePassed}
+            activeOpacity={0.8}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              shadowColor: accent,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 8,
+              elevation: 4,
+              opacity: deadlinePassed ? 0.45 : 1,
+            }}
+          >
+            <Plus size={22} color="#FFF" strokeWidth={2.5} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Cards */}
@@ -1330,11 +1338,13 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
               {activeTab === 'place' ? 'No places proposed yet' : 'No date ranges proposed yet'}
             </Text>
             <Text style={{ fontSize: fs.xs, color: muted, textAlign: 'center', marginTop: 4, fontWeight: '500', maxWidth: 260 }}>
-              {activeTab === 'place'
+              {isTripEnded
+                ? 'Trip has ended. Voting is closed.'
+                : activeTab === 'place'
                 ? 'Suggest a place for your barkada to vote on!'
                 : 'Propose dates that work best for your schedule!'}
             </Text>
-            {!deadlinePassed && (
+            {!deadlinePassed && !isTripEnded && (
               <TouchableOpacity
                 onPress={() => activeTab === 'place' ? setShowAddPlace(true) : setShowAddDate(true)}
                 style={[pill(accent), { marginTop: 14 }]}
@@ -1377,7 +1387,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
                     resizeMode="cover"
                   />
                 )}
-                {isOwn && (
+                {isOwn && !isTripEnded && (
                   <View style={S.photoActions}>
                     <TouchableOpacity onPress={() => openEdit(poll)} activeOpacity={0.8}
                       style={[S.ghostBtn, { backgroundColor: isDark ? 'rgba(10,30,40,0.7)' : 'rgba(255,255,255,0.9)' }]}>
@@ -1421,7 +1431,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
                 </View>
                 <TouchableOpacity
                   onPress={() => onVote(poll)}
-                  disabled={deadlinePassed}
+                  disabled={deadlinePassed || isTripEnded}
                   activeOpacity={0.8}
                   style={[
                     S.voteBtn,

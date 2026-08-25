@@ -18,6 +18,7 @@ import {
   LogOut,
   X,
   ChevronRight,
+  Heart,
 } from 'lucide-react-native';
 import { BarkadashLogo } from '../common/BarkadashLogo';
 import { useTheme } from '../../context/ThemeContext';
@@ -97,6 +98,7 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
     handleCloseAnimation(() => {
       if (action === 'profile') onNavigateToSubScreen('profile');
       else if (action === 'connections') onNavigateToSubScreen('connections');
+      else if (action === 'likes') onNavigateToSubScreen('my-likes');
       else if (action === 'settings') onNavigateToSubScreen('settings');
       else if (action === 'privacy') onNavigateToSubScreen('terms');
       else if (action === 'logout' && onLogout) onLogout();
@@ -178,6 +180,18 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
                   <Users size={18} color={colors.tealDark} />
                 </View>
                 <Text style={[styles.menuItemText, { color: colors.ink }]}>Connections</Text>
+              </TouchableOpacity>
+
+              {/* 2. My Likes */}
+              <TouchableOpacity
+                onPress={() => handleMenuClick('likes')}
+                activeOpacity={0.7}
+                style={styles.menuItem}
+              >
+                <View style={[styles.menuIconBox, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' }]}>
+                  <Heart size={18} color="#EF4444" fill="#EF4444" />
+                </View>
+                <Text style={[styles.menuItemText, { color: colors.ink }]}>My Likes</Text>
               </TouchableOpacity>
 
               {/* 2. Settings */}

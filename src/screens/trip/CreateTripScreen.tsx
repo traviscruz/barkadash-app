@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, SafeAreaView, TouchableOpacity, Text } from 'react-native';
+import { View, TouchableOpacity, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { HostJoinTripModal } from '../../components/trip/HostJoinTripModal';
 import { useTheme } from '../../context/ThemeContext';
 
