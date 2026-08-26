@@ -966,16 +966,17 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
                             >
                               {item.title}
                             </Text>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                              <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft }}>
-                                Day {item.dayNumber} {item.time ? `· ${item.time}` : ''}
-                              </Text>
-                              {item.location ? (
-                                <Text style={{ fontSize: 11, color: colors.inkSoft }} numberOfLines={1}>
-                                  · {item.location}
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}>
+                              Day {item.dayNumber} {item.time ? `· ${item.time}` : ''}
+                            </Text>
+                            {item.location ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                <MapPin size={11} color={colors.inkSoft} />
+                                <Text style={{ fontSize: 11, color: colors.inkSoft, flex: 1 }} numberOfLines={1}>
+                                  {item.location}
                                 </Text>
-                              ) : null}
-                            </View>
+                              </View>
+                            ) : null}
                           </View>
                         </View>
 

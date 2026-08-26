@@ -18,6 +18,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
+import * as TaskManager from 'expo-task-manager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   MapPin,
   Users,
@@ -188,6 +190,76 @@ const buildMembers = (
     };
   });
 
+const LOCATION_TASK_NAME = 'background-location-task';
+
+// Module-level background state cache for tracking
+const backgroundTrackingState = {
+  tripId: '',
+  userId: '',
+  userName: '',
+  battery: 100,
+  address: '',
+};
+
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+  if (error) {
+    console.error('[Background Location Task] error:', error);
+    return;
+  }
+  if (data) {
+    const { locations } = data as { locations: Location.LocationObject[] };
+    const location = locations[0];
+    if (!location) return;
+
+    let tripId = backgroundTrackingState.tripId;
+    let userId = backgroundTrackingState.userId;
+    let userName = backgroundTrackingState.userName;
+
+    if (!tripId || !userId) {
+      try {
+        const stored = await AsyncStorage.getItem('barkadash_radar_bg_state');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          tripId = parsed.tripId || '';
+          userId = parsed.userId || '';
+          userName = parsed.userName || '';
+        }
+      } catch (e) {
+        console.warn('Error reading bg state from async storage:', e);
+      }
+    }
+
+    if (!tripId || !userId) {
+      return;
+    }
+
+    const lat = location.coords.latitude;
+    const lng = location.coords.longitude;
+    const speed = location.coords.speed ?? null;
+
+    try {
+      const channelName = `radar:trip:${tripId}`;
+      const channel = supabase.channel(channelName);
+      await channel.send({
+        type: 'broadcast',
+        event: 'location_update',
+        payload: {
+          userId,
+          name: userName,
+          lat,
+          lng,
+          speed,
+          battery: backgroundTrackingState.battery,
+          address: backgroundTrackingState.address,
+          lastUpdated: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      console.warn('[Background Location Task] broadcast error:', err);
+    }
+  }
+});
+
 export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCabinet }) => {
   const { colors, isDark } = useTheme();
   const { sp, fs, insets, isTablet } = useResponsive();
@@ -237,8 +309,68 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
     lng: 120.9842,
   });
 
+  // Animated values for smooth 60fps map panning transitions
+  const centerLatAnim = useRef(new Animated.Value(center.lat)).current;
+  const centerLngAnim = useRef(new Animated.Value(center.lng)).current;
+  const zoomAnim = useRef(new Animated.Value(zoom)).current;
+
+  // Listeners to update the map rendering states on animation ticks
+  useEffect(() => {
+    const latId = centerLatAnim.addListener(({ value }) => {
+      setCenter((prev) => (prev.lat === value ? prev : { ...prev, lat: value }));
+    });
+    const lngId = centerLngAnim.addListener(({ value }) => {
+      setCenter((prev) => (prev.lng === value ? prev : { ...prev, lng: value }));
+    });
+    const zoomId = zoomAnim.addListener(({ value }) => {
+      setZoom(value);
+    });
+
+    return () => {
+      centerLatAnim.removeListener(latId);
+      centerLngAnim.removeListener(lngId);
+      zoomAnim.removeListener(zoomId);
+    };
+  }, []);
+
+  const animateMapTo = (targetLat: number, targetLng: number, targetZoom?: number) => {
+    centerLatAnim.stopAnimation();
+    centerLngAnim.stopAnimation();
+    zoomAnim.stopAnimation();
+
+    const animations = [
+      Animated.timing(centerLatAnim, {
+        toValue: targetLat,
+        duration: 800,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(centerLngAnim, {
+        toValue: targetLng,
+        duration: 800,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ];
+
+    if (targetZoom !== undefined) {
+      zoomAnim.setValue(zoom);
+      animations.push(
+        Animated.timing(zoomAnim, {
+          toValue: targetZoom,
+          duration: 800,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        })
+      );
+    }
+
+    Animated.parallel(animations).start();
+  };
+
   const { profile } = useUser();
   const currentUserId = profile?.id || '';
+  const myDisplayName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || profile?.username || 'Me';
 
   const [members, setMembers] = useState<MemberStatus[]>([]);
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
@@ -264,6 +396,26 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
     isWithinTripDates(activeTrip?.dateRange);
   const dayInfo = activeTrip ? getTripDayInfo(activeTrip?.dateRange) : null;
   const dateRangeParsed = activeTrip ? parseTripDateRange(activeTrip?.dateRange) : null;
+
+  // Sync background tracking details when active trip or profile changes
+  useEffect(() => {
+    if (activeTrip?.id && currentUserId) {
+      backgroundTrackingState.tripId = activeTrip.id;
+      backgroundTrackingState.userId = currentUserId;
+      backgroundTrackingState.userName = myDisplayName;
+      backgroundTrackingState.battery = myBattery;
+      backgroundTrackingState.address = myAddress;
+
+      AsyncStorage.setItem(
+        'barkadash_radar_bg_state',
+        JSON.stringify({
+          tripId: activeTrip.id,
+          userId: currentUserId,
+          userName: myDisplayName,
+        })
+      ).catch(() => {});
+    }
+  }, [activeTrip?.id, currentUserId, myDisplayName, myBattery, myAddress]);
 
   // 1. Real Device Battery Monitoring
   useEffect(() => {
@@ -306,8 +458,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
 
     async function startWatching() {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
+        const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+        if (fgStatus !== 'granted') {
           if (isMounted) {
             setLocationStatus('GPS Access Denied');
             setLoadingLocation(false);
@@ -315,6 +467,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
           return;
         }
 
+        // Active foreground position watch
         sub = await Location.watchPositionAsync(
           { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 2, timeInterval: 2000 },
           (loc) => {
@@ -334,6 +487,30 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             setLoadingLocation(false);
           }
         );
+
+        // Request background updates if supported (custom/development builds)
+        try {
+          const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+          if (fgStatus === 'granted' && bgStatus === 'granted') {
+            await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+              accuracy: Location.Accuracy.BestForNavigation,
+              timeInterval: 5000,
+              distanceInterval: 5,
+              showsBackgroundLocationIndicator: true,
+              foregroundService: {
+                notificationTitle: "Barkadash Radar",
+                notificationBody: "Barkadash is sharing your live location with your squad.",
+                notificationColor: "#0171F8"
+              }
+            });
+            console.log('[Radar] Background location updates started.');
+          } else {
+            console.log('[Radar] Background location permission denied.');
+          }
+        } catch (bgError) {
+          console.warn('[Radar] Background location updates could not start (Expo Go does not support background execution):', bgError);
+        }
+
       } catch (err) {
         console.log('Location error:', err);
         if (isMounted) {
@@ -348,6 +525,14 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
     return () => {
       isMounted = false;
       if (sub) sub.remove();
+      Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)
+        .then((started) => {
+          if (started) {
+            Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME).catch(() => {});
+            console.log('[Radar] Background location updates stopped.');
+          }
+        })
+        .catch(() => {});
     };
   }, [isEventDate]);
 
@@ -371,7 +556,6 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
       .catch(() => {});
   }, [isEventDate, myLoc]);
 
-  const myDisplayName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || profile?.username || 'Me';
 
   // 4. Supabase Realtime Live Broadcast & Peer Location Sync (strictly on event dates only)
   useEffect(() => {
@@ -585,6 +769,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
             const nextZoom = Math.min(18, Math.max(3, initialPinchZoom.current + Math.log2(ratio)));
             setZoom(nextZoom);
             zoomRef.current = nextZoom;
+            zoomAnim.setValue(nextZoom);
           }
         } else if (touches && touches.length === 1 && lastTouchPos.current) {
           // Smooth Drag Panning
@@ -598,10 +783,16 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
           const deltaLng = (-dx / scale) * 360;
           const deltaLat = (dy / scale) * 180;
 
-          setCenter((prev) => ({
-            lat: Math.max(-85, Math.min(85, prev.lat + deltaLat)),
-            lng: ((prev.lng + deltaLng + 180) % 360) - 180,
-          }));
+          setCenter((prev) => {
+            const nextLat = Math.max(-85, Math.min(85, prev.lat + deltaLat));
+            const nextLng = ((prev.lng + deltaLng + 180) % 360) - 180;
+
+            // Sync animated values during manual dragging
+            centerLatAnim.setValue(nextLat);
+            centerLngAnim.setValue(nextLng);
+
+            return { lat: nextLat, lng: nextLng };
+          });
         }
       },
       onPanResponderRelease: () => {
@@ -613,14 +804,13 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
 
   const handleSelectMember = (m: MemberStatus) => {
     setSelectedMemberId(m.id);
-    setCenter({ lat: m.lat, lng: m.lng });
+    animateMapTo(m.lat, m.lng);
   };
 
   const handleLocateMe = () => {
     const me = members.find((m) => m.isMe) || members[0];
     setSelectedMemberId(me.id);
-    setCenter({ lat: me.lat, lng: me.lng });
-    setZoom(15.0);
+    animateMapTo(me.lat, me.lng, 15.0);
   };
 
   const handleToggleStyle = () => {
