@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings, Coffee, Palmtree, Sun, Mountain, ShoppingBag, Landmark } from 'lucide-react-native';
 import { isWithinTripDates, getTripDayInfo, getTodayTripDay, sortItineraryChronological, parseTripDateRange, tripDayCount as calcTripDayCount } from '../../utils/tripDates';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
@@ -55,6 +55,74 @@ interface TripPlannerScreenProps {
   onViewInvitation?: () => void;
 }
 
+const getSpotCategoryMeta = (category?: string, name?: string) => {
+  const cat = (category || '').toUpperCase();
+  const n = (name || '').toLowerCase();
+  if (cat === 'DINING' || cat === 'FOOD') {
+    return { Icon: Utensils, color: '#D97706', bg: '#FEF3C7', darkBg: 'rgba(217, 119, 6, 0.18)', label: 'Dining' };
+  }
+  if (cat === 'CAFES' || cat === 'CAFE') {
+    return { Icon: Coffee, color: '#B45309', bg: '#FDF0CD', darkBg: 'rgba(180, 83, 9, 0.18)', label: 'Cafe' };
+  }
+  if (cat === 'STAYS' || cat === 'HOTEL' || cat === 'STAY') {
+    return { Icon: BedDouble, color: '#2563EB', bg: '#DBEAFE', darkBg: 'rgba(37, 99, 235, 0.18)', label: 'Stay' };
+  }
+  if (cat === 'BEACH') {
+    return { Icon: Palmtree, color: '#059669', bg: '#D1FAE5', darkBg: 'rgba(5, 150, 105, 0.18)', label: 'Beach' };
+  }
+  if (cat === 'SUNSET') {
+    return { Icon: Sun, color: '#EA580C', bg: '#FFEDD5', darkBg: 'rgba(234, 88, 12, 0.18)', label: 'Sunset' };
+  }
+  if (cat === 'NATURE') {
+    return { Icon: Mountain, color: '#16A34A', bg: '#DCFCE7', darkBg: 'rgba(22, 163, 74, 0.18)', label: 'Nature' };
+  }
+  if (cat === 'ADVENTURE') {
+    return { Icon: Compass, color: '#0D9488', bg: '#CCFBF1', darkBg: 'rgba(13, 148, 136, 0.18)', label: 'Adventure' };
+  }
+  if (cat === 'NIGHTLIFE') {
+    return { Icon: Sparkles, color: '#8B5CF6', bg: '#EDE9FE', darkBg: 'rgba(139, 92, 246, 0.18)', label: 'Nightlife' };
+  }
+  if (cat === 'SHOPPING') {
+    return { Icon: ShoppingBag, color: '#DB2777', bg: '#FCE7F3', darkBg: 'rgba(219, 39, 119, 0.18)', label: 'Shopping' };
+  }
+  if (cat === 'CULTURE') {
+    return { Icon: Landmark, color: '#7C3AED', bg: '#EDE9FE', darkBg: 'rgba(124, 58, 237, 0.18)', label: 'Culture' };
+  }
+  if (cat === 'TRANSPORT') {
+    return { Icon: MapPin, color: '#0284C7', bg: '#E0F2FE', darkBg: 'rgba(2, 132, 199, 0.18)', label: 'Transport' };
+  }
+  if (cat === 'MEETUP') {
+    return { Icon: Users, color: '#4F46E5', bg: '#EEF2FF', darkBg: 'rgba(79, 70, 229, 0.18)', label: 'Meetup' };
+  }
+
+  // Name based heuristics for uncategorized itinerary items
+  if (n.includes('food') || n.includes('restaurant') || n.includes('grill') || n.includes('eatery') || n.includes('diner') || n.includes('carinderia') || n.includes('lunch') || n.includes('dinner') || n.includes('breakfast') || n.includes('buffet') || n.includes('meal')) {
+    return { Icon: Utensils, color: '#D97706', bg: '#FEF3C7', darkBg: 'rgba(217, 119, 6, 0.18)', label: 'Dining' };
+  }
+  if (n.includes('cafe') || n.includes('coffee') || n.includes('bakery') || n.includes('kape') || n.includes('tea') || n.includes('snack') || n.includes('dessert') || n.includes('halo-halo')) {
+    return { Icon: Coffee, color: '#B45309', bg: '#FDF0CD', darkBg: 'rgba(180, 83, 9, 0.18)', label: 'Cafe' };
+  }
+  if (n.includes('hotel') || n.includes('resort') || n.includes('inn') || n.includes('stay') || n.includes('villa') || n.includes('hostel')) {
+    return { Icon: BedDouble, color: '#2563EB', bg: '#DBEAFE', darkBg: 'rgba(37, 99, 235, 0.18)', label: 'Stay' };
+  }
+  if (n.includes('beach') || n.includes('island') || n.includes('cove') || n.includes('shore')) {
+    return { Icon: Palmtree, color: '#059669', bg: '#D1FAE5', darkBg: 'rgba(5, 150, 105, 0.18)', label: 'Beach' };
+  }
+  if (n.includes('sunset') || n.includes('sunrise') || n.includes('viewpoint') || n.includes('overlook')) {
+    return { Icon: Sun, color: '#EA580C', bg: '#FFEDD5', darkBg: 'rgba(234, 88, 12, 0.18)', label: 'Sunset' };
+  }
+  if (n.includes('mountain') || n.includes('falls') || n.includes('lake') || n.includes('park') || n.includes('trail') || n.includes('forest') || n.includes('hike') || n.includes('trek')) {
+    return { Icon: Mountain, color: '#16A34A', bg: '#DCFCE7', darkBg: 'rgba(22, 163, 74, 0.18)', label: 'Nature' };
+  }
+  if (n.includes('mall') || n.includes('market') || n.includes('shop') || n.includes('store') || n.includes('pasalubong')) {
+    return { Icon: ShoppingBag, color: '#DB2777', bg: '#FCE7F3', darkBg: 'rgba(219, 39, 119, 0.18)', label: 'Shopping' };
+  }
+  if (n.includes('museum') || n.includes('church') || n.includes('shrine') || n.includes('heritage') || n.includes('cathedral') || n.includes('temple')) {
+    return { Icon: Landmark, color: '#7C3AED', bg: '#EDE9FE', darkBg: 'rgba(124, 58, 237, 0.18)', label: 'Culture' };
+  }
+  return { Icon: Compass, color: '#0D9488', bg: '#CCFBF1', darkBg: 'rgba(13, 148, 136, 0.18)', label: category || 'Activity' };
+};
+
 interface SpotCardProps {
   spot: AiSpot;
   isPicked: boolean;
@@ -71,16 +139,16 @@ interface SpotCardProps {
 }
 
 /**
- * Self-contained spot card with its own zoom animation: the image springs
- * to 1.12 when picked and springs back out to 1 when deselected, so switching
- * cards always feels seamless (old one zooms out while the new one zooms in).
+ * Self-contained spot card with vibrant category icon badge.
  */
 const SpotCard: React.FC<SpotCardProps> = ({ spot, isPicked, isDark, teal, width, imgHeight, titleSize, gap, borderLight, textDark, subtleDark, onPress }) => {
   const scale = useRef(new Animated.Value(1)).current;
+  const meta = getSpotCategoryMeta(spot.category, spot.name);
+  const IconComponent = meta.Icon;
 
   useEffect(() => {
     Animated.spring(scale, {
-      toValue: isPicked ? 1.12 : 1,
+      toValue: isPicked ? 1.06 : 1,
       useNativeDriver: true,
       stiffness: 170,
       damping: 24,
@@ -88,18 +156,29 @@ const SpotCard: React.FC<SpotCardProps> = ({ spot, isPicked, isDark, teal, width
     }).start();
   }, [isPicked, scale]);
 
+  const spotPhotoUrl = spot.photoReference ? getPlacePhotoUrl(spot.photoReference, 400) : '';
+
   return (
     <TouchableOpacity onPress={() => onPress(spot)} activeOpacity={0.85} style={{ width }}>
       <View style={{ padding: 3, borderRadius: 19, backgroundColor: isPicked ? teal : 'transparent', marginBottom: gap }}>
         <View style={{ height: imgHeight, backgroundColor: borderLight, borderRadius: 16, overflow: 'hidden' }}>
-          {spot.photoReference ? (
+          {spotPhotoUrl ? (
             <Animated.View style={{ width: '100%', height: '100%', transform: [{ scale }] }}>
-              <ShimmerImage source={{ uri: getPlacePhotoUrl(spot.photoReference, 400) }} style={{ width: '100%', height: '100%' }} borderRadius={16} />
+              <ShimmerImage source={{ uri: spotPhotoUrl }} style={{ width: '100%', height: '100%' }} borderRadius={16} />
             </Animated.View>
           ) : (
-            <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EFF3EA' }}>
-              <Compass size={22} color={teal} />
-            </View>
+            <Animated.View
+              style={{
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: isDark ? meta.darkBg : meta.bg,
+                transform: [{ scale }],
+              }}
+            >
+              <IconComponent size={24} color={meta.color} strokeWidth={2.2} />
+            </Animated.View>
           )}
         </View>
       </View>
@@ -691,14 +770,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
           if (result.error) setSpotsError('Could not load suggestions. Try again in a moment.');
         }
         setAiSpots(spots);
-        // Prefetch all spot photos so tapping a card swaps the Navi suggestion
-        // image instantly with no shimmer/loading delay.
-        spots.forEach((s) => {
-          if (s.photoReference) {
-            Image.prefetch(getPlacePhotoUrl(s.photoReference, 900)).catch(() => {});
-            Image.prefetch(getPlacePhotoUrl(s.photoReference, 400)).catch(() => {});
-          }
-        });
         const featured = spots.find((s) => s.isFeatured) || spots[0] || null;
         setSelectedSpot((prev) => {
           if (prev && spots.some((s) => s.placeId === prev.placeId)) return prev;
@@ -1284,15 +1355,36 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                   const likers = (stay.reactions || []).filter((r) => r.reaction === 'like');
                   const dislikers = (stay.reactions || []).filter((r) => r.reaction === 'dislike');
                   const stayComments = stay.comments || [];
+                  const stayPhotoUrl = stay.photoReference ? getPlacePhotoUrl(stay.photoReference, 900) : '';
                   return (
                     <View key={stay.id} style={{ backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.cardBorder, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 }}>
                       {/* Cover / placeholder */}
                       <View>
-                        {stay.photoReference ? (
-                          <ShimmerImage source={{ uri: getPlacePhotoUrl(stay.photoReference, 900) }} style={{ width: '100%', height: isTablet ? 180 : 150 }} />
+                        {stayPhotoUrl ? (
+                          <ShimmerImage source={{ uri: stayPhotoUrl }} style={{ width: '100%', height: isTablet ? 180 : 150 }} />
                         ) : (
-                          <View style={{ width: '100%', height: isTablet ? 180 : 150, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EFF3EA' }}>
-                            <BedDouble size={36} color={colors.tealDark} strokeWidth={1.8} />
+                          <View
+                            style={{
+                              width: '100%',
+                              height: isTablet ? 180 : 150,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              backgroundColor: isDark ? 'rgba(37, 99, 235, 0.16)' : '#DBEAFE',
+                            }}
+                          >
+                            <BedDouble size={40} color="#2563EB" strokeWidth={2} />
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '800',
+                                color: '#2563EB',
+                                marginTop: 6,
+                                letterSpacing: 0.8,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              Stay
+                            </Text>
                           </View>
                         )}
 
@@ -1338,22 +1430,18 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                         </View>
 
                         {/* Link + directions */}
-                        {(!!stay.link || stay.placeId) && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                            {!!stay.link && (
-                              <TouchableOpacity onPress={() => openStayLink(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
-                                <LinkIcon size={11} color={colors.tealDark} strokeWidth={2.4} />
-                                <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>Booking Link</Text>
-                              </TouchableOpacity>
-                            )}
-                            {(stay.placeId || stay.placeAddress) && (
-                              <TouchableOpacity onPress={() => openStayDirections(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
-                                <Navigation size={11} color={colors.tealDark} strokeWidth={2.4} />
-                                <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>Directions</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        )}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                          {!!stay.link && (
+                            <TouchableOpacity onPress={() => openStayLink(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
+                              <LinkIcon size={11} color={colors.tealDark} strokeWidth={2.4} />
+                              <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>Booking Link</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity onPress={() => openStayDirections(stay)} activeOpacity={0.85} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 6, borderRadius: 100, borderWidth: 1, borderColor: colors.tealDark, backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB' }}>
+                            <Navigation size={11} color={colors.tealDark} strokeWidth={2.4} />
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>View in Google Maps</Text>
+                          </TouchableOpacity>
+                        </View>
 
                         {!!stay.note && (
                           <View style={{ borderTopWidth: 1, borderTopColor: COLORS.borderLight, paddingTop: 6, marginTop: 8 }}>
@@ -1606,6 +1694,9 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 {itineraryItems.map((item, idx) => {
                   const isCompleted = completedItems[item.id] !== undefined ? completedItems[item.id] : !!item.isCompleted;
                   const isMine = item.createdBy === profile?.id;
+                  const itemPhotoUrl = item.photoReference ? getPlacePhotoUrl(item.photoReference, 900) : '';
+                  const itemMeta = getSpotCategoryMeta(item.tag || item.category, item.title);
+                  const ItemIcon = itemMeta.Icon;
                   const tagIcon = item.tag === 'TRANSPORT' ? <MapPin size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />
                     : item.tag === 'FOOD' ? <Utensils size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />
                     : item.tag === 'MEETUP' ? <Users size={10} color={colors.orangeAccent} style={{ marginRight: 4 }} />
@@ -1670,100 +1761,106 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                           activeOpacity={0.88}
                           onPress={isTripEnded ? undefined : () => toggleItemCompletion(item)}
                         >
-                          {!!item.photoReference ? (
-                            <View style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                          {/* Image Banner / Category Icon Container */}
+                          <View style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
+                            {itemPhotoUrl ? (
                               <ShimmerImage
-                                source={{ uri: getPlacePhotoUrl(item.photoReference, 900) }}
+                                source={{ uri: itemPhotoUrl }}
                                 style={{ width: '100%', height: itineraryImgHeight }}
                                 borderRadius={14}
                               />
-
-                              {/* Badges overlaid on the image (bottom-left) */}
-                              <View style={{ position: 'absolute', left: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 }}>
-                                <View
+                            ) : (
+                              <View
+                                style={{
+                                  width: '100%',
+                                  height: itineraryImgHeight,
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor: isDark ? itemMeta.darkBg : itemMeta.bg,
+                                  borderRadius: 14,
+                                }}
+                              >
+                                <ItemIcon size={34} color={itemMeta.color} strokeWidth={2.2} />
+                                <Text
                                   style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    backgroundColor: 'rgba(0,0,0,0.55)',
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 4,
-                                    borderRadius: 6,
+                                    fontSize: 10,
+                                    fontWeight: '800',
+                                    color: itemMeta.color,
+                                    marginTop: 4,
+                                    letterSpacing: 0.8,
+                                    textTransform: 'uppercase',
                                   }}
                                 >
-                                  {tagIcon}
-                                  <Text style={{ fontSize: 9, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 }}>
-                                    {item.tag || item.category}
-                                  </Text>
-                                </View>
+                                  {itemMeta.label}
+                                </Text>
                               </View>
+                            )}
 
-                              {/* Edit / Delete always on top of the image (top-right) */}
-                              {isMine && !isTripEnded && (
-                                <View style={{ position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6, zIndex: 3 }}>
-                                  <TouchableOpacity
-                                    onPress={() => openEditItinerary(item)}
-                                    hitSlop={8}
-                                    style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.95)' }}
-                                  >
-                                    <Pencil size={12} color={colors.tealDark} />
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    onPress={() => setItemToDelete(item)}
-                                    hitSlop={8}
-                                    style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.95)' }}
-                                  >
-                                    <Trash2 size={12} color="#EF4444" />
-                                  </TouchableOpacity>
-                                </View>
-                              )}
-
-                              {/* Get Directions — bottom-right over the image */}
-                              {(item.placeId || item.placeAddress || item.placeName) && (
-                                <TouchableOpacity
-                                  onPress={() => openDirections(item)}
-                                  activeOpacity={0.85}
-                                  style={{
-                                    position: 'absolute',
-                                    right: 8,
-                                    bottom: 8,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 5,
-                                    backgroundColor: 'rgba(0,0,0,0.62)',
-                                    paddingHorizontal: 11,
-                                    paddingVertical: 6,
-                                    borderRadius: 100,
-                                    zIndex: 2,
-                                  }}
-                                >
-                                  <Navigation size={12} color="#FFFFFF" strokeWidth={2.4} />
-                                  <Text style={{ fontSize: 10.5, fontWeight: '800', color: '#FFFFFF' }}>
-                                    Get Directions
-                                  </Text>
-                                </TouchableOpacity>
-                              )}
-                            </View>
-                          ) : (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.lightOrangeBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                            {/* Badges overlaid on the banner (bottom-left) */}
+                            <View style={{ position: 'absolute', left: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 2 }}>
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: 'rgba(0,0,0,0.58)',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: 6,
+                                }}
+                              >
                                 {tagIcon}
-                                <Text style={{ fontSize: 9, fontWeight: '800', color: colors.orangeAccent, letterSpacing: 1 }}>
+                                <Text style={{ fontSize: 9, fontWeight: '800', color: '#FFFFFF', letterSpacing: 1 }}>
                                   {item.tag || item.category}
                                 </Text>
                               </View>
-
-                              {isMine && !isTripEnded && (
-                                <View style={{ flexDirection: 'row', gap: 6 }}>
-                                  <TouchableOpacity onPress={() => openEditItinerary(item)} hitSlop={8} style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9' }}>
-                                    <Pencil size={11} color={colors.tealDark} />
-                                  </TouchableOpacity>
-                                  <TouchableOpacity onPress={() => setItemToDelete(item)} hitSlop={8} style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : '#FCE8E6' }}>
-                                    <Trash2 size={11} color="#EF4444" />
-                                  </TouchableOpacity>
-                                </View>
-                              )}
                             </View>
-                          )}
+
+                            {/* Edit / Delete always on top of the banner (top-right) */}
+                            {isMine && !isTripEnded && (
+                              <View style={{ position: 'absolute', top: 8, right: 8, flexDirection: 'row', gap: 6, zIndex: 3 }}>
+                                <TouchableOpacity
+                                  onPress={() => openEditItinerary(item)}
+                                  hitSlop={8}
+                                  style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.95)' }}
+                                >
+                                  <Pencil size={12} color={colors.tealDark} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  onPress={() => setItemToDelete(item)}
+                                  hitSlop={8}
+                                  style={{ width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.95)' }}
+                                >
+                                  <Trash2 size={12} color="#EF4444" />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {/* View in Google Maps / Directions — bottom-right over the banner */}
+                            {(item.placeId || item.placeAddress || item.placeName || item.location) && (
+                              <TouchableOpacity
+                                onPress={() => openDirections(item)}
+                                activeOpacity={0.85}
+                                style={{
+                                  position: 'absolute',
+                                  right: 8,
+                                  bottom: 8,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  backgroundColor: 'rgba(0,0,0,0.62)',
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 5,
+                                  borderRadius: 100,
+                                  zIndex: 2,
+                                }}
+                              >
+                                <Navigation size={11} color="#FFFFFF" strokeWidth={2.4} />
+                                <Text style={{ fontSize: 10, fontWeight: '800', color: '#FFFFFF' }}>
+                                  View in Maps
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
 
                           <View style={{ marginBottom: 4 }}>
                             <Text
@@ -1793,32 +1890,6 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                             </View>
                           )}
                         </TouchableOpacity>
-
-                        {/* Get Directions — only for real places/spots (inline when there's no image) */}
-                        {!item.photoReference && (item.placeId || item.placeAddress || item.placeName) && (
-                          <TouchableOpacity
-                            onPress={() => openDirections(item)}
-                            activeOpacity={0.8}
-                            style={{
-                              alignSelf: 'flex-start',
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 5,
-                              paddingHorizontal: 11,
-                              paddingVertical: 6,
-                              borderRadius: 100,
-                              borderWidth: 1,
-                              borderColor: colors.tealDark,
-                              backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
-                              marginBottom: 8,
-                            }}
-                          >
-                            <Navigation size={12} color={colors.tealDark} strokeWidth={2.4} />
-                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.tealDark }}>
-                              Get Directions
-                            </Text>
-                          </TouchableOpacity>
-                        )}
 
                           {/* Reactions */}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 }}>
@@ -2009,15 +2080,43 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
 
                 {selectedSpot ? (
                   <>
-                    <View style={{ height: imgHeight, marginBottom: sp.md, borderRadius: 16, overflow: 'hidden' }}>
-                      {selectedSpot.photoReference ? (
-                        <ShimmerImage source={{ uri: getPlacePhotoUrl(selectedSpot.photoReference, 900) }} style={{ width: '100%', height: '100%' }} borderRadius={16} />
-                      ) : (
-                        <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#EFF3EA' }}>
-                          <Compass size={32} color={colors.tealDark} />
+                    {(() => {
+                      const spotMeta = getSpotCategoryMeta(selectedSpot.category, selectedSpot.name);
+                      const IconComponent = spotMeta.Icon;
+                      const selectedSpotPhotoUrl = selectedSpot.photoReference ? getPlacePhotoUrl(selectedSpot.photoReference, 900) : '';
+                      return (
+                        <View style={{ height: imgHeight, marginBottom: sp.md, borderRadius: 16, overflow: 'hidden' }}>
+                          {selectedSpotPhotoUrl ? (
+                            <ShimmerImage source={{ uri: selectedSpotPhotoUrl }} style={{ width: '100%', height: '100%' }} borderRadius={16} />
+                          ) : (
+                            <View
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: isDark ? spotMeta.darkBg : spotMeta.bg,
+                                borderRadius: 16,
+                              }}
+                            >
+                              <IconComponent size={36} color={spotMeta.color} strokeWidth={2} />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: '800',
+                                  color: spotMeta.color,
+                                  marginTop: 6,
+                                  letterSpacing: 0.8,
+                                  textTransform: 'uppercase',
+                                }}
+                              >
+                                {spotMeta.label}
+                              </Text>
+                            </View>
+                          )}
                         </View>
-                      )}
-                    </View>
+                      );
+                    })()}
 
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                       <Text style={{ fontSize: fs.xl, fontWeight: '900', color: COLORS.textDark, flex: 1, marginRight: sp.sm }}>
@@ -2033,29 +2132,60 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                       <Text numberOfLines={1} style={{ flex: 1, fontSize: 11, fontWeight: '800', color: COLORS.subtleDark, letterSpacing: 0, marginRight: sp.sm }}>
                         {selectedSpot.address}
                       </Text>
-                      <Text style={{ fontSize: 11, fontWeight: '900', color: '#F59E0B' }}>
-                        {selectedSpot.rating ? `${selectedSpot.rating.toFixed(1)}★` : ''}
-                      </Text>
+                      {!!selectedSpot.rating && (
+                        <Text style={{ fontSize: 11, fontWeight: '900', color: '#F59E0B' }}>
+                          {selectedSpot.rating.toFixed(1)}★
+                        </Text>
+                      )}
                     </View>
 
                     <Text style={{ fontSize: 12, fontWeight: '500', color: COLORS.textDark, lineHeight: 18, marginBottom: sp.lg }}>
                       {selectedSpot.description}
                     </Text>
 
-                    <TouchableOpacity
-                      onPress={isTripEnded ? undefined : () => openAddSpotToItinerary(selectedSpot)}
-                      disabled={isTripEnded}
-                      style={{
-                        backgroundColor: isTripEnded ? (isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0') : colors.tealDark,
-                        paddingVertical: sp.md,
-                        borderRadius: 14,
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Text style={{ color: isTripEnded ? colors.inkSoft : '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>
-                        {isTripEnded ? 'Trip Ended · Read-Only' : 'Add to Itinerary'}
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const query = `${selectedSpot.name} ${selectedSpot.address}`.trim();
+                          const dest = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+                          Linking.openURL(dest).catch(() => {});
+                        }}
+                        activeOpacity={0.85}
+                        style={{
+                          flex: 1,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6,
+                          paddingVertical: sp.md,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: colors.tealDark,
+                          backgroundColor: isDark ? 'rgba(59,122,158,0.18)' : '#EBF5FB',
+                        }}
+                      >
+                        <Navigation size={13} color={colors.tealDark} strokeWidth={2.4} />
+                        <Text style={{ color: colors.tealDark, fontSize: 12, fontWeight: '800' }}>
+                          View in Maps
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={isTripEnded ? undefined : () => openAddSpotToItinerary(selectedSpot)}
+                        disabled={isTripEnded}
+                        style={{
+                          flex: 1.4,
+                          backgroundColor: isTripEnded ? (isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0') : colors.tealDark,
+                          paddingVertical: sp.md,
+                          borderRadius: 14,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Text style={{ color: isTripEnded ? colors.inkSoft : '#FFFFFF', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 }}>
+                          {isTripEnded ? 'Trip Ended' : 'Add to Itinerary'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </>
                 ) : (
                   <Text style={{ fontSize: 12, fontWeight: '600', color: COLORS.subtleDark, textAlign: 'center', paddingVertical: sp.xl }}>

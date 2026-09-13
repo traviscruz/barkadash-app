@@ -241,11 +241,40 @@ async function testDuffel() {
   }
 }
 
+async function testTravelTime() {
+  logHeader('Testing TravelTime Geocoding & Search API');
+  const key = env.EXPO_PUBLIC_TRAVELTIME_API_KEY || 'b9ed88a4831fc4a051cd76351e00ce49';
+  const appId = env.EXPO_PUBLIC_TRAVELTIME_APP_ID || '803438e6';
+  if (!key || !appId) {
+    console.log(`${colors.red}✗ Missing TravelTime Key / App ID in .env.local${colors.reset}`);
+    return;
+  }
+  try {
+    const url = `https://api.traveltimeapp.com/v4/geocoding/search?query=Boracay&within.country=PH`;
+    const res = await fetch(url, {
+      headers: {
+        'X-Application-Id': appId,
+        'X-Api-Key': key,
+        'Accept-Language': 'en-US'
+      }
+    });
+    const json = await res.json();
+    if (res.ok && Array.isArray(json.features)) {
+      console.log(`${colors.green}✓ TravelTime API Connected Successfully (HTTP ${res.status})${colors.reset}`);
+      console.log(`${colors.green}✓ Search "Boracay" returned ${json.features.length} accurate spots${colors.reset}`);
+    } else {
+      console.log(`${colors.red}✗ TravelTime API failed: HTTP ${res.status} (${json.description || 'Unknown'})${colors.reset}`);
+    }
+  } catch (e) {
+    console.log(`${colors.red}✗ Error connecting to TravelTime: ${e.message}${colors.reset}`);
+  }
+}
+
 async function testGooglePlaces() {
   logHeader('Testing Google Places API');
   const key = env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
   if (!key) {
-    console.log(`${colors.red}✗ Missing Google Places Key in .env.local${colors.reset}`);
+    console.log(`${colors.yellow}ℹ Google Places Key not configured (using TravelTime API instead)${colors.reset}`);
     return;
   }
   try {
@@ -354,6 +383,7 @@ async function main() {
   await testFlightApi('Primary Key', env.EXPO_PUBLIC_FLIGHTAPI_KEY);
   await testFlightApi('Backup Key', env.EXPO_PUBLIC_FLIGHTAPI_KEY_BACKUP);
   await testDuffel();
+  await testTravelTime();
   await testGooglePlaces();
   await testOpenWeather();
   await testGemini('Primary Chat Brain', 'EXPO_PUBLIC_GEMINI_API_KEY');

@@ -21,7 +21,7 @@ import { useResponsive } from '../../utils/responsive';
 import { TripService } from '../../services/tripService';
 import { supabase } from '../../utils/supabase';
 import { DestinationPollOption } from '../../types/trip';
-import { getPlacePhotoUrl, searchPlaces, getPlaceDetails, PlaceSelection, PlacePrediction, PlacePhoto, PlaceSearchError } from '../../services/googlePlaces';
+import { getPlacePhotoUrl, searchPlaces, searchPlacesWithAi, getPlaceDetails, PlaceSelection, PlacePrediction, PlacePhoto, PlaceSearchError } from '../../services/googlePlaces';
 import { ShimmerImage } from '../common/ShimmerImage';
 import {
   MapPin,
@@ -41,6 +41,7 @@ import {
   Lock,
   CalendarClock,
   Search,
+  Sparkles,
 } from 'lucide-react-native';
 
 // ──────────────────────────────────────────────
@@ -58,8 +59,8 @@ interface InlineCalendarProps {
   isDark: boolean;
 }
 
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const WEEKDAY_LABELS = ['S','M','T','W','T','F','S'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 const isSameDay = (a: Date, b: Date) =>
@@ -166,8 +167,8 @@ const InlineCalendar: React.FC<InlineCalendarProps> = ({
               backgroundColor: selected
                 ? accent
                 : inRange
-                ? rangeFill
-                : 'transparent',
+                  ? rangeFill
+                  : 'transparent',
               borderWidth: inRange ? 1.5 : 0,
               borderColor: inRange ? withAlpha(accent, isDark ? 0.5 : 0.35) : 'transparent',
             },
@@ -355,7 +356,7 @@ const SheetModal: React.FC<SheetModalProps> = ({
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Pressable
         style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 420 }]}
-        onPress={() => {}}
+        onPress={() => { }}
       >
         <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : '#CBD5E1', marginBottom: 12 }} />
         <View style={S.sheetHead}>
@@ -431,6 +432,7 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
 }) => {
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
+  const [aiSearching, setAiSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [searchError, setSearchError] = useState<PlaceSearchError>(null);
   const [moreScrollable, setMoreScrollable] = useState(false);
@@ -439,6 +441,16 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
   useEffect(() => {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, []);
+
+  const handleAiLookup = async () => {
+    if (!value.trim()) return;
+    setAiSearching(true);
+    setSearchFailed(false);
+    const res = await searchPlacesWithAi(value.trim());
+    setPredictions(res.predictions);
+    setAiSearching(false);
+    setSearchFailed(res.predictions.length === 0);
+  };
 
   const handleChange = (t: string) => {
     onChangeText(t);
@@ -498,13 +510,46 @@ const PlaceAutocompleteInput: React.FC<PlaceAutocompleteInputProps> = ({
         ) : null}
       </FieldWrap>
 
-      {searchFailed && predictions.length === 0 && value.trim().length >= 2 && (
-        <Text style={{ fontSize: fs.xs, color: muted, marginTop: 6, fontWeight: '600' }}>
-          {searchError === 'no-key'
-            ? 'Set your Google Places API key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) to search places.'
-            : searchError === 'api-error'
-            ? 'Places search failed. Make sure the Google Places API is enabled and your key is valid.'
-            : 'No places found — try a different search.'}
+      {value.trim().length >= 2 && (
+        <TouchableOpacity
+          onPress={handleAiLookup}
+          disabled={aiSearching}
+          activeOpacity={0.6}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            marginTop: 6,
+            paddingVertical: 6,
+            paddingHorizontal: 10,
+            borderRadius: 8,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+          }}
+        >
+          {aiSearching ? (
+            <>
+              <ActivityIndicator size="small" color={accent} style={{ transform: [{ scale: 0.75 }] }} />
+              <Text style={{ fontSize: 11, fontWeight: '500', color: muted }}>
+                Searching exact location...
+              </Text>
+            </>
+          ) : (
+            <>
+              <Search size={11} color={muted} strokeWidth={2} />
+              <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '500', color: muted, flexShrink: 1 }}>
+                Search exact spot: <Text style={{ fontWeight: '600', color: ink }}>"{value.trim()}"</Text>
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      )}
+
+      {searchFailed && predictions.length === 0 && value.trim().length >= 2 && !aiSearching && (
+        <Text style={{ fontSize: fs.xs, color: muted, marginTop: 5, fontWeight: '500', textAlign: 'center' }}>
+          No direct matches. Tap above to search exact spot.
         </Text>
       )}
 
@@ -585,7 +630,8 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
   isDark,
   fs,
 }) => {
-  if (!photos || photos.length === 0) return null;
+  const validPhotos = (photos || []).filter((ph) => !!getPlacePhotoUrl(ph.reference, 400));
+  if (validPhotos.length === 0) return null;
   return (
     <View style={{ marginTop: 8 }}>
       <Text style={{ fontSize: fs.xs, fontWeight: '800', color: isDark ? '#9CA3AF' : '#64748B', marginBottom: 6, letterSpacing: 0.3 }}>
@@ -597,8 +643,10 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: 8 }}
       >
-        {photos.map((ph) => {
+        {validPhotos.map((ph) => {
           const selected = ph.reference === selectedRef;
+          const uri = getPlacePhotoUrl(ph.reference, 400);
+          if (!uri) return null;
           return (
             <TouchableOpacity
               key={ph.reference}
@@ -692,7 +740,7 @@ const DeadlineModal: React.FC<DeadlineModalProps> = ({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={S.backdrop} onPress={onClose}>
-        <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 400 }]} onPress={() => {}}>
+        <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 400 }]} onPress={() => { }}>
           <View style={S.sheetHead}>
             <View style={{ flex: 1, marginRight: 12 }}>
               <Text style={{ fontSize: fs.md, fontWeight: '900', color: ink }}>Voting Deadline</Text>
@@ -1341,8 +1389,8 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
               {isTripEnded
                 ? 'Trip has ended. Voting is closed.'
                 : activeTab === 'place'
-                ? 'Suggest a place for your barkada to vote on!'
-                : 'Propose dates that work best for your schedule!'}
+                  ? 'Suggest a place for your barkada to vote on!'
+                  : 'Propose dates that work best for your schedule!'}
             </Text>
             {!deadlinePassed && !isTripEnded && (
               <TouchableOpacity
@@ -1421,8 +1469,8 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
                     {poll.votes === 0
                       ? 'Be the first to vote'
                       : isLeading
-                      ? `${poll.votes} ${poll.votes === 1 ? 'vote' : 'votes'} · leading`
-                      : `${poll.votes} ${poll.votes === 1 ? 'vote' : 'votes'}`}
+                        ? `${poll.votes} ${poll.votes === 1 ? 'vote' : 'votes'} · leading`
+                        : `${poll.votes} ${poll.votes === 1 ? 'vote' : 'votes'}`}
                   </Text>
                   <Text style={{ fontSize: Math.round(10 * scale), fontWeight: '600', color: withAlpha(muted, 0.85), marginTop: 2 }} numberOfLines={1}>
                     {isOwn ? 'Proposed by you' : `Proposed by ${poll.createdByName}`}
@@ -1587,14 +1635,14 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
       {/* ── Add Date Modal ── */}
       <Modal visible={showAddDate} transparent animationType="fade" onRequestClose={() => setShowAddDate(false)}>
         <Pressable style={S.backdrop} onPress={() => setShowAddDate(false)}>
-          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 420 }]} onPress={() => {}}>
+          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 420 }]} onPress={() => { }}>
             <View style={S.sheetHead}>
               <View>
                 <Text style={{ fontSize: fs.md, fontWeight: '900', color: ink }}>Pick Date Range</Text>
                 <Text style={{ fontSize: fs.xs, color: muted, marginTop: 2 }}>
                   {rangeStart && rangeEnd ? fmtRange(rangeStart, rangeEnd)
                     : rangeStart ? `Start: ${fmtDate(rangeStart)} — now tap end date`
-                    : 'Tap start date, then end date'}
+                      : 'Tap start date, then end date'}
                 </Text>
               </View>
               <TouchableOpacity onPress={() => { setShowAddDate(false); setRangeStart(null); setRangeEnd(null); }} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }}>
@@ -1646,8 +1694,8 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
       {/* ── Edit Modal ── */}
       <Modal visible={!!editPoll} transparent animationType="fade" onRequestClose={() => setEditPoll(null)}>
         <KeyboardAvoidingView behavior="padding" style={S.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditPoll(null)} />
-          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 420 }]} onPress={() => {}}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditPoll(null)} />
+          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 420 }]} onPress={() => { }}>
             <View style={S.sheetHead}>
               <Text style={{ fontSize: fs.md, fontWeight: '900', color: ink }}>Edit Option</Text>
               <TouchableOpacity onPress={() => setEditPoll(null)} style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9' }}>
@@ -1810,7 +1858,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
       {/* ── Lock Tour Confirm Modal (host only) ── */}
       <Modal visible={lockVisible} transparent animationType="fade" onRequestClose={() => setLockVisible(false)}>
         <Pressable style={S.backdrop} onPress={() => setLockVisible(false)}>
-          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 400 }]} onPress={() => {}}>
+          <Pressable style={[S.sheet, { backgroundColor: paper, borderColor: border, maxWidth: 400 }]} onPress={() => { }}>
             <View style={S.sheetHead}>
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={{ fontSize: fs.md, fontWeight: '900', color: ink }}>Lock the Tour?</Text>

@@ -1,20 +1,19 @@
-// AI structured JSON helper. Calls Gemini first (JSON mode) and falls back to
-// Groq (JSON mode) if Gemini is unavailable, so callers always get structured
-// data instead of a raw chat string.
-const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
-const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
-const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
-const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
-const GROQ_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
-// Groq rotates/retires models — try the configured one first, then known-good
-// current models so a stale EXPO_PUBLIC_GROQ_MODEL never breaks the fallback.
-const GROQ_MODELS = [
-  process.env.EXPO_PUBLIC_GROQ_MODEL || 'groq/compound',
-  'groq/compound',
-  'groq/compound-mini',
-  'openai/gpt-oss-120b',
-  'qwen/qwen3.6-27b',
-];
+// AI structured JSON helper. Calls Gemini (Primary -> Backup 1 -> Backup 2)
+// and falls back to Groq only if all Gemini backends fail.
+const getGeminiKey = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const getGeminiBackup = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const getGeminiBackup2 = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
+const getGeminiModel = () => process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
+
+const getGroqKey = () => process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
+const getGroqModels = () => {
+  const custom = process.env.EXPO_PUBLIC_GROQ_MODEL;
+  const list = ['qwen/qwen3.8-27b', 'qwen/qwen3.6-27b'];
+  if (custom && !list.includes(custom) && !custom.includes('compound')) {
+    return [custom, ...list];
+  }
+  return list;
+};
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -36,9 +35,19 @@ export function extractJson<T = any>(text: string): T | null {
   }
 }
 
-async function runGeminiJson(apiKey: string, system: string, user: string, maxTokens = 2048): Promise<any> {
+const maskKey = (k: string) => {
+  if (!k) return '(none)';
+  if (k.length <= 8) return '***';
+  return `${k.slice(0, 6)}...${k.slice(-4)}`;
+};
+
+async function runGeminiJson(apiKey: string, system: string, user: string, maxTokens = 1500): Promise<any> {
   if (!apiKey) throw new Error('Missing Gemini API Key');
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const model = getGeminiModel();
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const t0 = Date.now();
+  const safeTokens = Math.max(maxTokens, 1500);
+  
   const res = await fetch(geminiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,16 +61,18 @@ async function runGeminiJson(apiKey: string, system: string, user: string, maxTo
       generationConfig: {
         temperature: 0.4,
         topP: 0.9,
-        maxOutputTokens: maxTokens,
+        maxOutputTokens: safeTokens,
         responseMimeType: 'application/json',
       },
     }),
   });
 
+  const elapsed = Date.now() - t0;
+
   if (!res.ok) {
     const errText = await res.text();
-    console.warn('Gemini JSON HTTP error:', res.status, errText.slice(0, 300));
-    throw new Error(`Gemini HTTP ${res.status}`);
+    console.warn(`   ⚠️ [Gemini HTTP ${res.status}] (${elapsed}ms):`, errText.slice(0, 200));
+    throw new Error(`Gemini HTTP ${res.status}: ${errText.slice(0, 100)}`);
   }
 
   const json = await res.json();
@@ -69,52 +80,71 @@ async function runGeminiJson(apiKey: string, system: string, user: string, maxTo
     .map((p: any) => p?.text?.trim())
     .filter((t: string) => t)
     .join('\n\n');
-  return extractJson(text);
+  const parsed = extractJson(text);
+  if (!parsed) {
+    console.warn(`   ⚠️ [Gemini Response] Parse failed, raw output:`, text.slice(0, 250));
+    return null;
+  }
+  console.log(`   ✨ [Gemini Response] Status: 200 OK (${elapsed}ms) - Successfully parsed JSON`);
+  return parsed;
 }
 
-async function runGroqJson(system: string, user: string, maxTokens = 2048): Promise<any> {
-  if (!GROQ_KEY) throw new Error('Missing EXPO_PUBLIC_GROQ_API_KEY');
+async function runGroqJson(system: string, user: string, maxTokens = 400): Promise<any> {
+  const groqKey = getGroqKey();
+  if (!groqKey) throw new Error('Missing EXPO_PUBLIC_GROQ_API_KEY');
+  const safeTokens = Math.min(maxTokens, 450);
+  const models = getGroqModels();
   let lastError: any = null;
 
-  for (const model of GROQ_MODELS) {
+  for (const model of models) {
+    const t0 = Date.now();
     try {
+      console.log(`   ⚡ [Groq Request] Model: ${model} (Key: ${maskKey(groqKey)})...`);
       const res = await fetch(GROQ_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${GROQ_KEY}`,
+          Authorization: `Bearer ${groqKey}`,
         },
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: system },
+            { role: 'system', content: `${system}\nOutput valid JSON only.` },
             { role: 'user', content: user },
           ],
-          temperature: 0.4,
-          max_tokens: maxTokens,
+          temperature: 0.3,
+          max_tokens: safeTokens,
           response_format: { type: 'json_object' },
         }),
       });
 
-      if (res.status === 404) continue;
+      const elapsed = Date.now() - t0;
+
+      if (res.status === 404) {
+        console.warn(`   ⚠️ [Groq Model ${model}] 404 Not Found, skipping to next model`);
+        continue;
+      }
 
       if (!res.ok) {
         const errText = await res.text();
-        console.warn('Groq JSON HTTP error:', res.status, errText.slice(0, 300));
+        console.warn(`   ⚠️ [Groq HTTP ${res.status}] Model ${model} (${elapsed}ms):`, errText.slice(0, 200));
         throw new Error(`Groq HTTP ${res.status}`);
       }
 
       const json = await res.json();
       const content = json?.choices?.[0]?.message?.content?.trim();
       const parsed = extractJson(content);
-      if (parsed) return parsed;
+      if (parsed) {
+        console.log(`   ✨ [Groq Response] 200 OK via ${model} (${elapsed}ms)`);
+        return parsed;
+      }
     } catch (err: any) {
       lastError = err;
-      console.warn(`Groq JSON model ${model} failed:`, err?.message);
+      console.warn(`   ⚠️ [Groq Model ${model} Error]:`, err?.message);
     }
   }
 
-  throw lastError || new Error('Groq JSON failed');
+  throw lastError || new Error('Groq JSON failed on all models');
 }
 
 export type StructuredAiSource = 'gemini' | 'groq';
@@ -125,110 +155,93 @@ export interface StructuredAiResult<T = any> {
 }
 
 /**
- * Ask the AI for structured JSON: Gemini first, Groq on failure.
- * Returns null when both backends fail or the output isn't valid JSON.
+ * Sequential Cascade:
+ * 1. Primary Gemini API Key
+ * 2. Backup Gemini API Key
+ * 3. Backup 2 Gemini API Key
+ * 4. Groq API Key (if all Gemini failed)
  */
 export async function requestJson<T = any>(
-  system: string,
-  user: string
-): Promise<StructuredAiResult<T> | null> {
-  if (GEMINI_KEY) {
-    try {
-      const data = await runGeminiJson(GEMINI_KEY, system, user);
-      if (data) return { data, source: 'gemini' };
-    } catch (err: any) {
-      console.warn('Primary Gemini JSON failed, falling back to backup Gemini:', err?.message);
-    }
-  }
-
-  if (GEMINI_KEY_BACKUP) {
-    try {
-      const data = await runGeminiJson(GEMINI_KEY_BACKUP, system, user);
-      if (data) return { data, source: 'gemini' };
-    } catch (err: any) {
-      console.warn('Backup Gemini JSON failed, falling back to second backup:', err?.message);
-    }
-  }
-
-  if (GEMINI_KEY_BACKUP2) {
-    try {
-      const data = await runGeminiJson(GEMINI_KEY_BACKUP2, system, user);
-      if (data) return { data, source: 'gemini' };
-    } catch (err: any) {
-      console.warn('Second Backup Gemini JSON failed, falling back to Groq:', err?.message);
-    }
-  }
-
-  try {
-    const data = await runGroqJson(system, user);
-    if (data) return { data, source: 'groq' };
-  } catch (err: any) {
-    console.warn('Groq JSON fallback failed:', err?.message);
-  }
-
-  return null;
-}
-
-/**
- * Fast path for latency-sensitive callers: run Gemini and Groq concurrently and
- * resolve with whichever returns valid JSON first. Falls back to sequential
- * (Gemini → Groq) semantics when only one backend is configured.
- */
-export async function requestJsonRace<T = any>(
   system: string,
   user: string,
   opts?: { maxTokens?: number }
 ): Promise<StructuredAiResult<T> | null> {
-  const maxTokens = opts?.maxTokens ?? 2048;
+  const maxTokens = opts?.maxTokens ?? 1024;
+  const primaryKey = getGeminiKey();
+  const backupKey = getGeminiBackup();
+  const backup2Key = getGeminiBackup2();
+  const groqKey = getGroqKey();
+  const model = getGeminiModel();
 
-  if (!GEMINI_KEY && !GEMINI_KEY_BACKUP && !GROQ_KEY) return null;
+  console.log(`\n🚀 [AI Pipeline] Starting structured request...`);
 
-  const run = async (fn: () => Promise<any>, source: StructuredAiSource): Promise<StructuredAiResult<T> | null> => {
+  // 1. Primary Gemini API Key
+  if (primaryKey) {
     try {
-      const data = await fn();
-      if (data) return { data, source };
-    } catch (err: any) {
-      console.warn(`${source} JSON race failed:`, err?.message);
-    }
-    return null;
-  };
-
-  const promises: Promise<StructuredAiResult<T> | null>[] = [];
-
-  if (GEMINI_KEY) {
-    promises.push(run(() => runGeminiJson(GEMINI_KEY, system, user, maxTokens), 'gemini'));
-  }
-  if (GEMINI_KEY_BACKUP) {
-    promises.push(run(() => runGeminiJson(GEMINI_KEY_BACKUP, system, user, maxTokens), 'gemini'));
-  }
-  if (GEMINI_KEY_BACKUP2) {
-    promises.push(run(() => runGeminiJson(GEMINI_KEY_BACKUP2, system, user, maxTokens), 'gemini'));
-  }
-  if (GROQ_KEY) {
-    promises.push(run(() => runGroqJson(system, user, maxTokens), 'groq'));
-  }
-
-  if (promises.length === 1) {
-    return promises[0];
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-    let remaining = promises.length;
-
-    const settle = (res: StructuredAiResult<T> | null) => {
-      if (settled) return;
-      if (res) {
-        settled = true;
-        resolve(res);
-        return;
+      console.log(`🟢 [AI Pipeline 1/4] Trying Primary Gemini Key (${maskKey(primaryKey)}, Model: ${model})...`);
+      const data = await runGeminiJson(primaryKey, system, user, maxTokens);
+      if (data) {
+        console.log(`✅ [AI Pipeline] Successfully resolved via Primary Gemini API!`);
+        return { data, source: 'gemini' };
       }
-      remaining -= 1;
-      if (remaining === 0) resolve(null);
-    };
-
-    for (const p of promises) {
-      p.then(settle, () => settle(null));
+    } catch (err: any) {
+      console.warn(`❌ [AI Pipeline 1/4] Primary Gemini failed:`, err?.message);
     }
-  });
+  } else {
+    console.log(`⚪ [AI Pipeline 1/4] Primary Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY not set)`);
+  }
+
+  // 2. Backup 1 Gemini API Key
+  if (backupKey) {
+    try {
+      console.log(`🟡 [AI Pipeline 2/4] Trying Backup 1 Gemini Key (${maskKey(backupKey)}, Model: ${model})...`);
+      const data = await runGeminiJson(backupKey, system, user, maxTokens);
+      if (data) {
+        console.log(`✅ [AI Pipeline] Successfully resolved via Backup 1 Gemini API!`);
+        return { data, source: 'gemini' };
+      }
+    } catch (err: any) {
+      console.warn(`❌ [AI Pipeline 2/4] Backup 1 Gemini failed:`, err?.message);
+    }
+  } else {
+    console.log(`⚪ [AI Pipeline 2/4] Backup 1 Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY_BACKUP not set)`);
+  }
+
+  // 3. Backup 2 Gemini API Key
+  if (backup2Key) {
+    try {
+      console.log(`🟡 [AI Pipeline 3/4] Trying Backup 2 Gemini Key (${maskKey(backup2Key)}, Model: ${model})...`);
+      const data = await runGeminiJson(backup2Key, system, user, maxTokens);
+      if (data) {
+        console.log(`✅ [AI Pipeline] Successfully resolved via Backup 2 Gemini API!`);
+        return { data, source: 'gemini' };
+      }
+    } catch (err: any) {
+      console.warn(`❌ [AI Pipeline 3/4] Backup 2 Gemini failed:`, err?.message);
+    }
+  } else {
+    console.log(`⚪ [AI Pipeline 3/4] Backup 2 Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 not set)`);
+  }
+
+  // 4. Groq API (Fallback if all Gemini attempts fail)
+  if (groqKey) {
+    try {
+      console.log(`🟠 [AI Pipeline 4/4] All Gemini attempts failed. Falling back to Groq API (${maskKey(groqKey)})...`);
+      const data = await runGroqJson(system, user, maxTokens);
+      if (data) {
+        console.log(`✅ [AI Pipeline] Successfully resolved via Groq Fallback!`);
+        return { data, source: 'groq' };
+      }
+    } catch (err: any) {
+      console.warn(`❌ [AI Pipeline 4/4] Groq fallback failed:`, err?.message);
+    }
+  } else {
+    console.log(`⚪ [AI Pipeline 4/4] Groq key is empty (EXPO_PUBLIC_GROQ_API_KEY not set)`);
+  }
+
+  console.warn(`❌ [AI Pipeline] All AI backends failed or no valid keys configured.\n`);
+  return null;
 }
+
+/** Legacy alias for backwards compatibility */
+export const requestJsonRace = requestJson;

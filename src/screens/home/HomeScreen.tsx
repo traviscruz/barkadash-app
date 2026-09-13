@@ -180,13 +180,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
     const dbPolls = await TripService.getInstance().fetchTripPollsDB(tripId);
     setPolls(
-      dbPolls.map((p) => ({
-        ...p,
-        isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
-        imagePath: p.photoReference
-          ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
-          : p.imagePath,
-      }))
+      dbPolls.map((p) => {
+        const photoUrl = p.photoReference ? getPlacePhotoUrl(p.photoReference, 400) : '';
+        return {
+          ...p,
+          isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+          imagePath: photoUrl ? { uri: photoUrl } : p.imagePath,
+        };
+      })
     );
   };
 

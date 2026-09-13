@@ -9,7 +9,7 @@ import {
   Dimensions,
   Animated,
 } from 'react-native';
-import { X, MapPin, Search, FileText, Link, Check, BedDouble, ImageIcon } from 'lucide-react-native';
+import { X, MapPin, Search, FileText, Link, Check, BedDouble, ImageIcon, Sparkles } from 'lucide-react-native';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ShimmerImage } from '../common/ShimmerImage';
 import { useTheme } from '../../context/ThemeContext';
@@ -18,6 +18,7 @@ import { TripStay } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import {
   searchPlaces,
+  searchPlacesWithAi,
   getPlaceDetails,
   getPlacePhotoUrl,
   PlacePrediction,
@@ -44,7 +45,8 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
   border,
   isDark,
 }) => {
-  if (!photos || photos.length === 0) return null;
+  const validPhotos = (photos || []).filter((ph) => !!getPlacePhotoUrl(ph.reference, 400));
+  if (validPhotos.length === 0) return null;
   return (
     <View style={{ marginTop: 10 }}>
       <Text style={{ fontSize: 10, fontWeight: '800', color: isDark ? '#9CA3AF' : '#64748B', marginBottom: 6, letterSpacing: 0.5 }}>
@@ -56,8 +58,10 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: 8 }}
       >
-        {photos.map((ph) => {
+        {validPhotos.map((ph) => {
           const selected = ph.reference === selectedRef;
+          const uri = getPlacePhotoUrl(ph.reference, 400);
+          if (!uri) return null;
           return (
             <TouchableOpacity
               key={ph.reference}
@@ -270,8 +274,19 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
   const [selectedPlace, setSelectedPlace] = useState<PlaceSelection | null>(null);
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
+  const [aiSearching, setAiSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [searchError, setSearchError] = useState<PlaceSearchError>(null);
+
+  const handleAiLookup = async () => {
+    if (!placeInput.trim()) return;
+    setAiSearching(true);
+    setSearchFailed(false);
+    const res = await searchPlacesWithAi(placeInput.trim());
+    setPredictions(res.predictions);
+    setAiSearching(false);
+    setSearchFailed(res.predictions.length === 0);
+  };
 
   const [title, setTitle] = useState('');
   const [startDay, setStartDay] = useState(Math.min(initialDay || 1, days));
@@ -315,11 +330,11 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
         setSelectedPlace(
           initialStay.placeId
             ? {
-                placeId: initialStay.placeId,
-                name: initialStay.placeName || initialStay.title,
-                address: initialStay.placeAddress || '',
-                photoReference: initialStay.photoReference,
-              }
+              placeId: initialStay.placeId,
+              name: initialStay.placeName || initialStay.title,
+              address: initialStay.placeAddress || '',
+              photoReference: initialStay.photoReference,
+            }
             : null
         );
         if (initialStay.placeId) {
@@ -376,16 +391,16 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
     const photoRef = details?.photoReference || details?.photos?.[0]?.reference;
     const sel: PlaceSelection = details
       ? {
-          placeId: details.placeId,
-          name: details.name || pred.mainText,
-          address: details.address || pred.secondaryText,
-          photoReference: photoRef,
-          photos: details.photos,
-        }
+        placeId: details.placeId,
+        name: details.name || pred.mainText,
+        address: details.address || pred.secondaryText,
+        photoReference: photoRef,
+        photos: details.photos,
+      }
       : { placeId: pred.placeId, name: pred.mainText, address: pred.secondaryText };
     setSelectedPlace(sel);
     setPlaceInput(sel.name);
-    if (!title) setTitle(sel.name);
+    setTitle(sel.name);
   };
 
   const canSave = title.trim().length > 0 && !saving;
@@ -595,13 +610,46 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
                 ) : null}
               </View>
 
-              {searchFailed && predictions.length === 0 && placeInput.trim().length >= 2 && (
-                <Text style={{ fontSize: 10, color: muted, marginTop: 6, fontWeight: '600' }}>
-                  {searchError === 'no-key'
-                    ? 'Set your Google Places API key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) to search places.'
-                    : searchError === 'api-error'
-                    ? 'Places search failed. Check your key / API.'
-                    : 'No places found — try a different search.'}
+              {placeInput.trim().length >= 2 && (
+                <TouchableOpacity
+                  onPress={handleAiLookup}
+                  disabled={aiSearching}
+                  activeOpacity={0.6}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    marginTop: 6,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 8,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                  }}
+                >
+                  {aiSearching ? (
+                    <>
+                      <ActivityIndicator size="small" color={accent} style={{ transform: [{ scale: 0.75 }] }} />
+                      <Text style={{ fontSize: 11, fontWeight: '500', color: muted }}>
+                        Searching exact location...
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Search size={11} color={muted} strokeWidth={2} />
+                      <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '500', color: muted, flexShrink: 1 }}>
+                        Search exact spot: <Text style={{ fontWeight: '600', color: colors.ink }}>"{placeInput.trim()}"</Text>
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+
+              {searchFailed && predictions.length === 0 && placeInput.trim().length >= 2 && !aiSearching && (
+                <Text style={{ fontSize: 10.5, color: muted, marginTop: 5, fontWeight: '500', textAlign: 'center' }}>
+                  No direct matches. Tap above to search exact spot.
                 </Text>
               )}
 

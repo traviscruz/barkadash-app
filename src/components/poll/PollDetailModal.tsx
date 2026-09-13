@@ -29,13 +29,14 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
     }
     const dbPolls = await service.fetchTripPollsDB(activeTrip.id);
     setOptions(
-      dbPolls.map((p) => ({
-        ...p,
-        isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
-        imagePath: p.photoReference
-          ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
-          : p.imagePath,
-      }))
+      dbPolls.map((p) => {
+        const photoUrl = p.photoReference ? getPlacePhotoUrl(p.photoReference, 400) : '';
+        return {
+          ...p,
+          isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+          imagePath: photoUrl ? { uri: photoUrl } : p.imagePath,
+        };
+      })
     );
   };
 
@@ -52,13 +53,14 @@ export const PollDetailModal: React.FC<PollDetailModalProps> = ({ visible, onClo
     const result = await service.toggleVoteTripPollDB(id, activeTrip.id, profile?.id || '');
     if (result.length > 0) {
       setOptions(
-        result.map((p) => ({
-          ...p,
-          isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
-          imagePath: p.photoReference
-            ? { uri: getPlacePhotoUrl(p.photoReference, 400) }
-            : p.imagePath,
-        }))
+        result.map((p) => {
+          const photoUrl = p.photoReference ? getPlacePhotoUrl(p.photoReference, 400) : '';
+          return {
+            ...p,
+            isVotedByMe: p.votedUserIds.includes(profile?.id || ''),
+            imagePath: photoUrl ? { uri: photoUrl } : p.imagePath,
+          };
+        })
       );
     }
   };

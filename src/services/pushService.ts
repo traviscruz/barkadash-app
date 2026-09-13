@@ -33,7 +33,12 @@ const getDeviceToken = async (): Promise<string | null> => {
     const token = await Notifications.getExpoPushTokenAsync();
     return token.data;
   } catch (err: any) {
-    console.warn('Push token fetch failed:', err?.message);
+    // aps-environment error occurs normally in iOS Simulator or un-provisioned dev builds
+    if (err?.message?.includes('aps-environment') || err?.message?.includes('Simulator')) {
+      console.log('Push notifications disabled (iOS Simulator / Dev client without APNs profile)');
+    } else {
+      console.warn('Push token fetch failed:', err?.message);
+    }
     return null;
   }
 };

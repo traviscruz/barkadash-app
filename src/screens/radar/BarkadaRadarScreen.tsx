@@ -841,14 +841,11 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({ onOpenCa
   const tiles = [];
   for (let tx = minTileX; tx <= maxTileX; tx++) {
     for (let ty = minTileY; ty <= maxTileY; ty++) {
-      let url = `https://mt1.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
+      const serverIdx = Math.abs(tx + ty) % 4;
+      let url = `https://mt${serverIdx}.google.com/vt/lyrs=m&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
 
       if (mapStyleOverride === 'hybrid') {
-        url = `https://mt1.google.com/vt/lyrs=y&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
-      } else if (isDarkModeMap) {
-        url = `https://a.basemaps.cartocdn.com/dark_all/${baseZoom}/${tx}/${ty}@2x.png`;
-      } else if (Platform.OS === 'ios') {
-        url = `https://a.basemaps.cartocdn.com/rastertiles/voyager/${baseZoom}/${tx}/${ty}@2x.png`;
+        url = `https://mt${serverIdx}.google.com/vt/lyrs=y&x=${tx}&y=${ty}&z=${baseZoom}&scale=2`;
       }
 
       tiles.push({

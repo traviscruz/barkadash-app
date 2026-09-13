@@ -20,10 +20,10 @@ export type {
   PlaceToolData,
 } from './aiAssistantCommon';
 
-const GEMINI_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
-const GEMINI_KEY_BACKUP = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
-const GEMINI_KEY_BACKUP2 = process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
-const MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
+const getGeminiKey = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const getGeminiBackup = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP || '';
+const getGeminiBackup2 = () => process.env.EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 || '';
+const getGeminiModel = () => process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
 
 /**
  * Convert chat history into Gemini contents. Gemini requires alternating
@@ -63,7 +63,8 @@ const runGemini = async (contents: any[], key: string, trip?: TripContext): Prom
     },
   };
 
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
+  const model = getGeminiModel();
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   let current = contents;
   const tools: ChatToolResult[] = [];
   for (let i = 0; i < 4; i++) {
@@ -121,6 +122,12 @@ const runGemini = async (contents: any[], key: string, trip?: TripContext): Prom
   );
 };
 
+const maskKey = (k: string) => {
+  if (!k) return '(none)';
+  if (k.length <= 8) return '***';
+  return `${k.slice(0, 6)}...${k.slice(-4)}`;
+};
+
 /**
  * Generate a Navi reply (text + any tool data like weather / places) using
  * Gemini, falling back to Groq if Gemini is unavailable.
@@ -133,34 +140,63 @@ export async function generateReply(messages: ChatMessageLike[], trip?: TripCont
     );
   }
 
-  if (GEMINI_KEY) {
+  const primaryKey = getGeminiKey();
+  const backupKey = getGeminiBackup();
+  const backup2Key = getGeminiBackup2();
+  const model = getGeminiModel();
+
+  console.log(`\n💬 [Navi Chat AI] Generating reply for ${messages.length} messages...`);
+
+  // 1. Primary Gemini
+  if (primaryKey) {
     try {
-      return await runGemini(contents, GEMINI_KEY, trip);
+      console.log(`🟢 [Navi Chat 1/4] Trying Primary Gemini (${maskKey(primaryKey)}, Model: ${model})...`);
+      const reply = await runGemini(contents, primaryKey, trip);
+      console.log(`✅ [Navi Chat] Resolved via Primary Gemini!`);
+      return reply;
     } catch (err: any) {
-      console.warn('Primary Gemini failed, falling back to backup Gemini:', err?.message);
+      console.warn(`❌ [Navi Chat 1/4] Primary Gemini failed:`, err?.message);
     }
+  } else {
+    console.log(`⚪ [Navi Chat 1/4] Primary Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY not set)`);
   }
 
-  if (GEMINI_KEY_BACKUP) {
+  // 2. Backup 1 Gemini
+  if (backupKey) {
     try {
-      return await runGemini(contents, GEMINI_KEY_BACKUP, trip);
+      console.log(`🟡 [Navi Chat 2/4] Trying Backup 1 Gemini (${maskKey(backupKey)}, Model: ${model})...`);
+      const reply = await runGemini(contents, backupKey, trip);
+      console.log(`✅ [Navi Chat] Resolved via Backup 1 Gemini!`);
+      return reply;
     } catch (err: any) {
-      console.warn('Backup Gemini failed, falling back to second backup:', err?.message);
+      console.warn(`❌ [Navi Chat 2/4] Backup 1 Gemini failed:`, err?.message);
     }
+  } else {
+    console.log(`⚪ [Navi Chat 2/4] Backup 1 Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY_BACKUP not set)`);
   }
 
-  if (GEMINI_KEY_BACKUP2) {
+  // 3. Backup 2 Gemini
+  if (backup2Key) {
     try {
-      return await runGemini(contents, GEMINI_KEY_BACKUP2, trip);
+      console.log(`🟡 [Navi Chat 3/4] Trying Backup 2 Gemini (${maskKey(backup2Key)}, Model: ${model})...`);
+      const reply = await runGemini(contents, backup2Key, trip);
+      console.log(`✅ [Navi Chat] Resolved via Backup 2 Gemini!`);
+      return reply;
     } catch (err: any) {
-      console.warn('Second Backup Gemini failed, falling back to Groq:', err?.message);
+      console.warn(`❌ [Navi Chat 3/4] Backup 2 Gemini failed:`, err?.message);
     }
+  } else {
+    console.log(`⚪ [Navi Chat 3/4] Backup 2 Gemini key is empty (EXPO_PUBLIC_GEMINI_API_KEY_BACKUP2 not set)`);
   }
 
+  // 4. Groq Fallback
   try {
-    return await generateGroqReply(messages, trip);
+    console.log(`🟠 [Navi Chat 4/4] All Gemini attempts failed. Falling back to Groq...`);
+    const reply = await generateGroqReply(messages, trip);
+    console.log(`✅ [Navi Chat] Resolved via Groq fallback!`);
+    return reply;
   } catch (err: any) {
-    console.warn('Groq fallback failed:', err?.message);
+    console.warn(`❌ [Navi Chat 4/4] Groq fallback failed:`, err?.message);
     return textReply(
       "Mabuhay! Navi's AI is unavailable right now — I couldn't reach my brain services. Please try again in a moment."
     );

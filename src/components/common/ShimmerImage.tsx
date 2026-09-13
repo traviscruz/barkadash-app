@@ -28,12 +28,26 @@ export const ShimmerImage: React.FC<ShimmerImageProps> = ({
   onError,
   ...props
 }) => {
-  const [isLoading, setIsLoading] = useState(true);
+  const isSourceValid = Boolean(
+    source &&
+      (typeof source === 'number' ||
+        (typeof source === 'object' &&
+          'uri' in source &&
+          typeof (source as any).uri === 'string' &&
+          (source as any).uri.trim().length > 0) ||
+        (Array.isArray(source) && source.length > 0))
+  );
+
+  const [isLoading, setIsLoading] = useState(isSourceValid);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    if (!isSourceValid) {
+      setIsLoading(false);
+      return;
+    }
     // Top-left to bottom-right continuous gray light rays flow animation (2.2s per sweep)
     const loop = Animated.loop(
       Animated.timing(shimmerAnim, {
@@ -54,7 +68,7 @@ export const ShimmerImage: React.FC<ShimmerImageProps> = ({
       loop.stop();
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, []);
+  }, [isSourceValid]);
 
   const finishLoading = () => {
     setIsLoading(false);
@@ -66,6 +80,7 @@ export const ShimmerImage: React.FC<ShimmerImageProps> = ({
   };
 
   const handleLoadStart = () => {
+    if (!isSourceValid) return;
     setIsLoading(true);
     if (onLoadStart) (onLoadStart as any)();
   };
@@ -95,16 +110,18 @@ export const ShimmerImage: React.FC<ShimmerImageProps> = ({
       ]}
     >
       {/* 1. Image Layer */}
-      <Animated.View style={[{ width: '100%', height: '100%' }, { opacity: fadeAnim }]}>
-        <Image
-          source={source}
-          onLoadStart={handleLoadStart}
-          onLoad={handleLoad}
-          onError={handleError}
-          style={[{ width: '100%', height: '100%' }, style]}
-          {...props}
-        />
-      </Animated.View>
+      {isSourceValid && (
+        <Animated.View style={[{ width: '100%', height: '100%' }, { opacity: fadeAnim }]}>
+          <Image
+            source={source}
+            onLoadStart={handleLoadStart}
+            onLoad={handleLoad}
+            onError={handleError}
+            style={[{ width: '100%', height: '100%' }, style]}
+            {...props}
+          />
+        </Animated.View>
+      )}
 
       {/* 2. Top-Left to Bottom-Right Gray Light Rays Flow Overlay */}
       {isLoading && (
