@@ -13,16 +13,15 @@ import {
   textReply,
 } from './aiAssistantCommon';
 
-const GROQ_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
-// Groq rotates/retires models — try the configured one first, then known-good
-// current models so a stale EXPO_PUBLIC_GROQ_MODEL never breaks the fallback.
-const GROQ_MODELS = [
-  process.env.EXPO_PUBLIC_GROQ_MODEL || 'groq/compound',
-  'groq/compound',
-  'groq/compound-mini',
-  'openai/gpt-oss-120b',
-  'qwen/qwen3.6-27b',
-];
+const getGroqKey = () => process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
+const getGroqModels = () => {
+  const custom = process.env.EXPO_PUBLIC_GROQ_MODEL;
+  const list = ['qwen/qwen3.8-27b', 'qwen/qwen3.6-27b'];
+  if (custom && !list.includes(custom) && !custom.includes('compound')) {
+    return [custom, ...list];
+  }
+  return list;
+};
 
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -49,7 +48,8 @@ export async function generateGroqReply(
   messages: ChatMessageLike[],
   trip?: TripContext
 ): Promise<NaviReply> {
-  if (!GROQ_KEY) {
+  const groqKey = getGroqKey();
+  if (!groqKey) {
     throw new Error('Missing EXPO_PUBLIC_GROQ_API_KEY');
   }
 
@@ -60,9 +60,10 @@ export async function generateGroqReply(
     );
   }
 
-  for (const model of GROQ_MODELS) {
+  const models = getGroqModels();
+  for (const model of models) {
     try {
-      const reply = await runGroqWithModel(model, current, trip);
+      const reply = await runGroqWithModel(model, current, trip, groqKey);
       if (reply) return reply;
     } catch (err: any) {
       console.warn(`Groq model ${model} failed:`, err?.message);
@@ -77,8 +78,10 @@ export async function generateGroqReply(
 async function runGroqWithModel(
   model: string,
   messages: any[],
-  trip?: TripContext
+  trip?: TripContext,
+  apiKey?: string
 ): Promise<NaviReply | null> {
+  const groqKey = apiKey || getGroqKey();
   let current = messages;
   const tools: ChatToolResult[] = [];
 
@@ -87,7 +90,7 @@ async function runGroqWithModel(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${GROQ_KEY}`,
+        Authorization: `Bearer ${groqKey}`,
       },
       body: JSON.stringify({
         model,

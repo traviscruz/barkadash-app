@@ -11,7 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { X, MapPin, Search, Clock, FileText, Wallet, Check } from 'lucide-react-native';
+import { X, MapPin, Search, Clock, FileText, Wallet, Check, Sparkles } from 'lucide-react-native';
 import { SlideUpModal } from '../common/SlideUpModal';
 import { ShimmerImage } from '../common/ShimmerImage';
 import { useTheme } from '../../context/ThemeContext';
@@ -20,6 +20,7 @@ import { ItineraryItem, ItineraryTag } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import {
   searchPlaces,
+  searchPlacesWithAi,
   getPlaceDetails,
   getPlacePhotoUrl,
   PlacePrediction,
@@ -53,7 +54,8 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
   border,
   isDark,
 }) => {
-  if (!photos || photos.length === 0) return null;
+  const validPhotos = (photos || []).filter((ph) => !!getPlacePhotoUrl(ph.reference, 400));
+  if (validPhotos.length === 0) return null;
   return (
     <View style={{ marginTop: 10 }}>
       <Text style={{ fontSize: 10, fontWeight: '800', color: isDark ? '#9CA3AF' : '#64748B', marginBottom: 6, letterSpacing: 0.5 }}>
@@ -65,8 +67,10 @@ const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ gap: 8 }}
       >
-        {photos.map((ph) => {
+        {validPhotos.map((ph) => {
           const selected = ph.reference === selectedRef;
+          const uri = getPlacePhotoUrl(ph.reference, 400);
+          if (!uri) return null;
           return (
             <TouchableOpacity
               key={ph.reference}
@@ -165,8 +169,19 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
   const [selectedPlace, setSelectedPlace] = useState<PlaceSelection | null>(null);
   const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
   const [searching, setSearching] = useState(false);
+  const [aiSearching, setAiSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [searchError, setSearchError] = useState<PlaceSearchError>(null);
+
+  const handleAiLookup = async () => {
+    if (!placeInput.trim()) return;
+    setAiSearching(true);
+    setSearchFailed(false);
+    const res = await searchPlacesWithAi(placeInput.trim());
+    setPredictions(res.predictions);
+    setAiSearching(false);
+    setSearchFailed(res.predictions.length === 0);
+  };
 
   const [title, setTitle] = useState('');
   const [timeDate, setTimeDate] = useState<Date | null>(null);
@@ -238,11 +253,11 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
         setSelectedPlace(
           initialItem.placeId
             ? {
-                placeId: initialItem.placeId,
-                name: initialItem.placeName || initialItem.title,
-                address: initialItem.placeAddress || '',
-                photoReference: initialItem.photoReference,
-              }
+              placeId: initialItem.placeId,
+              name: initialItem.placeName || initialItem.title,
+              address: initialItem.placeAddress || '',
+              photoReference: initialItem.photoReference,
+            }
             : null
         );
         // Lazily fetch the place's photos so the cover picker works in edit mode too
@@ -273,11 +288,11 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
         setSelectedPlace(
           initialPlace?.placeId
             ? {
-                placeId: initialPlace.placeId,
-                name: initialPlace.name,
-                address: initialPlace.address || '',
-                photoReference: initialPlace.photoReference,
-              }
+              placeId: initialPlace.placeId,
+              name: initialPlace.name,
+              address: initialPlace.address || '',
+              photoReference: initialPlace.photoReference,
+            }
             : null
         );
         // Lazily fetch the place's photos so the cover picker works on prefill too
@@ -360,16 +375,16 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
     const details = await getPlaceDetails(pred.placeId);
     const sel: PlaceSelection = details
       ? {
-          placeId: details.placeId,
-          name: details.name || pred.mainText,
-          address: details.address || pred.secondaryText,
-          photoReference: details.photoReference,
-          photos: details.photos,
-        }
+        placeId: details.placeId,
+        name: details.name || pred.mainText,
+        address: details.address || pred.secondaryText,
+        photoReference: details.photoReference,
+        photos: details.photos,
+      }
       : { placeId: pred.placeId, name: pred.mainText, address: pred.secondaryText };
     setSelectedPlace(sel);
     setPlaceInput(sel.name);
-    if (!title) setTitle(sel.name);
+    setTitle(sel.name);
   };
 
   const onAndroidTimeChange = (event: DateTimePickerEvent, date?: Date) => {
@@ -644,132 +659,165 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
 
           {/* Place search — only when adding an actual place/spot */}
           {entryType === 'place' && (
-          <>
-          <Text style={{ fontSize: 10, fontWeight: '800', color: muted, marginBottom: 6, letterSpacing: 0.5 }}>
-            WHERE SHOULD WE GO?
-          </Text>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: border,
-              paddingHorizontal: 12,
-            }}
-          >
-            <Search size={16} color={accent} strokeWidth={2} style={{ marginRight: 8 }} />
-            <TextInput
-              style={{ flex: 1, paddingVertical: 12, color: colors.ink, fontSize: 13 }}
-              placeholder="Search a place, e.g. Big Lagoon, El Nido"
-              placeholderTextColor={muted}
-              value={placeInput}
-              onChangeText={handlePlaceChange}
-              autoCorrect={false}
-              autoCapitalize="words"
-            />
-            {searching ? (
-              <ActivityIndicator size="small" color={accent} />
-            ) : !!placeInput ? (
-              <TouchableOpacity onPress={() => handlePlaceChange('')} hitSlop={8}>
-                <X size={14} color={muted} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {searchFailed && predictions.length === 0 && placeInput.trim().length >= 2 && (
-            <Text style={{ fontSize: 10, color: muted, marginTop: 6, fontWeight: '600' }}>
-              {searchError === 'no-key'
-                ? 'Set your Google Places API key (EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) to search places.'
-                : searchError === 'api-error'
-                ? 'Places search failed. Check your key / API.'
-                : 'No places found — try a different search.'}
-            </Text>
-          )}
-
-          {predictions.length > 0 && (
-            <View
-              style={{
-                marginTop: 8,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: border,
-                overflow: 'hidden',
-                backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
-              }}
-            >
-              <ScrollView
-                style={{ maxHeight: 170 }}
-                nestedScrollEnabled
-                keyboardShouldPersistTaps="handled"
-              >
-                {predictions.map((p, i) => (
-                  <TouchableOpacity
-                    key={p.placeId}
-                    onPress={() => handleSelectPlace(p)}
-                    activeOpacity={0.7}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 10,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      borderBottomWidth: i < predictions.length - 1 ? 1 : 0,
-                      borderBottomColor: border,
-                    }}
-                  >
-                    <MapPin size={15} color={accent} strokeWidth={2.2} />
-                    <View style={{ flex: 1 }}>
-                      <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: colors.ink }}>
-                        {p.mainText}
-                      </Text>
-                      {!!p.secondaryText && (
-                        <Text numberOfLines={1} style={{ fontSize: 10, color: muted, marginTop: 1 }}>
-                          {p.secondaryText}
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {selectedPlace && predictions.length === 0 && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 8,
-                backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
-                borderRadius: 12,
-                paddingHorizontal: 10,
-                paddingVertical: 8,
-              }}
-            >
-              <Check size={13} color="#10B981" strokeWidth={3} />
-              <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: colors.ink }} numberOfLines={2}>
-                {selectedPlace.name}
-                {selectedPlace.address ? ` — ${selectedPlace.address}` : ''}
+            <>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: muted, marginBottom: 6, letterSpacing: 0.5 }}>
+                WHERE SHOULD WE GO?
               </Text>
-            </View>
-          )}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#F1F5F9',
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: border,
+                  paddingHorizontal: 12,
+                }}
+              >
+                <Search size={16} color={accent} strokeWidth={2} style={{ marginRight: 8 }} />
+                <TextInput
+                  style={{ flex: 1, paddingVertical: 12, color: colors.ink, fontSize: 13 }}
+                  placeholder="Search a place, e.g. Shibuya, Big Lagoon, Eiffel Tower..."
+                  placeholderTextColor={muted}
+                  value={placeInput}
+                  onChangeText={handlePlaceChange}
+                  autoCorrect={false}
+                  autoCapitalize="words"
+                />
+                {searching ? (
+                  <ActivityIndicator size="small" color={accent} />
+                ) : !!placeInput ? (
+                  <TouchableOpacity onPress={() => handlePlaceChange('')} hitSlop={8}>
+                    <X size={14} color={muted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
 
-          {selectedPlace?.photos && selectedPlace.photos.length > 0 && (
-            <PhotoPickerRow
-              photos={selectedPlace.photos}
-              selectedRef={selectedPlace.photoReference}
-              onSelect={(ref) => setSelectedPlace((prev) => (prev ? { ...prev, photoReference: ref } : prev))}
-              accent={accent}
-              border={border}
-              isDark={isDark}
-            />
-          )}
-          </>
+              {placeInput.trim().length >= 2 && (
+                <TouchableOpacity
+                  onPress={handleAiLookup}
+                  disabled={aiSearching}
+                  activeOpacity={0.6}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    marginTop: 6,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 8,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+                  }}
+                >
+                  {aiSearching ? (
+                    <>
+                      <ActivityIndicator size="small" color={accent} style={{ transform: [{ scale: 0.75 }] }} />
+                      <Text style={{ fontSize: 11, fontWeight: '500', color: muted }}>
+                        Searching exact location...
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Search size={11} color={muted} strokeWidth={2} />
+                      <Text numberOfLines={1} style={{ fontSize: 11, fontWeight: '500', color: muted, flexShrink: 1 }}>
+                        Search exact spot: <Text style={{ fontWeight: '600', color: colors.ink }}>"{placeInput.trim()}"</Text>
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+
+              {searchFailed && predictions.length === 0 && placeInput.trim().length >= 2 && !aiSearching && (
+                <Text style={{ fontSize: 10.5, color: muted, marginTop: 5, fontWeight: '500', textAlign: 'center' }}>
+                  No direct matches. Tap above to search exact spot.
+                </Text>
+              )}
+
+              {predictions.length > 0 && (
+                <View
+                  style={{
+                    marginTop: 8,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: border,
+                    overflow: 'hidden',
+                    backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+                  }}
+                >
+                  <ScrollView
+                    style={{ maxHeight: 170 }}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {predictions.map((p, i) => (
+                      <TouchableOpacity
+                        key={p.placeId}
+                        onPress={() => handleSelectPlace(p)}
+                        activeOpacity={0.7}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 10,
+                          paddingHorizontal: 12,
+                          paddingVertical: 10,
+                          borderBottomWidth: i < predictions.length - 1 ? 1 : 0,
+                          borderBottomColor: border,
+                        }}
+                      >
+                        <MapPin size={15} color={accent} strokeWidth={2.2} />
+                        <View style={{ flex: 1 }}>
+                          <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '700', color: colors.ink }}>
+                            {p.mainText}
+                          </Text>
+                          {!!p.secondaryText && (
+                            <Text numberOfLines={1} style={{ fontSize: 10, color: muted, marginTop: 1 }}>
+                              {p.secondaryText}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {selectedPlace && predictions.length === 0 && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    marginTop: 8,
+                    backgroundColor: isDark ? 'rgba(16,185,129,0.12)' : '#EAFBF4',
+                    borderWidth: 1,
+                    borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.45)',
+                    borderRadius: 12,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                  }}
+                >
+                  <Check size={13} color="#10B981" strokeWidth={3} />
+                  <Text style={{ flex: 1, fontSize: 11, fontWeight: '700', color: colors.ink }} numberOfLines={2}>
+                    {selectedPlace.name}
+                    {selectedPlace.address ? ` — ${selectedPlace.address}` : ''}
+                  </Text>
+                </View>
+              )}
+
+              {selectedPlace?.photos && selectedPlace.photos.length > 0 && (
+                <PhotoPickerRow
+                  photos={selectedPlace.photos}
+                  selectedRef={selectedPlace.photoReference}
+                  onSelect={(ref) => setSelectedPlace((prev) => (prev ? { ...prev, photoReference: ref } : prev))}
+                  accent={accent}
+                  border={border}
+                  isDark={isDark}
+                />
+              )}
+            </>
           )}
 
           {/* Tag selector */}

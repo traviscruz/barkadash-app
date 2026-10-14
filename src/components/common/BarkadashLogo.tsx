@@ -38,14 +38,24 @@ const LOGO_SVG_XML = `<svg width="248" height="321" viewBox="0 0 248 321" fill="
 interface BarkadashLogoProps {
   height?: number;
   style?: ViewStyle;
+  tintColor?: string;
 }
 
-export const BarkadashLogo: React.FC<BarkadashLogoProps> = ({ height = 36, style }) => {
+export const BarkadashLogo: React.FC<BarkadashLogoProps> = ({ height = 36, style, tintColor }) => {
   const width = Math.round(height * (248 / 321));
+
+  const xml = React.useMemo(() => {
+    if (!tintColor) return LOGO_SVG_XML;
+    return LOGO_SVG_XML
+      .replace(/#0193FB/g, tintColor)
+      .replace(/#0072F8/g, tintColor)
+      .replace(/#0298FD/g, tintColor)
+      .replace(/#0171F8/g, tintColor);
+  }, [tintColor]);
 
   return (
     <View style={[{ justifyContent: 'center', alignItems: 'center' }, style]}>
-      <SvgXml xml={LOGO_SVG_XML} width={width} height={height} />
+      <SvgXml xml={xml} width={width} height={height} />
     </View>
   );
 };

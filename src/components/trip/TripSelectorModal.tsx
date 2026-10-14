@@ -15,6 +15,7 @@ import { useResponsive } from '../../utils/responsive';
 import { AppColors } from '../../utils/colors';
 import { Trip } from '../../types/trip';
 import { TripService } from '../../services/tripService';
+import { isTripPast7DaysGracePeriod } from '../../utils/tripDates';
 import {
   X,
   Plus,
@@ -58,6 +59,14 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
   const [editName, setEditName] = useState('');
   const [savingRename, setSavingRename] = useState(false);
   const editNameRef = useRef<TextInput>(null);
+
+  // Hide trips that have finished status and are past 7 days (accessible for 7 days for expense ledger)
+  const visibleTrips = trips.filter((trip) => {
+    if (trip.id && TripService.getInstance().isTripEnded(trip) === false && trip.status !== 'Completed') {
+      return true;
+    }
+    return !isTripPast7DaysGracePeriod(trip);
+  });
 
   if (!visible) return null;
 
@@ -118,34 +127,47 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
             contentContainerStyle={{ gap: 10, paddingVertical: 4 }}
             style={{ maxHeight: 380 }}
           >
-            {trips.map((trip) => {
-              const isSelected = trip.id === activeTripId;
-              return (
-                <TouchableOpacity
-                  key={trip.id}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    onSelectTrip(trip.id);
-                    onClose();
-                  }}
-                  style={[
-                    styles.tripCardItem,
-                    {
-                      backgroundColor: isSelected
-                        ? (isDark ? 'rgba(31, 78, 103, 0.35)' : '#EBF5FB')
-                        : colors.card,
-                      borderColor: isSelected ? colors.tealDark : colors.cardBorder,
-                    },
-                  ]}
-                >
+            {visibleTrips.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Plane size={26} color={colors.inkSoft} style={{ opacity: 0.5, marginBottom: 8 }} />
+                <Text style={[styles.emptyTitle, { color: colors.ink }]}>No Active Trips</Text>
+                <Text style={[styles.emptySubtitle, { color: colors.inkSoft }]}>
+                  Finished trips older than 7 days are archived. Host or join a new trip below!
+                </Text>
+              </View>
+            ) : (
+              visibleTrips.map((trip) => {
+                const isSelected = trip.id === activeTripId;
+                return (
+                  <TouchableOpacity
+                    key={trip.id}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      onSelectTrip(trip.id);
+                      onClose();
+                    }}
+                    style={[
+                      styles.tripCardItem,
+                      {
+                        backgroundColor: isSelected
+                          ? (isDark ? 'rgba(31, 78, 103, 0.35)' : '#EBF5FB')
+                          : colors.card,
+                        borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                      },
+                    ]}
+                  >
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flex: 1, paddingRight: 8 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '900', color: colors.ink }}>
+                        <Text
+                          style={{ fontSize: 15, fontWeight: '900', color: colors.ink, flexShrink: 1 }}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
                           {trip.title}
                         </Text>
                         {isSelected && (
-                          <View style={styles.activeTagPill}>
+                          <View style={[styles.activeTagPill, { flexShrink: 0 }]}>
                             <Text style={styles.activeTagText}>ACTIVE</Text>
                           </View>
                         )}
@@ -237,7 +259,8 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
                   </View>
                 </TouchableOpacity>
               );
-            })}
+            })
+          )}
 
             {/* Add / Host New Trip Action Button */}
             <TouchableOpacity
@@ -521,5 +544,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '900',
+  },
+  emptyContainer: {
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
   },
 });

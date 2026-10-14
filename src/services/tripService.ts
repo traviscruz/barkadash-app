@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment, MemberCommitment } from '../types/trip';
+import { Trip, DestinationPollOption, BarkadaActivity, ItineraryItem, ItineraryTag, ItineraryReaction, TripStay, TripStayReaction, TripStayComment, MemberCommitment, MAX_TRIP_MEMBERS } from '../types/trip';
 import { SpotItem, PlaceItem } from '../types/aiRecommendation';
 import { supabase } from '../utils/supabase';
 import { sortItineraryChronological, getTripDayInfo } from '../utils/tripDates';
@@ -190,7 +190,8 @@ export class TripService {
         }
       }
 
-      const friendIds = params.invitedFriendIds || [];
+      // Cap invited friends to ensure total trip members do not exceed MAX_TRIP_MEMBERS (Host = 1 member)
+      const friendIds = (params.invitedFriendIds || []).slice(0, Math.max(0, MAX_TRIP_MEMBERS - 1));
 
       if (tripInserted) {
         // Insert Host into trip_participants
@@ -330,7 +331,37 @@ export class TripService {
       }
 
       if (tripData) {
-        let memberCount = 1;
+        // Enforce MAX_TRIP_MEMBERS limit
+        const { count } = await supabase
+          .from('trip_participants')
+          .select('*', { count: 'exact', head: true })
+          .eq('trip_id', tripData.id)
+          .neq('status', 'rejected');
+
+        const currentCount = count || 0;
+
+        let isAlreadyMember = false;
+        if (userId) {
+          const { data: existingPart } = await supabase
+            .from('trip_participants')
+            .select('id, status')
+            .eq('trip_id', tripData.id)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (existingPart && existingPart.status !== 'rejected') {
+            isAlreadyMember = true;
+          }
+        }
+
+        if (!isAlreadyMember && currentCount >= MAX_TRIP_MEMBERS) {
+          return {
+            success: false,
+            message: `This Barkada trip is already full (maximum ${MAX_TRIP_MEMBERS} members).`,
+          };
+        }
+
+        let memberCount = currentCount || 1;
 
         if (userId) {
           // Add user to trip_participants table
@@ -725,6 +756,18 @@ export class TripService {
    */
   public async acceptTripInviteDB(tripId: string, userId: string): Promise<boolean> {
     try {
+      // Check if trip is already at capacity
+      const { count } = await supabase
+        .from('trip_participants')
+        .select('*', { count: 'exact', head: true })
+        .eq('trip_id', tripId)
+        .eq('status', 'accepted');
+
+      if ((count || 0) >= MAX_TRIP_MEMBERS) {
+        console.warn(`acceptTripInviteDB: trip ${tripId} is full (max ${MAX_TRIP_MEMBERS} members)`);
+        return false;
+      }
+
       const { error } = await supabase
         .from('trip_participants')
         .upsert(
@@ -2626,7 +2669,24 @@ export class TripService {
   ): Promise<boolean> {
     if (friendIds.length === 0) return true;
     try {
-      const inserts = friendIds.map((fId) => ({
+      // Check current participant count to enforce MAX_TRIP_MEMBERS
+      const { count } = await supabase
+        .from('trip_participants')
+        .select('*', { count: 'exact', head: true })
+        .eq('trip_id', tripId)
+        .neq('status', 'rejected');
+
+      const currentCount = count || 0;
+      if (currentCount >= MAX_TRIP_MEMBERS) {
+        console.warn(`inviteFriendsToTripDB: trip ${tripId} is already at full capacity (${MAX_TRIP_MEMBERS})`);
+        return false;
+      }
+
+      const availableSpots = Math.max(0, MAX_TRIP_MEMBERS - currentCount);
+      const allowedFriendIds = friendIds.slice(0, availableSpots);
+      if (allowedFriendIds.length === 0) return false;
+
+      const inserts = allowedFriendIds.map((fId) => ({
         trip_id: tripId,
         user_id: fId,
         role: 'member',

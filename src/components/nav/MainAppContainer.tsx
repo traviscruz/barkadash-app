@@ -34,9 +34,10 @@ import { AiChatModal } from '../ai/AiChatModal';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 import { TripPostDetailScreen } from '../../screens/feed/TripPostDetailScreen';
+import { TravelMapScreen } from '../../screens/map/TravelMapScreen';
 import { TripRecapPost } from '../../types/tripRecap';
 
-export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | 'commitment' | 'checklist' | 'my-likes' | 'trip-post-detail' | null;
+export type SubScreenType = 'profile' | 'edit-profile' | 'settings' | 'terms' | 'connections' | 'notifications' | 'commitment' | 'checklist' | 'my-likes' | 'trip-post-detail' | 'travel-map' | null;
 
 interface MainAppContainerProps {
   onLogout?: () => void;
@@ -338,6 +339,11 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
             </View>
             <View style={[styles.subScreenContainer, { display: activeSubScreen === 'my-likes' ? 'flex' : 'none' }]}>
               <MyLikesScreen
+                onBack={handleBackRootSub}
+              />
+            </View>
+            <View style={[styles.subScreenContainer, { display: activeSubScreen === 'travel-map' ? 'flex' : 'none' }]}>
+              <TravelMapScreen
                 onBack={handleBackRootSub}
               />
             </View>

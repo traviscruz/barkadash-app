@@ -19,6 +19,7 @@ import {
   X,
   ChevronRight,
   Heart,
+  Map,
 } from 'lucide-react-native';
 import { BarkadashLogo } from '../common/BarkadashLogo';
 import { useTheme } from '../../context/ThemeContext';
@@ -97,6 +98,7 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
   const handleMenuClick = (action: string) => {
     handleCloseAnimation(() => {
       if (action === 'profile') onNavigateToSubScreen('profile');
+      else if (action === 'travel-map') onNavigateToSubScreen('travel-map');
       else if (action === 'connections') onNavigateToSubScreen('connections');
       else if (action === 'likes') onNavigateToSubScreen('my-likes');
       else if (action === 'settings') onNavigateToSubScreen('settings');
@@ -170,7 +172,19 @@ export const CabinetDrawerModal: React.FC<CabinetDrawerModalProps> = ({
             <View style={[styles.menuDivider, { backgroundColor: colors.cardBorder }]} />
 
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {/* 1. Squad Connections / Followers & Following */}
+              {/* 1. Travel Map */}
+              <TouchableOpacity
+                onPress={() => handleMenuClick('travel-map')}
+                activeOpacity={0.7}
+                style={styles.menuItem}
+              >
+                <View style={[styles.menuIconBox, { backgroundColor: isDark ? 'rgba(42, 157, 143, 0.16)' : 'rgba(42, 157, 143, 0.12)' }]}>
+                  <Map size={18} color="#2A9D8F" />
+                </View>
+                <Text style={[styles.menuItemText, { color: colors.ink }]}>Travel Map</Text>
+              </TouchableOpacity>
+
+              {/* 2. Squad Connections / Followers & Following */}
               <TouchableOpacity
                 onPress={() => handleMenuClick('connections')}
                 activeOpacity={0.7}

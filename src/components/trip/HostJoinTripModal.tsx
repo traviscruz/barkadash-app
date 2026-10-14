@@ -18,6 +18,7 @@ import { useUser } from '../../context/UserContext';
 import { useResponsive } from '../../utils/responsive';
 import { AppColors } from '../../utils/colors';
 import { TripService } from '../../services/tripService';
+import { MAX_TRIP_MEMBERS } from '../../types/trip';
 import { ConnectionService, DBUserConnection } from '../../services/connectionService';
 import { useKeyboardShift } from '../../hooks/useKeyboardShift';
 import {
@@ -39,6 +40,7 @@ interface HostJoinTripModalProps {
   onClose: () => void;
   onTripCreatedOrJoined?: () => void;
   initialMode?: 'choice' | 'host' | 'join';
+  initialTitle?: string;
 }
 
 export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
@@ -46,6 +48,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
   onClose,
   onTripCreatedOrJoined,
   initialMode = 'choice',
+  initialTitle = '',
 }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
@@ -96,7 +99,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
   useEffect(() => {
     if (visible) {
       setMode(initialMode);
-      setTripTitle('');
+      setTripTitle(initialTitle || '');
       setJoinCodeInput('');
       setJoinError('');
       setSelectedFriends([]);
@@ -185,9 +188,18 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
   };
 
   const toggleFriend = (id: string) => {
-    setSelectedFriends((prev) =>
-      prev.includes(id) ? prev.filter((fId) => fId !== id) : [...prev, id]
-    );
+    setSelectedFriends((prev) => {
+      if (prev.includes(id)) {
+        setJoinError('');
+        return prev.filter((fId) => fId !== id);
+      }
+      if (prev.length >= MAX_TRIP_MEMBERS - 1) {
+        setJoinError(`Barkada limit reached: A trip can have at most ${MAX_TRIP_MEMBERS} members (1 host + ${MAX_TRIP_MEMBERS - 1} invited friends).`);
+        return prev;
+      }
+      setJoinError('');
+      return [...prev, id];
+    });
   };
 
   const handleHostSubmit = async () => {
@@ -283,7 +295,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
 
           {/* Header */}
           <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               {mode !== 'choice' && (
                 <TouchableOpacity
                   onPress={() => changeModeWithAnimation('choice')}
@@ -294,12 +306,20 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
                   </Text>
                 </TouchableOpacity>
               )}
-              <Text style={[styles.headerTitle, { color: colors.ink }]}>
+              <Text
+                style={[styles.headerTitle, { color: colors.ink }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 {mode === 'choice' && 'Barkada Trip Planning'}
-                {mode === 'host' && 'Host a New Trip'}
+                {mode === 'host' && (tripTitle.trim() ? `Host "${tripTitle.trim()}"` : 'Host a New Trip')}
                 {mode === 'join' && 'Join Barkada Trip'}
               </Text>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft }}>
+              <Text
+                style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 {mode === 'choice' && 'Start hosting a trip or join your friends using a short code.'}
                 {mode === 'host' && 'Set up trip title and generate your barkada invite code.'}
                 {mode === 'join' && 'Enter 6-character trip code to join your barkada.'}
@@ -308,7 +328,10 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
 
             <TouchableOpacity
               onPress={() => handleCloseModal()}
-              style={[styles.closeBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[
+                styles.closeBtn,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder, flexShrink: 0, marginTop: 2 },
+              ]}
             >
               <X size={18} color={colors.ink} />
             </TouchableOpacity>
@@ -499,8 +522,17 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
                   <View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <Text style={[styles.inputLabel, { color: colors.ink, marginBottom: 0 }]}>
-                        Invite Barkada ({selectedFriends.length} selected)
+                        Invite Barkada ({selectedFriends.length}/{MAX_TRIP_MEMBERS - 1} max)
                       </Text>
+                      {selectedFriends.length >= MAX_TRIP_MEMBERS - 1 ? (
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: colors.orangeAccent }}>
+                          Max capacity reached
+                        </Text>
+                      ) : (
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: colors.inkSoft }}>
+                          {MAX_TRIP_MEMBERS - 1 - selectedFriends.length} spots left
+                        </Text>
+                      )}
                     </View>
 
                     {/* Friend Search Input */}
@@ -548,6 +580,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
                       ) : (
                         friendsList.map((friend) => {
                           const isSelected = selectedFriends.includes(friend.id);
+                          const isLimitReached = !isSelected && selectedFriends.length >= MAX_TRIP_MEMBERS - 1;
                           return (
                             <TouchableOpacity
                               key={friend.id}
@@ -562,6 +595,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
                                 borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                                opacity: isLimitReached ? 0.45 : 1,
                               }}
                             >
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -691,6 +725,7 @@ export const HostJoinTripModal: React.FC<HostJoinTripModalProps> = ({
 const styles = StyleSheet.create({
   sheetCard: {
     width: '100%',
+    maxHeight: SCREEN_HEIGHT * 0.9,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
@@ -721,6 +756,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
     letterSpacing: -0.5,
+    lineHeight: 25,
     marginBottom: 2,
   },
   closeBtn: {
@@ -768,6 +804,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     fontSize: 14,
     fontWeight: '600',
+    minHeight: 46,
   },
   codeBox: {
     flexDirection: 'row',

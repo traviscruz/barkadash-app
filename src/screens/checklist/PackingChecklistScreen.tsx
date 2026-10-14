@@ -33,6 +33,11 @@ import {
   CornerDownLeft,
   Tag,
   RefreshCw,
+  Users,
+  User,
+  UserCheck,
+  UserPlus,
+  Lock,
 } from 'lucide-react-native';
 
 interface PackingChecklistScreenProps {
@@ -57,8 +62,12 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
   const [trip, setTrip] = useState<any>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
+  const [participants, setParticipants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // View Scope: All | My Items | Group Assigned
+  const [viewScope, setViewScope] = useState<'all' | 'mine' | 'assigned'>('all');
 
   // Category filter / target category for new items
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -67,6 +76,9 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
   // Inline rename state
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
+
+  // Assign Member modal state
+  const [assignTargetItem, setAssignTargetItem] = useState<ChecklistItem | null>(null);
 
   // Inline Notes Input State
   const [inputText, setInputText] = useState('');
@@ -105,14 +117,18 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
     setTrip(active);
 
     try {
-      const data = await ChecklistService.getInstance().fetchTripChecklistDB(targetTripId);
+      const [data, parts] = await Promise.all([
+        ChecklistService.getInstance().fetchTripChecklistDB(targetTripId, profile?.id),
+        TripService.getInstance().fetchTripParticipantsDB(targetTripId),
+      ]);
       setItems(data);
+      setParticipants(parts);
     } catch (e) {
       console.warn('Error fetching checklist items:', e);
     } finally {
       setLoading(false);
     }
-  }, [propTripId]);
+  }, [propTripId, profile?.id]);
 
   useEffect(() => {
     setLoading(true);
@@ -136,6 +152,17 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
           loadData();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_checklist_user_completions',
+        },
+        () => {
+          loadData();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -152,6 +179,13 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
   // Toggle item completed status
   const handleToggleItem = async (item: ChecklistItem) => {
     if (isTripEnded) return;
+
+    // If item is assigned to someone else: block toggle and show notification
+    if (item.assignedTo && item.assignedTo !== profile?.id) {
+      showToast(`Assigned to ${item.assignedToName || 'friend'} — only they can check this off.`);
+      return;
+    }
+
     const nextVal = !item.isCompleted;
     // Instant optimistic update
     setItems((prev) =>
@@ -163,9 +197,46 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
     }
 
     try {
-      await ChecklistService.getInstance().toggleChecklistItemDB(item.id, nextVal);
+      const res = await ChecklistService.getInstance().toggleChecklistItemDB(
+        item,
+        nextVal,
+        profile?.id
+      );
+      if (!res.success && res.reason === 'assigned_to_other') {
+        // Revert optimistic update
+        setItems((prev) =>
+          prev.map((i) => (i.id === item.id ? { ...i, isCompleted: !nextVal } : i))
+        );
+        showToast(`Assigned to ${item.assignedToName || 'friend'} — only they can check this off.`);
+      }
     } catch (e) {
       console.warn('Error toggling item:', e);
+    }
+  };
+
+  // Assign item to a member or general
+  const handleAssignMember = async (itemId: string, memberId: string | null, memberName?: string) => {
+    if (isTripEnded) return;
+    setAssignTargetItem(null);
+
+    // Optimistic update
+    setItems((prev) =>
+      prev.map((i) =>
+        i.id === itemId
+          ? {
+              ...i,
+              assignedTo: memberId || undefined,
+              assignedToName: memberName,
+            }
+          : i
+      )
+    );
+
+    try {
+      await ChecklistService.getInstance().assignChecklistItemDB(itemId, memberId);
+      showToast(memberId ? `Assigned to ${memberName || 'member'}` : 'Set to General (Everyone)');
+    } catch (e) {
+      console.warn('Error assigning member:', e);
     }
   };
 
@@ -487,13 +558,29 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
     }
   };
 
-  // Stats
+  // Individual items for current user (general items + items assigned to me)
+  const myItems = items.filter((i) => !i.assignedTo || i.assignedTo === profile?.id);
+  const myCompletedCount = myItems.filter((i) => i.isCompleted).length;
+  const myTotalCount = myItems.length;
+  const myProgressPercent = myTotalCount > 0 ? Math.round((myCompletedCount / myTotalCount) * 100) : 0;
+
+  const assignedItems = items.filter((i) => !!i.assignedTo);
+
   const totalCount = items.length;
   const completedCount = items.filter((i) => i.isCompleted).length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-  // Filter items
+  // Filter items by Scope & Category
   const filteredItems = items.filter((item) => {
+    // 1. Scope filter
+    if (viewScope === 'mine') {
+      const isMine = !item.assignedTo || item.assignedTo === profile?.id;
+      if (!isMine) return false;
+    } else if (viewScope === 'assigned') {
+      if (!item.assignedTo) return false;
+    }
+
+    // 2. Category filter
     if (selectedCategory === 'All') return true;
     return item.category === selectedCategory;
   });
@@ -583,7 +670,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                         width: 28,
                         height: 28,
                         borderRadius: 14,
-                        backgroundColor: progressPercent === 100 ? '#F0A93E' : colors.tealDark,
+                        backgroundColor: myProgressPercent === 100 ? '#F0A93E' : colors.tealDark,
                         alignItems: 'center',
                         justifyContent: 'center',
                       }}
@@ -591,9 +678,9 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                       <Check size={14} color="#FFFFFF" strokeWidth={2.8} />
                     </View>
                     <View>
-                      <Text style={[styles.progressCardLabel, { color: colors.inkSoft }]}>PACKING PROGRESS</Text>
+                      <Text style={[styles.progressCardLabel, { color: colors.inkSoft }]}>YOUR PACKING PROGRESS</Text>
                       <Text style={[styles.progressCardValue, { color: colors.ink }]}>
-                        {completedCount} of {totalCount} Packed
+                        {myCompletedCount} of {myTotalCount} Packed
                       </Text>
                     </View>
                   </View>
@@ -602,17 +689,17 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                     style={[
                       styles.progressPercentPill,
                       {
-                        backgroundColor: progressPercent === 100 ? 'rgba(240,169,62,0.18)' : colors.subtleBg,
+                        backgroundColor: myProgressPercent === 100 ? 'rgba(240,169,62,0.18)' : colors.subtleBg,
                       },
                     ]}
                   >
                     <Text
                       style={[
                         styles.progressPercentText,
-                        { color: progressPercent === 100 ? '#F0A93E' : colors.tealDark },
+                        { color: myProgressPercent === 100 ? '#F0A93E' : colors.tealDark },
                       ]}
                     >
-                      {progressPercent}%
+                      {myProgressPercent}%
                     </Text>
                   </View>
                 </View>
@@ -622,12 +709,69 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                     style={[
                       styles.progressBar,
                       {
-                        width: `${progressPercent}%`,
-                        backgroundColor: progressPercent === 100 ? '#F0A93E' : colors.tealDark,
+                        width: `${myProgressPercent}%`,
+                        backgroundColor: myProgressPercent === 100 ? '#F0A93E' : colors.tealDark,
                       },
                     ]}
                   />
                 </View>
+              </View>
+
+              {/* View Scope Filter: All | For Me | Group Assigned */}
+              <View style={[styles.scopeBar, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.subtleBg }]}>
+                <TouchableOpacity
+                  onPress={() => setViewScope('all')}
+                  style={[
+                    styles.scopeTab,
+                    viewScope === 'all' && [styles.scopeTabActive, { backgroundColor: colors.tealDark }],
+                  ]}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.scopeTabText,
+                      { color: viewScope === 'all' ? '#FFFFFF' : colors.inkSoft },
+                    ]}
+                  >
+                    All Items ({items.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setViewScope('mine')}
+                  style={[
+                    styles.scopeTab,
+                    viewScope === 'mine' && [styles.scopeTabActive, { backgroundColor: colors.tealDark }],
+                  ]}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.scopeTabText,
+                      { color: viewScope === 'mine' ? '#FFFFFF' : colors.inkSoft },
+                    ]}
+                  >
+                    For Me ({myTotalCount})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setViewScope('assigned')}
+                  style={[
+                    styles.scopeTab,
+                    viewScope === 'assigned' && [styles.scopeTabActive, { backgroundColor: colors.tealDark }],
+                  ]}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.scopeTabText,
+                      { color: viewScope === 'assigned' ? '#FFFFFF' : colors.inkSoft },
+                    ]}
+                  >
+                    Group ({assignedItems.length})
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {/* Action Toolbar: Single Auto-Generate Button + Auto-Tag Categories Button */}
@@ -772,6 +916,9 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
 
                 {/* Ruled Checklist Lines */}
                 {filteredItems.map((item) => {
+                  const isAssignedToOther = !!item.assignedTo && item.assignedTo !== profile?.id;
+                  const isAssignedToMe = !!item.assignedTo && item.assignedTo === profile?.id;
+
                   return (
                     <View
                       key={item.id}
@@ -780,7 +927,7 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                         { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F6' },
                       ]}
                     >
-                      {/* Signature Yellow Checkbox Button */}
+                      {/* Signature Checkbox Button */}
                       <TouchableOpacity
                         onPress={() => handleToggleItem(item)}
                         disabled={isTripEnded}
@@ -788,74 +935,146 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
                           styles.noteCheckbox,
                           {
                             backgroundColor: item.isCompleted ? '#F0A93E' : 'transparent',
-                            borderColor: item.isCompleted ? '#F0A93E' : (isDark ? 'rgba(255,255,255,0.25)' : '#CBD5E1'),
+                            borderColor: item.isCompleted
+                              ? '#F0A93E'
+                              : isAssignedToOther
+                              ? (isDark ? 'rgba(255,255,255,0.18)' : '#CBD5E1')
+                              : (isDark ? 'rgba(255,255,255,0.25)' : '#94A3B8'),
                             opacity: isTripEnded ? 0.75 : 1,
                           },
                         ]}
                         activeOpacity={0.7}
                       >
-                        {item.isCompleted && <Check size={11} color="#FFFFFF" strokeWidth={3} />}
+                        {item.isCompleted ? (
+                          <Check size={11} color="#FFFFFF" strokeWidth={3} />
+                        ) : isAssignedToOther ? (
+                          <Lock size={8} color={isDark ? 'rgba(255,255,255,0.35)' : '#94A3B8'} />
+                        ) : null}
                       </TouchableOpacity>
 
-                      {/* Title Text (Tap word to rename) or Inline Rename Input */}
-                      {editingItemId === item.id && !isTripEnded ? (
-                        <TextInput
-                          value={editingTitle}
-                          onChangeText={setEditingTitle}
-                          onSubmitEditing={() => handleSaveRename(item.id)}
-                          onBlur={() => handleSaveRename(item.id)}
-                          autoFocus
-                          returnKeyType="done"
-                          style={[
-                            styles.noteLineInput,
-                            {
-                              color: colors.ink,
-                              fontWeight: '600',
-                              paddingVertical: 2,
-                            },
-                          ]}
-                        />
-                      ) : (
-                        <TouchableOpacity
-                          onPress={isTripEnded ? undefined : () => handleStartRename(item)}
-                          style={{ flex: 1, paddingVertical: 4 }}
-                          activeOpacity={0.7}
-                        >
-                          <Text
+                      {/* Main Item Content Column (Title on top, Stacked Meta Badges below) */}
+                      <View style={styles.noteContentCol}>
+                        {/* Title Text (Tap word to rename) or Inline Rename Input */}
+                        {editingItemId === item.id && !isTripEnded ? (
+                          <TextInput
+                            value={editingTitle}
+                            onChangeText={setEditingTitle}
+                            onSubmitEditing={() => handleSaveRename(item.id)}
+                            onBlur={() => handleSaveRename(item.id)}
+                            autoFocus
+                            returnKeyType="done"
                             style={[
-                              styles.noteItemTitle,
+                              styles.noteLineInput,
                               {
-                                color: item.isCompleted ? colors.inkSoft : colors.ink,
-                                textDecorationLine: item.isCompleted ? 'line-through' : 'none',
-                                opacity: item.isCompleted ? 0.55 : 1,
+                                color: colors.ink,
+                                fontWeight: '600',
+                                paddingVertical: 2,
                               },
                             ]}
+                          />
+                        ) : (
+                          <TouchableOpacity
+                            onPress={isTripEnded ? undefined : () => handleStartRename(item)}
+                            style={{ width: '100%', paddingVertical: 1 }}
+                            activeOpacity={0.7}
                           >
-                            {item.title}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
+                            <Text
+                              style={[
+                                styles.noteItemTitle,
+                                {
+                                  color: item.isCompleted ? colors.inkSoft : colors.ink,
+                                  textDecorationLine: item.isCompleted ? 'line-through' : 'none',
+                                  opacity: item.isCompleted ? 0.55 : 1,
+                                },
+                              ]}
+                            >
+                              {item.title}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
 
-                      {/* Category Tag Badge */}
-                      {selectedCategory === 'All' && item.category && (
-                        <View style={[styles.miniCatBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.subtleBg }]}>
-                          <Text style={[styles.miniCatText, { color: colors.inkSoft }]} numberOfLines={1}>
-                            {item.category}
-                          </Text>
-                        </View>
-                      )}
+                        {/* Stacked Meta Row: Left-Aligned Badges (Assignee + Category) */}
+                        {(!!item.assignedTo || (selectedCategory === 'All' && !!item.category)) && (
+                          <View style={styles.noteMetaRow}>
+                            {/* Member Assignee Badge (Only shown if assigned) */}
+                            {!!item.assignedTo && (
+                              <TouchableOpacity
+                                onPress={isTripEnded ? undefined : () => setAssignTargetItem(item)}
+                                activeOpacity={0.75}
+                                style={[
+                                  styles.assigneeBadge,
+                                  {
+                                    backgroundColor: isAssignedToMe
+                                      ? (isDark ? 'rgba(56,189,248,0.18)' : '#E0F2FE')
+                                      : (isDark ? 'rgba(168,85,247,0.18)' : '#F3E8FF'),
+                                    borderColor: isAssignedToMe
+                                      ? (isDark ? '#38BDF8' : '#0284C7')
+                                      : (isDark ? '#C084FC' : '#9333EA'),
+                                  },
+                                ]}
+                              >
+                                {isAssignedToMe ? (
+                                  <UserCheck size={9.5} color={isDark ? '#38BDF8' : '#0284C7'} strokeWidth={2.4} />
+                                ) : (
+                                  <User size={9.5} color={isDark ? '#C084FC' : '#9333EA'} strokeWidth={2.4} />
+                                )}
+                                <Text
+                                  style={[
+                                    styles.assigneeBadgeText,
+                                    {
+                                      color: isAssignedToMe
+                                        ? (isDark ? '#38BDF8' : '#0284C7')
+                                        : (isDark ? '#C084FC' : '#9333EA'),
+                                      fontWeight: '800',
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {isAssignedToMe
+                                    ? 'You'
+                                    : (item.assignedToName?.split(' ')[0] || 'Assigned')}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
 
-                      {/* Delete Action */}
-                      {!isTripEnded && (
-                        <TouchableOpacity
-                          onPress={() => handleDeleteItem(item.id)}
-                          style={styles.noteDeleteBtn}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          activeOpacity={0.6}
-                        >
-                          <Trash2 size={13} color={colors.inkSoft} />
-                        </TouchableOpacity>
-                      )}
+                            {/* Category Tag Badge */}
+                            {selectedCategory === 'All' && item.category && (
+                              <View style={[styles.miniCatBadge, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.subtleBg }]}>
+                                <Text style={[styles.miniCatText, { color: colors.inkSoft }]} numberOfLines={1}>
+                                  {item.category}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Right Action Buttons */}
+                      <View style={styles.noteRightActions}>
+                        {/* Quick Assign Icon (if unassigned) */}
+                        {!item.assignedTo && !isTripEnded && (
+                          <TouchableOpacity
+                            onPress={() => setAssignTargetItem(item)}
+                            style={styles.noteIconActionBtn}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+                            activeOpacity={0.6}
+                          >
+                            <UserPlus size={13} color={colors.inkSoft} strokeWidth={2} />
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Delete Action */}
+                        {!isTripEnded && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteItem(item.id)}
+                            style={styles.noteIconActionBtn}
+                            hitSlop={{ top: 8, bottom: 8, left: 6, right: 8 }}
+                            activeOpacity={0.6}
+                          >
+                            <Trash2 size={13} color={colors.inkSoft} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
                   );
                 })}
@@ -936,6 +1155,149 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ASSIGN MEMBER MODAL */}
+      <Modal
+        visible={!!assignTargetItem}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAssignTargetItem(null)}
+      >
+        <View style={styles.fixedModalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setAssignTargetItem(null)}
+          />
+
+          <View
+            style={[
+              styles.centeredModalCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
+                maxHeight: 460,
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: isDark ? 'rgba(56,189,248,0.18)' : '#E0F2FE',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Users size={16} color={colors.tealDark} strokeWidth={2.4} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalTitle, { color: colors.ink }]}>Assign Packing Item</Text>
+                  <Text style={{ fontSize: 11, color: colors.inkSoft, marginTop: 1 }} numberOfLines={1}>
+                    "{assignTargetItem?.title}"
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setAssignTargetItem(null)}
+                style={[styles.modalCloseBtn, { backgroundColor: colors.subtleBg }]}
+              >
+                <X size={15} color={colors.ink} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ marginTop: 8 }} showsVerticalScrollIndicator={false}>
+              {/* Option 1: General (Everyone) */}
+              <TouchableOpacity
+                onPress={() =>
+                  assignTargetItem &&
+                  handleAssignMember(assignTargetItem.id, null)
+                }
+                activeOpacity={0.75}
+                style={[
+                  styles.assignMemberRow,
+                  {
+                    borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F6',
+                    backgroundColor: !assignTargetItem?.assignedTo
+                      ? (isDark ? 'rgba(31,78,103,0.25)' : '#EBF5FB')
+                      : 'transparent',
+                  },
+                ]}
+              >
+                <View style={[styles.assignAvatarCircle, { backgroundColor: '#F0A93E' }]}>
+                  <Users size={16} color="#FFFFFF" strokeWidth={2.4} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.assignMemberName, { color: colors.ink, fontWeight: '800' }]}>
+                    General (Everyone)
+                  </Text>
+                  <Text style={[styles.assignMemberDesc, { color: colors.inkSoft }]}>
+                    All members pack this and check it individually for themselves.
+                  </Text>
+                </View>
+                {!assignTargetItem?.assignedTo && (
+                  <Check size={16} color={colors.tealDark} strokeWidth={2.8} />
+                )}
+              </TouchableOpacity>
+
+              {/* Option 2..N: Trip Participants */}
+              {participants.map((p) => {
+                const isCurrent = assignTargetItem?.assignedTo === p.id;
+                const isMe = p.id === profile?.id;
+                return (
+                  <TouchableOpacity
+                    key={p.id}
+                    onPress={() =>
+                      assignTargetItem &&
+                      handleAssignMember(assignTargetItem.id, p.id, p.name)
+                    }
+                    activeOpacity={0.75}
+                    style={[
+                      styles.assignMemberRow,
+                      {
+                        borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : '#EEF2F6',
+                        backgroundColor: isCurrent
+                          ? (isDark ? 'rgba(31,78,103,0.25)' : '#EBF5FB')
+                          : 'transparent',
+                      },
+                    ]}
+                  >
+                    <View style={[styles.assignAvatarCircle, { backgroundColor: p.avatarBg || colors.tealDark }]}>
+                      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>
+                        {p.initials || 'U'}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.assignMemberName, { color: colors.ink }]}>
+                          {p.name} {isMe ? '(You)' : ''}
+                        </Text>
+                        {p.role === 'host' && (
+                          <View style={styles.hostBadge}>
+                            <Text style={styles.hostBadgeText}>HOST</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.assignMemberDesc, { color: colors.inkSoft }]}>
+                        {isMe
+                          ? 'Only you can check this item off.'
+                          : `Only ${p.name.split(' ')[0]} can check this item off.`}
+                      </Text>
+                    </View>
+                    {isCurrent && (
+                      <Check size={16} color={colors.tealDark} strokeWidth={2.8} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* FIXED BACKDROP AUTO-GENERATE MODAL (Non-swiping backdrop) */}
       <Modal
@@ -1286,10 +1648,10 @@ const styles = StyleSheet.create({
   },
   noteLineRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    gap: 15,
+    gap: 12,
   },
   noteCheckbox: {
     width: 20,
@@ -1298,22 +1660,43 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 2,
+  },
+  noteContentCol: {
+    flex: 1,
+    paddingRight: 4,
   },
   noteItemTitle: {
     fontSize: 14,
     fontWeight: '600',
-    lineHeight: 18,
+    lineHeight: 20,
+    paddingLeft: 3,
+  },
+  noteMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 5,
     paddingLeft: 3,
   },
   miniCatBadge: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
-    maxWidth: 90,
   },
   miniCatText: {
     fontSize: 9.5,
     fontWeight: '700',
+  },
+  noteRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  noteIconActionBtn: {
+    padding: 3,
   },
   noteDeleteBtn: {
     padding: 4,
@@ -1464,5 +1847,85 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  scopeBar: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 12,
+  },
+  scopeTab: {
+    flex: 1,
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 9,
+  },
+  scopeTabActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  scopeTabText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  assigneeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  assigneeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  assignMemberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderBottomWidth: 1,
+  },
+  assignAvatarCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  assignMemberName: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  assignMemberDesc: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  hostBadge: {
+    backgroundColor: '#F0A93E',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  hostBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#FFF',
+  },
+  modalCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

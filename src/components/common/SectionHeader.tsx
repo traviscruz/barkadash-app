@@ -24,7 +24,19 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
       style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: sp.md }}
       className={className}
     >
-      <Text style={{ fontSize: fs.xs, fontWeight: '800', color: colors.inkSoft, letterSpacing: 1, textTransform: 'uppercase' }}>
+      <Text
+        style={{
+          fontSize: fs.xs,
+          fontWeight: '800',
+          color: colors.inkSoft,
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          flex: actionText ? 1 : undefined,
+          marginRight: actionText ? 8 : 0,
+        }}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {title}
       </Text>
       {actionText && onActionPress && (

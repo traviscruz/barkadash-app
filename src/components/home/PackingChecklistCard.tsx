@@ -7,11 +7,12 @@ import {
   Animated,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
+import { useUser } from '../../context/UserContext';
 import { Trip } from '../../types/trip';
 import { ChecklistService } from '../../services/checklistService';
 import { ChecklistItem } from '../../types/checklistItem';
 import { supabase } from '../../utils/supabase';
-import { CheckSquare, ChevronRight } from 'lucide-react-native';
+import { CheckSquare, ChevronRight, Users } from 'lucide-react-native';
 
 interface PackingChecklistCardProps {
   trip: Trip | null;
@@ -23,18 +24,20 @@ export const PackingChecklistCard: React.FC<PackingChecklistCardProps> = ({
   onPress,
 }) => {
   const { colors, isDark } = useTheme();
+  const { profile } = useUser();
+  const currentUserId = profile?.id;
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const pressScale = useRef(new Animated.Value(1)).current;
 
   const loadChecklist = useCallback(async () => {
     if (!trip?.id) return;
     try {
-      const res = await ChecklistService.getInstance().fetchTripChecklistDB(trip.id);
+      const res = await ChecklistService.getInstance().fetchTripChecklistDB(trip.id, currentUserId);
       setItems(res);
     } catch (e) {
       console.warn('Error loading checklist for card:', e);
     }
-  }, [trip?.id]);
+  }, [trip?.id, currentUserId]);
 
   useEffect(() => {
     loadChecklist();
@@ -54,6 +57,17 @@ export const PackingChecklistCard: React.FC<PackingChecklistCardProps> = ({
           loadChecklist();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_checklist_user_completions',
+        },
+        () => {
+          loadChecklist();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -63,9 +77,14 @@ export const PackingChecklistCard: React.FC<PackingChecklistCardProps> = ({
 
   if (!trip) return null;
 
-  const total = items.length;
-  const packed = items.filter((i) => i.isCompleted).length;
+  // Individual items for current user (general items + items specifically assigned to me)
+  const myItems = items.filter((i) => !i.assignedTo || i.assignedTo === currentUserId);
+  const othersItems = items.filter((i) => i.assignedTo && i.assignedTo !== currentUserId);
+
+  const total = myItems.length;
+  const packed = myItems.filter((i) => i.isCompleted).length;
   const percent = total > 0 ? Math.round((packed / total) * 100) : 0;
+  const othersPacked = othersItems.filter((i) => i.isCompleted).length;
 
   const handlePressIn = () => {
     Animated.spring(pressScale, { toValue: 0.98, friction: 6, useNativeDriver: true }).start();
@@ -114,7 +133,7 @@ export const PackingChecklistCard: React.FC<PackingChecklistCardProps> = ({
                 { color: percent === 100 ? '#10B981' : colors.ink },
               ]}
             >
-              {total > 0 ? `${percent}% Packed` : 'Empty List'}
+              {items.length > 0 ? `${percent}% Packed` : 'Empty List'}
             </Text>
           </View>
         </View>
@@ -123,11 +142,17 @@ export const PackingChecklistCard: React.FC<PackingChecklistCardProps> = ({
         <View style={styles.mainRow}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: colors.ink }]}>
-              {total > 0 ? `${packed} of ${total} items packed` : 'Start your packing checklist'}
+              {items.length > 0
+                ? othersItems.length > 0
+                  ? `${packed} of ${total} your items packed`
+                  : `${packed} of ${total} items packed`
+                : 'Start your packing checklist'}
             </Text>
             <Text style={[styles.subtitle, { color: colors.inkSoft }]}>
-              {total > 0
-                ? percent === 100
+              {items.length > 0
+                ? othersItems.length > 0
+                  ? `${othersPacked}/${othersItems.length} group items packed by barkada`
+                  : percent === 100
                   ? 'All items checked and ready to go'
                   : 'Tap to check off or generate suggestions'
                 : 'Auto-suggest essentials for your trip'}

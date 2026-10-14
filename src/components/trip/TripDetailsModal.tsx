@@ -16,7 +16,7 @@ import { useUser } from '../../context/UserContext';
 import { useResponsive } from '../../utils/responsive';
 import { AppColors } from '../../utils/colors';
 import { SlideUpModal } from '../common/SlideUpModal';
-import { Trip } from '../../types/trip';
+import { Trip, MAX_TRIP_MEMBERS } from '../../types/trip';
 import { TripService } from '../../services/tripService';
 import { ConnectionService, DBUserConnection } from '../../services/connectionService';
 import { isWithinTripDates, getTripDayInfo } from '../../utils/tripDates';
@@ -241,10 +241,18 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
     }
   };
 
+  const remainingSpots = Math.max(0, MAX_TRIP_MEMBERS - members.length);
+
   const toggleSelectFriend = (id: string) => {
-    setSelectedFriends((prev) =>
-      prev.includes(id) ? prev.filter((fId) => fId !== id) : [...prev, id]
-    );
+    setSelectedFriends((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((fId) => fId !== id);
+      }
+      if (prev.length >= remainingSpots) {
+        return prev;
+      }
+      return [...prev, id];
+    });
   };
 
   const handleSendInvites = async () => {
@@ -286,7 +294,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
 
           {/* Header */}
           <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               {isInviteMode ? (
                 <TouchableOpacity onPress={() => setIsInviteMode(false)} style={{ marginBottom: 4 }}>
                   <Text style={{ fontSize: 12, fontWeight: '800', color: colors.tealDark }}>
@@ -295,10 +303,18 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 </TouchableOpacity>
               ) : null}
 
-              <Text style={[styles.headerTitle, { color: colors.ink }]} numberOfLines={1}>
+              <Text
+                style={[styles.headerTitle, { color: colors.ink }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
                 {isInviteMode ? `Invite Barkada to "${trip.title}"` : trip.title}
               </Text>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft }}>
+              <Text
+                style={{ fontSize: 12, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {isInviteMode
                   ? 'Select connections from your friends list to send trip invites.'
                   : `${trip.destination} · ${trip.dateRange}`}
@@ -307,7 +323,10 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
 
             <TouchableOpacity
               onPress={onClose}
-              style={[styles.closeBtn, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
+              style={[
+                styles.closeBtn,
+                { backgroundColor: colors.card, borderColor: colors.cardBorder, flexShrink: 0, marginTop: 2 },
+              ]}
             >
               <X size={18} color={colors.ink} />
             </TouchableOpacity>
@@ -424,7 +443,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                     >
                       <Users size={16} color={colors.ink} />
                       <Text style={{ fontSize: 13.5, fontWeight: '900', color: colors.ink }}>
-                        Trip Participants ({members.length || trip.memberCount})
+                        Trip Participants ({members.length || trip.memberCount}/{MAX_TRIP_MEMBERS})
                       </Text>
                       {isParticipantsCollapsed ? (
                         <ChevronDown size={16} color={colors.inkSoft} />
@@ -436,19 +455,21 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <TouchableOpacity
                         onPress={handleOpenInviteMode}
+                        disabled={members.length >= MAX_TRIP_MEMBERS}
                         style={{
-                          backgroundColor: colors.lightOrangeBg,
+                          backgroundColor: members.length >= MAX_TRIP_MEMBERS ? colors.subtleBg : colors.lightOrangeBg,
                           paddingHorizontal: 10,
                           paddingVertical: 5,
                           borderRadius: 100,
                           flexDirection: 'row',
                           alignItems: 'center',
                           gap: 4,
+                          opacity: members.length >= MAX_TRIP_MEMBERS ? 0.6 : 1,
                         }}
                       >
-                        <UserPlus size={12} color={colors.orangeAccent} />
-                        <Text style={{ fontSize: 10.5, fontWeight: '900', color: colors.orangeAccent }}>
-                          + Invite
+                        <UserPlus size={12} color={members.length >= MAX_TRIP_MEMBERS ? colors.inkSoft : colors.orangeAccent} />
+                        <Text style={{ fontSize: 10.5, fontWeight: '900', color: members.length >= MAX_TRIP_MEMBERS ? colors.inkSoft : colors.orangeAccent }}>
+                          {members.length >= MAX_TRIP_MEMBERS ? 'Trip Full' : '+ Invite'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -893,6 +914,15 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
             ) : (
               /* Invite Barkada Connections View */
               <View style={{ gap: sp.md }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 2 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: colors.ink }}>
+                    Invite Connections ({selectedFriends.length}/{remainingSpots} spots left)
+                  </Text>
+                  <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
+                    Capacity: {MAX_TRIP_MEMBERS} max
+                  </Text>
+                </View>
+
                 <View
                   style={{
                     flexDirection: 'row',
@@ -948,6 +978,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                   ) : (
                     friendsList.map((friend) => {
                       const isSelected = selectedFriends.includes(friend.id);
+                      const isLimitReached = !isSelected && selectedFriends.length >= remainingSpots;
                       return (
                         <TouchableOpacity
                           key={friend.id}
@@ -962,6 +993,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                             borderRadius: 12,
                             borderWidth: 1,
                             borderColor: isSelected ? colors.tealDark : colors.cardBorder,
+                            opacity: isLimitReached ? 0.45 : 1,
                           }}
                         >
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -1567,6 +1599,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     letterSpacing: -0.5,
+    lineHeight: 23,
     marginBottom: 2,
   },
   closeBtn: {
