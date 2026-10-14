@@ -183,6 +183,63 @@ export const getTodayTripDay = (range?: string): number => {
 };
 
 /**
+ * Checks if a trip has finished/completed status AND is past the 7-day grace period.
+ * Trips that finished 7 days ago or fewer remain accessible so members can add to the expense ledger.
+ * Returns true if the trip has ended/finished and more than 7 days have passed since its end date.
+ */
+export const isTripPast7DaysGracePeriod = (
+  trip?: { id?: string; status?: string; dateRange?: string; updatedAt?: string; updated_at?: string } | null,
+  referenceDate: Date = new Date()
+): boolean => {
+  if (!trip) return false;
+
+  const rawStatus = (trip.status || '').toLowerCase();
+  const isCompletedStatus = rawStatus === 'completed' || rawStatus === 'finished';
+
+  const parsed = parseTripDateRange(trip.dateRange);
+  const now = referenceDate.getTime();
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+  if (parsed && parsed.end) {
+    // End of the final day of the trip (23:59:59.999)
+    const endOfDay = new Date(
+      parsed.end.getFullYear(),
+      parsed.end.getMonth(),
+      parsed.end.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+
+    const isDateEnded = now > endOfDay;
+
+    // Only consider hiding if it has finished status OR its date range has concluded
+    if (isCompletedStatus || isDateEnded) {
+      const elapsedSinceEnd = now - endOfDay;
+      return elapsedSinceEnd > SEVEN_DAYS_MS;
+    }
+
+    return false;
+  }
+
+  // If there is no parseable date range, but status is explicitly completed:
+  if (isCompletedStatus) {
+    const timestamp = trip.updatedAt || trip.updated_at;
+    if (timestamp) {
+      const updatedTime = new Date(timestamp).getTime();
+      if (!isNaN(updatedTime)) {
+        return now - updatedTime > SEVEN_DAYS_MS;
+      }
+    }
+    // If completed without determinable dates, keep visible so users have their 7-day grace period
+    return false;
+  }
+
+  return false;
+};
+
+/**
  * Converts a time string (e.g. "8:00 AM", "1:30 PM", "14:00") to minutes from midnight (0 - 1439).
  * Returns Number.MAX_SAFE_INTEGER for empty/invalid strings so they sort to the bottom.
  */

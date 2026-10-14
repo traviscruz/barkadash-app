@@ -29,4 +29,5 @@ export interface ChecklistItem {
   createdBy: string;
   createdAt?: string;
   updatedAt?: string;
+  completedByUserIds?: string[];
 }

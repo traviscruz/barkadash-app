@@ -677,7 +677,7 @@ export const ItineraryAddModal: React.FC<ItineraryAddModalProps> = ({
                 <Search size={16} color={accent} strokeWidth={2} style={{ marginRight: 8 }} />
                 <TextInput
                   style={{ flex: 1, paddingVertical: 12, color: colors.ink, fontSize: 13 }}
-                  placeholder="Search a place, e.g. Big Lagoon, El Nido"
+                  placeholder="Search a place, e.g. Shibuya, Big Lagoon, Eiffel Tower..."
                   placeholderTextColor={muted}
                   value={placeInput}
                   onChangeText={handlePlaceChange}

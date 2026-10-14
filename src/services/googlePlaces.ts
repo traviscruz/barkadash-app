@@ -95,28 +95,29 @@ function generateTravelPhotosForPlace(_name: string, _address: string, _explicit
   return [];
 }
 
-const AI_PLACE_SYSTEM_PROMPT = `You are a Philippine & global place search assistant for a travel app.
-Given a search query for any place, small shop, cafe, local carinderia, restaurant, resort, beach, hotel, or landmark:
-Identify real-world places, local businesses, or establishments in the Philippines (or worldwide).
+const AI_PLACE_SYSTEM_PROMPT = `You are an elite global place search assistant for a travel app.
+Given a search query for any destination, city, region, small shop, cafe, restaurant, resort, beach, hotel, or landmark:
+Identify real-world places, local businesses, or establishments anywhere in the world (e.g. Japan, France, South Korea, Philippines, USA, etc.).
 Return ONLY strict JSON with this exact structure:
 {
   "places": [
     {
-      "name": "Exact Venue / Shop Name",
-      "area": "Barangay / District / Municipality, Province",
-      "fullAddress": "Specific Street Address, Municipality, Province, Philippines",
-      "category": "cafe",
-      "latitude": 14.5532,
-      "longitude": 121.0205,
+      "name": "Exact Venue / Landmark / City Name",
+      "area": "City / District / Prefecture / Province, Country",
+      "fullAddress": "Specific Address or Area, City, Country",
+      "category": "attraction",
+      "latitude": 35.6762,
+      "longitude": 139.6503,
       "mapsUrl": "https://maps.google.com/?q=Exact+Name+Location"
     }
   ]
 }
 Rules:
-- Provide 1 to 3 best matching real places.
-- For small local businesses (e.g. "Kape Natividad Lucban", "Ate Girlie's Carinderia Siargao", "Mary Grace Cafe", "Shaka Cafe"), pinpoint their real town/area accurately.
-- "category" must be one of: "cafe", "restaurant", "hotel", "beach", "nature", "city", "attraction".
-- Ensure latitude and longitude are plausible numbers.`;
+- Provide 1 to 4 best matching real places or destinations.
+- Accurately determine the real country, city, and coordinates worldwide.
+- For local spots or regional businesses, accurately pinpoint their area and country.
+- "category" must be one of: "city", "attraction", "nature", "beach", "hotel", "restaurant", "cafe".
+- Ensure latitude and longitude are accurate numbers for the real location.`;
 
 async function searchWithAiAssistant(query: string, bypassCache = false): Promise<PlacePrediction[]> {
   const clean = query.trim().toLowerCase();
@@ -128,7 +129,7 @@ async function searchWithAiAssistant(query: string, bypassCache = false): Promis
     const res = await requestJson<{ places: Array<any> }>(
       AI_PLACE_SYSTEM_PROMPT,
       userPrompt,
-      { maxTokens: 350 }
+      { maxTokens: 400 }
     );
 
     const items = res?.data?.places;
@@ -139,12 +140,12 @@ async function searchWithAiAssistant(query: string, bypassCache = false): Promis
 
     const predictions: PlacePrediction[] = items.map((p: any, idx: number) => {
       const name = typeof p?.name === 'string' ? p.name.trim() : query;
-      const area = typeof p?.area === 'string' ? p.area.trim() : 'Philippines';
-      const address = typeof p?.fullAddress === 'string' ? p.fullAddress.trim() : `${name}, ${area}`;
-      const lat = typeof p?.latitude === 'number' ? p.latitude : 14.5995;
-      const lng = typeof p?.longitude === 'number' ? p.longitude : 120.9842;
+      const area = typeof p?.area === 'string' ? p.area.trim() : (typeof p?.country === 'string' ? p.country.trim() : '');
+      const address = typeof p?.fullAddress === 'string' ? p.fullAddress.trim() : (area ? `${name}, ${area}` : name);
+      const lat = typeof p?.latitude === 'number' ? p.latitude : 0;
+      const lng = typeof p?.longitude === 'number' ? p.longitude : 0;
       const category = typeof p?.category === 'string' ? p.category : 'general';
-      const mapsUrl = typeof p?.mapsUrl === 'string' ? p.mapsUrl : `https://maps.google.com/?q=${encodeURIComponent(name + ' ' + area)}`;
+      const mapsUrl = typeof p?.mapsUrl === 'string' ? p.mapsUrl : `https://maps.google.com/?q=${encodeURIComponent(name + ' ' + (area || ''))}`;
       const placeId = `ai_${idx}_${encodeURIComponent(name.toLowerCase().replace(/\s+/g, '_'))}`;
 
       placeDetailsCache.set(placeId, {
@@ -247,11 +248,12 @@ export async function searchPlaces(input: string): Promise<PlaceSearchResult> {
     }
   }
 
-  // 2. Fast TravelTime Search
+  // 2. Fast Global TravelTime Search
   let ttResults: PlacePrediction[] = [];
   if (TRAVELTIME_API_KEY && TRAVELTIME_APP_ID) {
     try {
-      const url = `https://api.traveltimeapp.com/v4/geocoding/search?query=${encodeURIComponent(query)}&within.country=PH`;
+      // Query TravelTime globally without restricting to country
+      const url = `https://api.traveltimeapp.com/v4/geocoding/search?query=${encodeURIComponent(query)}`;
       const res = await fetch(url, {
         headers: {
           'X-Application-Id': TRAVELTIME_APP_ID,
@@ -268,10 +270,10 @@ export async function searchPlaces(input: string): Promise<PlaceSearchResult> {
           const rawLabel = props.label || props.name || query;
           const parts = rawLabel.split(',').map((p: string) => p.trim()).filter(Boolean);
           const mainText = parts[0] || props.name || query;
-          const secondaryText = parts.length > 1 ? parts.slice(1).join(', ') : (props.country || 'Philippines');
+          const secondaryText = parts.length > 1 ? parts.slice(1).join(', ') : (props.country || '');
           const placeId = props.id ? String(props.id) : `tt_${idx}_${encodeURIComponent(mainText)}`;
-          const lng = f.geometry?.coordinates?.[0] || 120.9842;
-          const lat = f.geometry?.coordinates?.[1] || 14.5995;
+          const lng = typeof f.geometry?.coordinates?.[0] === 'number' ? f.geometry.coordinates[0] : 0;
+          const lat = typeof f.geometry?.coordinates?.[1] === 'number' ? f.geometry.coordinates[1] : 0;
 
           placeDetailsCache.set(placeId, {
             placeId,
@@ -292,53 +294,65 @@ export async function searchPlaces(input: string): Promise<PlaceSearchResult> {
     }
   }
 
-  // If TravelTime found great results, return them immediately (instant, zero rate limit)
-  if (ttResults.length > 0) {
-    console.log(`   🟣 [Engine: TravelTime API] Found ${ttResults.length} locations (Top: "${ttResults[0].mainText} - ${ttResults[0].secondaryText}")`);
-    const results = ttResults.slice(0, 8);
-    searchQueryCache.set(cacheKey, results);
-    return { predictions: results, error: null };
-  }
+  // 3. Fast Global Photon / OSM Geocoder (POIs, venues, landmarks, districts worldwide)
+  let photonResults: PlacePrediction[] = [];
+  // Run Photon if TravelTime returned fewer than 4 results to enrich suggestions, or as primary fallback
+  if (ttResults.length < 4) {
+    try {
+      const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=8&lang=en`);
+      if (res.ok) {
+        const data = await res.json();
+        const features = data?.features || [];
+        if (features.length > 0) {
+          photonResults = features.map((f: any, idx: number) => {
+            const props = f.properties || {};
+            const placeId = `photon_${props.osm_id || idx}`;
+            const mainText = props.name || props.street || query;
+            const secondaryParts = [props.city || props.district, props.state, props.country].filter(Boolean);
+            const secondaryText = secondaryParts.join(', ') || props.country || '';
+            const lng = typeof f.geometry?.coordinates?.[0] === 'number' ? f.geometry.coordinates[0] : 0;
+            const lat = typeof f.geometry?.coordinates?.[1] === 'number' ? f.geometry.coordinates[1] : 0;
 
-  // 3. Photon Open Geocoder (fast fallback for streets, POIs, venues)
-  try {
-    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=8&lang=en`);
-    if (res.ok) {
-      const data = await res.json();
-      const features = data?.features || [];
-      if (features.length > 0) {
-        const predictions: PlacePrediction[] = features.map((f: any, idx: number) => {
-          const props = f.properties || {};
-          const placeId = `photon_${props.osm_id || idx}`;
-          const mainText = props.name || props.street || query;
-          const secondaryParts = [props.city || props.district, props.state, props.country].filter(Boolean);
-          const secondaryText = secondaryParts.join(', ') || 'Location';
-          const lng = f.geometry?.coordinates?.[0] || 120.9842;
-          const lat = f.geometry?.coordinates?.[1] || 14.5995;
+            placeDetailsCache.set(placeId, {
+              placeId,
+              name: mainText,
+              address: secondaryText ? `${mainText}, ${secondaryText}` : mainText,
+              lat,
+              lng,
+              mapsUrl: `https://maps.google.com/?q=${encodeURIComponent(mainText + ' ' + secondaryText)}`,
+              photos: generateTravelPhotosForPlace(mainText, secondaryText),
+              engineSource: 'photon',
+            });
 
-          placeDetailsCache.set(placeId, {
-            placeId,
-            name: mainText,
-            address: `${mainText}, ${secondaryText}`,
-            lat,
-            lng,
-            mapsUrl: `https://maps.google.com/?q=${encodeURIComponent(mainText + ' ' + secondaryText)}`,
-            photos: generateTravelPhotosForPlace(mainText, secondaryText),
-            engineSource: 'photon',
+            return { placeId, mainText, secondaryText };
           });
-
-          return { placeId, mainText, secondaryText };
-        });
-
-        if (predictions.length > 0) {
-          console.log(`   🔵 [Engine: Photon / OpenStreetMap] Found ${predictions.length} spots (Top: "${predictions[0].mainText}")`);
-          searchQueryCache.set(cacheKey, predictions);
-          return { predictions, error: null };
         }
       }
+    } catch {
+      // Ignore
     }
-  } catch {
-    // Ignore
+  }
+
+  // Combine and deduplicate predictions
+  const combined: PlacePrediction[] = [];
+  const seenKeys = new Set<string>();
+
+  const addPrediction = (p: PlacePrediction) => {
+    const key = `${p.mainText.toLowerCase()}__${(p.secondaryText || '').toLowerCase().slice(0, 15)}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      combined.push(p);
+    }
+  };
+
+  ttResults.forEach(addPrediction);
+  photonResults.forEach(addPrediction);
+
+  if (combined.length > 0) {
+    const results = combined.slice(0, 8);
+    console.log(`   🌍 [Global Location Search] Found ${results.length} locations (Top: "${results[0].mainText} - ${results[0].secondaryText}")`);
+    searchQueryCache.set(cacheKey, results);
+    return { predictions: results, error: null };
   }
 
   console.log(`   ⚪ [Location Search] No direct match for "${query}"`);
@@ -408,9 +422,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceSelection |
   return {
     placeId,
     name: 'Selected Location',
-    address: 'Philippines',
-    photos: generateTravelPhotosForPlace('Selected Location', 'Philippines'),
-    photoReference: TRAVEL_PHOTOS_BY_TAG.beach[0],
+    address: '',
+    photos: [],
   };
 }
 

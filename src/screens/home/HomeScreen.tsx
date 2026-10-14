@@ -23,6 +23,8 @@ import { NoTripWelcome } from '../../components/home/NoTripWelcome';
 import { TripCalendarCard } from '../../components/home/TripCalendarCard';
 import { CommitmentTrackerCard } from '../../components/home/CommitmentTrackerCard';
 import { PackingChecklistCard } from '../../components/home/PackingChecklistCard';
+import { SeasonalSpotsSection } from '../../components/home/SeasonalSpotsSection';
+import { HostJoinTripModal } from '../../components/trip/HostJoinTripModal';
 import { TripMember } from '../../components/trip/TripDetailsModal';
 import { TripFeedScreen } from '../feed/TripFeedScreen';
 import { TripRecapScreen } from '../feed/TripRecapScreen';
@@ -47,6 +49,7 @@ import {
   Plane,
   LayoutGrid,
   Award,
+  Compass,
 } from 'lucide-react-native';
 
 type HomeTabKey = 'mytrip' | 'feed' | 'recap';
@@ -148,6 +151,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const homeTabSlide = useRef(new Animated.Value(0)).current;
   const homeTabWidth = useRef(new Animated.Value(0)).current;
   const lastOffsetY = useRef(0);
+  const [hostModalVisible, setHostModalVisible] = useState(false);
+  const [hostModalTitle, setHostModalTitle] = useState('');
+
+  const handlePlanTripToSpot = (destinationName: string) => {
+    setHostModalTitle(`Barkada Trip to ${destinationName}`);
+    setHostModalVisible(true);
+  };
   const { sp, fs, icon, bottomNavOffset } = useResponsive();
 
   const placePolls = polls.filter((p) => p.type === 'place');
@@ -603,6 +613,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 onGetStarted={() => onNavigateToTab?.(1)}
               />
             )}
+
+            {/* Visual Section Divider separating Current Trip from Seasonal Spots */}
+            <View style={styles.homeSectionDivider}>
+              <View style={[styles.homeDividerLine, { backgroundColor: colors.rule }]} />
+              <View
+                style={[
+                  styles.homeDividerBadge,
+                  { backgroundColor: isDark ? colors.card : colors.subtleBg, borderColor: colors.cardBorder },
+                ]}
+              >
+                <Compass size={12} color={colors.tealDark} strokeWidth={2.4} />
+                <Text style={[styles.homeDividerText, { color: colors.inkSoft }]}>
+                  SEASONAL INSPIRATION
+                </Text>
+              </View>
+              <View style={[styles.homeDividerLine, { backgroundColor: colors.rule }]} />
+            </View>
+
+            {/* Smart Seasonal Philippine Spots Recommendation */}
+            <SeasonalSpotsSection
+              onPlanTrip={handlePlanTripToSpot}
+              onNavigateToPlanner={() => onNavigateToTab?.(1)}
+            />
           </>
         )}
 
@@ -650,6 +683,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ) : (
         <TripRecapScreen embedded onScrollDirection={onScrollDirection} />
       )}
+
+      {/* Host / Create Trip Modal pre-filled when user taps 'Plan Barkada Trip Here' from a spot */}
+      <HostJoinTripModal
+        visible={hostModalVisible}
+        onClose={() => setHostModalVisible(false)}
+        initialMode="host"
+        initialTitle={hostModalTitle}
+        onTripCreatedOrJoined={() => {
+          setHostModalVisible(false);
+          handleRefresh();
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -660,6 +705,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  homeSectionDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 18,
+    gap: 10,
+  },
+  homeDividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  homeDividerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 100,
+    borderWidth: 1,
+  },
+  homeDividerText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   homeTabBar: {
     position: 'relative',

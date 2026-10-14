@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { MailOpen, X } from 'lucide-react-native';
+import { MAX_TRIP_MEMBERS } from '../../types/trip';
 
 export interface PendingTripInvite {
   tripId: string;
@@ -40,6 +41,8 @@ export const TripInvitationModal: React.FC<TripInvitationModalProps> = ({
   const [loadingDecline, setLoadingDecline] = useState(false);
 
   if (!visible || !invite) return null;
+
+  const isTripFull = (invite.memberCount || 0) >= MAX_TRIP_MEMBERS;
 
   const handleAcceptClick = async () => {
     setLoadingAccept(true);
@@ -88,8 +91,16 @@ export const TripInvitationModal: React.FC<TripInvitationModalProps> = ({
             {invite.dateRange ? <Text>{' ('}{invite.dateRange}{')'}</Text> : null}
             <Text>{' on "'}</Text>
             <Text style={styles.tripBold}>{invite.tripTitle}</Text>
-            <Text>{'" — '}{invite.memberCount} already in.</Text>
+            <Text>{'" — '}{invite.memberCount}/{MAX_TRIP_MEMBERS} members joined{isTripFull ? ' (Full)' : ''}.</Text>
           </Text>
+
+          {isTripFull && (
+            <View style={styles.fullNoticeBox}>
+              <Text style={styles.fullNoticeText}>
+                Trip has reached max capacity of {MAX_TRIP_MEMBERS} members.
+              </Text>
+            </View>
+          )}
 
           <Text style={[styles.codeLine, { color: colors.inkSoft }]}>
             invite code: <Text style={[styles.codeBold, { color: colors.orangeAccent }]}>{invite.inviteCode}</Text>
@@ -111,13 +122,16 @@ export const TripInvitationModal: React.FC<TripInvitationModalProps> = ({
             <TouchableOpacity
               activeOpacity={0.9}
               onPress={handleAcceptClick}
-              disabled={loadingAccept || loadingDecline}
-              style={[styles.acceptBtn, { backgroundColor: '#10B981' }]}
+              disabled={loadingAccept || loadingDecline || isTripFull}
+              style={[
+                styles.acceptBtn,
+                { backgroundColor: isTripFull ? (isDark ? '#334155' : '#94A3B8') : '#10B981' },
+              ]}
             >
               {loadingAccept ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.btnText}>Accept</Text>
+                <Text style={styles.btnText}>{isTripFull ? 'Trip Full' : 'Accept'}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -231,5 +245,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
+  },
+  fullNoticeBox: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  fullNoticeText: {
+    color: '#DC2626',
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
   },
 });

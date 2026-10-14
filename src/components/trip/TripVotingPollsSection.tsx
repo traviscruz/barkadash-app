@@ -1571,7 +1571,7 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
             setSelectedPlace(sel);
           }}
           selectedAddress={selectedPlace?.address}
-          placeholder="e.g. El Nido, Baguio, Boracay"
+          placeholder="e.g. Tokyo, Boracay, Osaka, Paris, Baguio..."
           accent={accent} ink={ink} muted={muted} border={border} isDark={isDark} fs={fs}
           autoFocus
         />

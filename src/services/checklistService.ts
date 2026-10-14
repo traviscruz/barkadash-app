@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../utils/supabase';
 import { ChecklistItem, ChecklistCategory, CHECKLIST_CATEGORIES } from '../types/checklistItem';
 import { requestJsonRace, requestJson } from './aiStructuredService';
@@ -13,9 +14,12 @@ export class ChecklistService {
   }
 
   /**
-   * Fetch all checklist items for a trip
+   * Fetch all checklist items for a trip.
+   * If currentUserId is provided:
+   * - Assigned items: isCompleted is controlled by the assigned member
+   * - General (unassigned) items: isCompleted is evaluated individually for currentUserId
    */
-  public async fetchTripChecklistDB(tripId: string): Promise<ChecklistItem[]> {
+  public async fetchTripChecklistDB(tripId: string, currentUserId?: string): Promise<ChecklistItem[]> {
     try {
       const { data, error } = await supabase
         .from('trip_checklist_items')
@@ -46,24 +50,69 @@ export class ChecklistService {
 
       if (!data) return [];
 
+      const itemIds = data.map((r: any) => r.id);
+      const completionsMap: Record<string, string[]> = {};
+
+      if (itemIds.length > 0) {
+        try {
+          const { data: compData, error: compErr } = await supabase
+            .from('trip_checklist_user_completions')
+            .select('item_id, user_id')
+            .in('item_id', itemIds);
+
+          if (!compErr && compData) {
+            compData.forEach((c: any) => {
+              if (!completionsMap[c.item_id]) completionsMap[c.item_id] = [];
+              completionsMap[c.item_id].push(c.user_id);
+            });
+          }
+        } catch (e) {
+          // Table may not exist yet if user hasn't run the SQL migration
+        }
+      }
+
+      // Check local storage fallback for individual general completions
+      let localCompletions: string[] = [];
+      if (currentUserId) {
+        try {
+          const raw = await AsyncStorage.getItem(`barkada_checklist_user_comp_${tripId}_${currentUserId}`);
+          if (raw) localCompletions = JSON.parse(raw);
+        } catch {}
+      }
+
       return data.map((row: any) => {
         const prof = row.assigned_profile || {};
         const fn = prof.first_name || '';
         const ln = prof.last_name || '';
         const assignedToName = fn ? `${fn} ${ln}`.trim() : undefined;
+        const compUsers = completionsMap[row.id] || [];
+
+        let isCompleted = false;
+        if (row.assigned_to) {
+          // Assigned item: completion status belongs to the assigned member
+          isCompleted = !!row.is_completed;
+        } else {
+          // General item: each member individually checks it off for themselves
+          if (currentUserId) {
+            isCompleted = compUsers.includes(currentUserId) || localCompletions.includes(row.id);
+          } else {
+            isCompleted = !!row.is_completed;
+          }
+        }
 
         return {
           id: row.id,
           tripId: row.trip_id,
           title: row.title,
           category: row.category || 'Essentials',
-          isCompleted: !!row.is_completed,
+          isCompleted,
           assignedTo: row.assigned_to || undefined,
           assignedToName,
           assignedToAvatarUrl: prof.avatar_url || undefined,
           createdBy: row.created_by,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
+          completedByUserIds: compUsers,
         };
       });
     } catch (err: any) {
@@ -80,7 +129,7 @@ export class ChecklistService {
     title: string,
     category: string,
     createdBy: string,
-    assignedTo?: string
+    assignedTo?: string | null
   ): Promise<ChecklistItem | null> {
     try {
       const { data, error } = await supabase
@@ -93,13 +142,34 @@ export class ChecklistService {
           created_by: createdBy,
           assigned_to: assignedTo || null,
         })
-        .select()
+        .select(`
+          id,
+          trip_id,
+          title,
+          category,
+          is_completed,
+          assigned_to,
+          created_by,
+          created_at,
+          updated_at,
+          assigned_profile:assigned_to (
+            id,
+            first_name,
+            last_name,
+            avatar_url
+          )
+        `)
         .single();
 
       if (error || !data) {
         console.warn('addChecklistItemDB error:', error?.message);
         return null;
       }
+
+      const prof = (data as any).assigned_profile || {};
+      const fn = prof.first_name || '';
+      const ln = prof.last_name || '';
+      const assignedToName = fn ? `${fn} ${ln}`.trim() : undefined;
 
       return {
         id: data.id,
@@ -108,9 +178,12 @@ export class ChecklistService {
         category: data.category,
         isCompleted: data.is_completed,
         assignedTo: data.assigned_to || undefined,
+        assignedToName,
+        assignedToAvatarUrl: prof.avatar_url || undefined,
         createdBy: data.created_by,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
+        completedByUserIds: [],
       };
     } catch (err: any) {
       console.warn('addChecklistItemDB exception:', err?.message);
@@ -119,26 +192,126 @@ export class ChecklistService {
   }
 
   /**
-   * Toggle item completed status
+   * Assign or unassign a checklist item to a member
+   * Pass assignedTo = null or undefined to make it General (unassigned)
    */
-  public async toggleChecklistItemDB(itemId: string, isCompleted: boolean): Promise<boolean> {
+  public async assignChecklistItemDB(
+    itemId: string,
+    assignedTo: string | null
+  ): Promise<boolean> {
     try {
       const { error } = await supabase
         .from('trip_checklist_items')
         .update({
-          is_completed: isCompleted,
+          assigned_to: assignedTo || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', itemId);
 
       if (error) {
-        console.warn('toggleChecklistItemDB error:', error.message);
+        console.warn('assignChecklistItemDB error:', error.message);
         return false;
       }
       return true;
     } catch (err: any) {
-      console.warn('toggleChecklistItemDB exception:', err?.message);
+      console.warn('assignChecklistItemDB exception:', err?.message);
       return false;
+    }
+  }
+
+  /**
+   * Toggle item completed status:
+   * - If item is assigned to a member: only that member can toggle it (updates `is_completed` in `trip_checklist_items`)
+   * - If item is general (unassigned): toggles completion individually for currentUserId
+   */
+  public async toggleChecklistItemDB(
+    itemOrId: ChecklistItem | string,
+    isCompleted: boolean,
+    currentUserId?: string
+  ): Promise<{ success: boolean; reason?: string }> {
+    try {
+      const isObject = typeof itemOrId === 'object' && itemOrId !== null;
+      const itemId = isObject ? itemOrId.id : itemOrId;
+      const assignedTo = isObject ? itemOrId.assignedTo : undefined;
+      const tripId = isObject ? itemOrId.tripId : undefined;
+
+      // 1. If assigned to a member: only that member can check it off
+      if (assignedTo) {
+        if (currentUserId && assignedTo !== currentUserId) {
+          return { success: false, reason: 'assigned_to_other' };
+        }
+
+        const { error } = await supabase
+          .from('trip_checklist_items')
+          .update({
+            is_completed: isCompleted,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', itemId);
+
+        if (error) {
+          console.warn('toggleChecklistItemDB error:', error.message);
+          return { success: false, reason: error.message };
+        }
+        return { success: true };
+      }
+
+      // 2. If General (unassigned): each member individually checks it off
+      if (!currentUserId) {
+        // Fallback if user ID is missing
+        await supabase
+          .from('trip_checklist_items')
+          .update({
+            is_completed: isCompleted,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', itemId);
+        return { success: true };
+      }
+
+      // Save to local AsyncStorage fallback
+      if (tripId) {
+        try {
+          const cacheKey = `barkada_checklist_user_comp_${tripId}_${currentUserId}`;
+          const raw = await AsyncStorage.getItem(cacheKey);
+          let list: string[] = raw ? JSON.parse(raw) : [];
+          if (isCompleted && !list.includes(itemId)) {
+            list.push(itemId);
+          } else if (!isCompleted) {
+            list = list.filter((id) => id !== itemId);
+          }
+          await AsyncStorage.setItem(cacheKey, JSON.stringify(list));
+        } catch {}
+      }
+
+      // Persist to trip_checklist_user_completions in Supabase
+      if (isCompleted) {
+        const { error } = await supabase
+          .from('trip_checklist_user_completions')
+          .upsert(
+            { item_id: itemId, user_id: currentUserId },
+            { onConflict: 'item_id,user_id' }
+          );
+
+        if (error) {
+          console.warn('trip_checklist_user_completions upsert warning:', error.message);
+        }
+      } else {
+        const { error } = await supabase
+          .from('trip_checklist_user_completions')
+          .delete()
+          .eq('item_id', itemId)
+          .eq('user_id', currentUserId);
+
+        if (error) {
+          console.warn('trip_checklist_user_completions delete warning:', error.message);
+        }
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.warn('toggleChecklistItemDB exception:', err?.message);
+      return { success: false, reason: err?.message };
     }
   }
 

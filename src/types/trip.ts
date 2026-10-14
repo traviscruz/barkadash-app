@@ -214,3 +214,11 @@ export const getCommitmentTier = (percent: number): CommitmentTierInfo => {
     badgeBg: 'rgba(16, 185, 129, 0.14)',
   };
 };
+
+/**
+ * Realistic maximum capacity for a Barkada trip (1 Host + up to 19 invited members = 20 total).
+ * Prevents UI overflow, keeps voting polls & expense splits snappy and manageable,
+ * and guards against database spam/abuse.
+ */
+export const MAX_TRIP_MEMBERS = 20;
+

@@ -5,6 +5,7 @@ import { MailOpen, X } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 import { PendingTripInvite } from './TripInvitationModal';
+import { MAX_TRIP_MEMBERS } from '../../types/trip';
 
 interface TripInvitationBannerProps {
   invite: PendingTripInvite | null;
@@ -71,6 +72,7 @@ export const TripInvitationBanner: React.FC<TripInvitationBannerProps> = ({
 
   if (!invite) return null;
 
+  const isTripFull = (invite.memberCount || 0) >= MAX_TRIP_MEMBERS;
   const hasDest = !!invite.destination;
   const hasDate = !!invite.dateRange;
 
@@ -111,7 +113,7 @@ export const TripInvitationBanner: React.FC<TripInvitationBannerProps> = ({
           {hasDate ? <Text>{' ('}{invite.dateRange}{')'}</Text> : null}
           <Text>{' on "'}</Text>
           <Text style={styles.tripBold}>{invite.tripTitle}</Text>
-          <Text>{'" — '}{invite.memberCount} already in.{' '}</Text>
+          <Text>{'" — '}{invite.memberCount}/{MAX_TRIP_MEMBERS} members joined{isTripFull ? ' (Full)' : ''}.{' '}</Text>
         </Text>
 
         {/* Accept / Reject buttons */}
@@ -136,18 +138,21 @@ export const TripInvitationBanner: React.FC<TripInvitationBannerProps> = ({
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => {
-              if (!loadingAccept && !loadingDecline) {
+              if (!loadingAccept && !loadingDecline && !isTripFull) {
                 setLoadingAccept(true);
                 onAccept(invite.tripId).finally(() => setLoadingAccept(false));
               }
             }}
-            disabled={loadingAccept || loadingDecline}
-            style={[styles.acceptBtn, { backgroundColor: '#10B981' }]}
+            disabled={loadingAccept || loadingDecline || isTripFull}
+            style={[
+              styles.acceptBtn,
+              { backgroundColor: isTripFull ? (isDark ? '#334155' : '#94A3B8') : '#10B981' },
+            ]}
           >
             {loadingAccept ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.btnText}>Accept</Text>
+              <Text style={styles.btnText}>{isTripFull ? 'Full' : 'Accept'}</Text>
             )}
           </TouchableOpacity>
         </View>

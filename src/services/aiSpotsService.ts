@@ -63,19 +63,25 @@ const CATEGORY_QUERY: Record<string, string> = {
 
 const ISLAND_HINTS = [
   'island', 'beach', 'coast', 'shore', 'lagoon', 'palawan', 'el nido',
-  'boracay', 'siargao', 'coron', 'balesin', 'camiguin', 'cebu', 'siqiujor',
-  'siqiujor', 'bohol', 'panglao', 'camotes', 'bantayan', 'malapascua',
+  'boracay', 'siargao', 'coron', 'balesin', 'camiguin', 'cebu', 'siquijor',
+  'bohol', 'panglao', 'camotes', 'bantayan', 'malapascua',
   'sumilon', 'apulit', 'lindumapac', 'northern luzon',
+  'okinawa', 'bali', 'phuket', 'hawaii', 'jeju', 'maldives', 'santorini', 'ibiza', 'fiji',
 ];
 const NATURE_HINTS = [
   'mountain', 'hill', 'sagada', 'banaue', 'benguet', 'baguio', 'rizal',
   'pampanga', 'batangas', 'waterfall', 'falls', 'lake', 'river', 'trek',
   'hike', 'sierra madre', 'majayjay', 'tanay', 'daranak',
+  'fuji', 'hokkaido', 'alps', 'swiss', 'banff', 'canyon', 'yosemite', 'nature',
 ];
 const CITY_HINTS = [
   'manila', 'makati', 'taguig', 'quezon city', 'metro manila', 'bonifacio',
   'city center', 'downtown', 'bicol', 'naga', 'davao', 'cdb', 'cagayan de oro',
   'baguio', 'iloilo', 'cebu city',
+  'tokyo', 'osaka', 'kyoto', 'japan', 'seoul', 'korea', 'paris', 'france',
+  'london', 'singapore', 'taipei', 'taiwan', 'bangkok', 'thailand', 'rome',
+  'barcelona', 'madrid', 'new york', 'los angeles', 'san francisco', 'sydney',
+  'berlin', 'amsterdam', 'hong kong',
 ];
 const NIGHTLIFE_HINTS = [...CITY_HINTS, 'beach', 'island', 'boracay', 'siargao', 'poblacion', 'malate'];
 
@@ -211,7 +217,7 @@ export async function saveAiSpots(tripId: string, category: string, spots: AiSpo
 
 import { requestJson } from './aiStructuredService';
 
-const AI_SPOTS_PROMPT = `You are Navi, an elite Philippine local travel & dining curator for a friend group (barkada).
+const AI_SPOTS_PROMPT = `You are Navi, an elite travel & dining curator for a friend group (barkada) exploring destinations worldwide (Japan, Europe, Philippines, Southeast Asia, Americas, etc.).
 Recommend 4 to 5 REAL, top-rated, famous establishments strictly belonging to the requested category:
 
 STRICT CATEGORY RULES:
@@ -224,12 +230,12 @@ STRICT CATEGORY RULES:
 - ADVENTURE: ONLY surfing spots, island hopping, hiking trails, or outdoor adventure parks.
 - NIGHTLIFE: ONLY bars, pubs, speakeasies, live music venues, or beach bars.
 - CULTURE: ONLY historical sites, heritage houses, museums, or iconic landmarks.
-- SHOPPING: ONLY local markets, pasalubong centers, handicraft stores, or artisan shops.
+- SHOPPING: ONLY local markets, shopping streets, malls, handicraft stores, or artisan shops.
 
 CURATION QUALITY & AUTHENTICITY:
-- Prioritize famous local favorites, renowned regional food houses, scenic bistros, legendary local specialties, and top-rated hidden gems.
-- NEVER recommend generic international fast-food chains (do NOT return McDonald's, Jollibee, Burger King, KFC, Chowking, Subway, etc.).
-- "name" MUST be the exact, recognized real-world commercial name of the establishment (e.g. "Kusina Luntian", "Dialyn's Bakeshop", "Costa Pacifica Resort", "Sabang Beach").
+- Prioritize famous local favorites, renowned regional food houses, scenic bistros, legendary local specialties, Michelin/top-rated hidden gems, and authentic picks in the specified destination.
+- NEVER recommend generic international fast-food chains (do NOT return McDonald's, KFC, Subway, Burger King, etc.).
+- "name" MUST be the exact, recognized real-world commercial name of the establishment (e.g. "Ichiran Ramen", "Kusina Luntian", "Shibuya Sky", "Sabang Beach").
 - NEVER return generic descriptive phrases or search keywords.
 
 Return ONLY valid JSON with this exact schema:
@@ -237,7 +243,7 @@ Return ONLY valid JSON with this exact schema:
   "spots": [
     {
       "name": "Exact Real Establishment Name",
-      "address": "Barangay / Street / Area, Municipality / City",
+      "address": "Area / Street / District, City, Country",
       "rating": 4.8,
       "userRatingsTotal": 850,
       "priceLevel": 2,
@@ -246,7 +252,10 @@ Return ONLY valid JSON with this exact schema:
       "featured": true
     }
   ]
-}`;
+}
+
+Rules:
+- Strictly return spots located within or nearby the specified destination.`;
 
 /**
  * Generate fresh AI spots for a trip + category using AI venue intelligence.
@@ -264,7 +273,7 @@ export async function generateAiSpots(
   console.log(`\n✨ [Navi AI Spots] Curating ${label} for destination: "${destination}"...`);
 
   try {
-    const userPrompt = `Destination: "${destination || 'Philippines'}". Category: "${label}". Return 4 to 5 top-rated real spots with exact commercial names in strict JSON.`;
+    const userPrompt = `Destination: "${destination || 'Global'}". Category: "${label}". Return 4 to 5 top-rated real spots with exact commercial names in strict JSON for the destination "${destination}".`;
     const res = await requestJson<{ spots: Array<any> }>(
       AI_SPOTS_PROMPT,
       userPrompt,
@@ -281,7 +290,7 @@ export async function generateAiSpots(
 
         const address = typeof s?.address === 'string' && s.address.trim().length > 0
           ? s.address.trim()
-          : `${destination || 'Philippines'}`;
+          : `${destination || ''}`;
         const rawRating = Number(s?.rating);
         const rating = !isNaN(rawRating) && rawRating >= 1 && rawRating <= 5
           ? Math.round(rawRating * 10) / 10
@@ -358,7 +367,7 @@ export async function generateAiSpots(
           tripId,
           category,
           name: p.name,
-          address: p.address || destination || 'Philippines',
+          address: p.address || destination || '',
           placeId: p.placeId,
           rating,
           userRatingsTotal,
