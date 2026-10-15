@@ -2,6 +2,7 @@ import { supabase } from '../utils/supabase';
 import { Expense, SettleUpItem, ExpenseSettlement, ItemizedDebt } from '../types/expense';
 import { uploadExpensePhotos, deleteExpensePhotos, receiptPublicUrl } from './storageService';
 import { formatCurrency } from '../utils/formatters';
+import { NotificationService } from './notificationService';
 
 export interface ExpenseMember {
   id: string;
@@ -432,6 +433,36 @@ export class ExpenseService {
       }
 
       await this.fetchSettlementsDB(params.tripId);
+
+      // Notify payee that a settlement proof was submitted
+      try {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', params.tripId)
+          .maybeSingle();
+        const { data: payerProfile } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, username')
+          .eq('id', params.payerId)
+          .maybeSingle();
+        const payerName = payerProfile
+          ? [payerProfile.first_name, payerProfile.last_name].filter(Boolean).join(' ') || payerProfile.username || 'A squad member'
+          : 'A squad member';
+        const tripTitle = tripData?.title || 'Barkada Trip';
+
+        await NotificationService.createSettlementSubmittedNotification(
+          params.payerId,
+          payerName,
+          params.payeeId,
+          params.tripId,
+          tripTitle,
+          params.amount
+        );
+      } catch (notifErr) {
+        console.warn('addSettlementDB notification error:', notifErr);
+      }
+
       return this.settlements.find((s) => s.id === data.id) || null;
     } catch (e) {
       console.warn('addSettlementDB error:', e);
@@ -534,6 +565,8 @@ export class ExpenseService {
 
   public async verifySettlementDB(settlementId: string, tripId: string, status: 'verified' | 'rejected' = 'verified'): Promise<boolean> {
     try {
+      const existing = this.settlements.find((s) => s.id === settlementId);
+
       const { error } = await supabase
         .from('expense_settlements')
         .update({
@@ -546,6 +579,32 @@ export class ExpenseService {
       if (error) throw error;
 
       await this.fetchSettlementsDB(tripId);
+
+      // Notify the debtor (payer) that their payment proof was verified or rejected
+      try {
+        const settlement = existing || this.settlements.find((s) => s.id === settlementId);
+        if (settlement && settlement.payerId && settlement.payeeId) {
+          const { data: tripData } = await supabase
+            .from('trips')
+            .select('title')
+            .eq('id', tripId)
+            .maybeSingle();
+          const tripTitle = tripData?.title || 'Barkada Trip';
+
+          await NotificationService.createSettlementVerifiedNotification(
+            settlement.payeeId,
+            settlement.payeeName || 'Your friend',
+            settlement.payerId,
+            tripId,
+            tripTitle,
+            settlement.amount,
+            status
+          );
+        }
+      } catch (notifErr) {
+        console.warn('verifySettlementDB notification error:', notifErr);
+      }
+
       return true;
     } catch (e) {
       console.warn('verifySettlementDB error:', e);
@@ -629,6 +688,31 @@ export class ExpenseService {
 
       this.expenses = [newExpense, ...this.expenses.filter((e) => e.id !== newExpense.id)];
       this.notify();
+
+      // Notify squad members if this is a shared expense
+      if (splitMode !== 'solo') {
+        try {
+          const { data: tripData } = await supabase
+            .from('trips')
+            .select('title')
+            .eq('id', params.tripId)
+            .maybeSingle();
+          const tripTitle = tripData?.title || 'Barkada Trip';
+
+          await NotificationService.createExpenseAddedNotification(
+            params.createdBy || params.payerId,
+            params.paidBy,
+            params.tripId,
+            tripTitle,
+            params.title,
+            params.amount,
+            splitCount
+          );
+        } catch (notifErr) {
+          console.warn('addExpenseDB notification error:', notifErr);
+        }
+      }
+
       return newExpense;
     } catch (e) {
       console.warn('addExpenseDB error:', e);

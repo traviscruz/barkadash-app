@@ -1108,6 +1108,35 @@ export class TripService {
       }
       await supabase.from('trip_poll_votes').insert({ option_id: data.id, user_id: params.userId });
 
+      // Notify squad members of new poll proposal
+      try {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', params.tripId)
+          .maybeSingle();
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, username')
+          .eq('id', params.userId)
+          .maybeSingle();
+        const actorName = prof
+          ? [prof.first_name, prof.last_name].filter(Boolean).join(' ') || prof.username || 'A squad member'
+          : 'A squad member';
+        const tripTitle = tripData?.title || 'Barkada Trip';
+
+        await NotificationService.createPollOptionProposedNotification(
+          params.userId,
+          actorName,
+          params.tripId,
+          tripTitle,
+          params.title,
+          params.type
+        );
+      } catch (notifErr) {
+        console.warn('addTripPollOptionDB notification error:', notifErr);
+      }
+
       const list = await this.fetchTripPollsDB(params.tripId);
       return list.find((o) => o.id === data.id) || null;
     } catch (err: any) {
@@ -2765,6 +2794,36 @@ export class TripService {
         console.warn('updateTripCommitmentDB error:', error.message);
         return false;
       }
+
+      // Notify squad members of commitment update
+      try {
+        const { data: tripData } = await supabase
+          .from('trips')
+          .select('title')
+          .eq('id', tripId)
+          .maybeSingle();
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, username')
+          .eq('id', userId)
+          .maybeSingle();
+        const actorName = prof
+          ? [prof.first_name, prof.last_name].filter(Boolean).join(' ') || prof.username || 'A squad member'
+          : 'A squad member';
+        const tripTitle = tripData?.title || 'Barkada Trip';
+
+        await NotificationService.createCommitmentUpdatedNotification(
+          userId,
+          actorName,
+          tripId,
+          tripTitle,
+          sanitizedLevel,
+          note
+        );
+      } catch (notifErr) {
+        console.warn('updateTripCommitmentDB notification error:', notifErr);
+      }
+
       return true;
     } catch (err: any) {
       console.warn('updateTripCommitmentDB exception:', err?.message);

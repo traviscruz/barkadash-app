@@ -21,7 +21,8 @@
       }
     },
     "android": {
-      "package": "com.barkadash.app",
+      "package": "barkadash.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0B132B"
@@ -30,11 +31,13 @@
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -73,9 +76,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "fa6d7274-3741-4b70-b773-b5651138cbf9"
+        "projectId": "8b2206a7-1e96-426f-a6f3-5f979d5c34d2"
       }
     },
-    "owner": "ishwo"
+    "owner": "ishwopogi"
   }
 }

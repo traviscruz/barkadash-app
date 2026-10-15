@@ -56,6 +56,7 @@ import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { TripService } from '../../services/tripService';
+import { NotificationService } from '../../services/notificationService';
 import { Trip, ItineraryItem } from '../../types/trip';
 import { fetchWeather } from '../../services/weatherService';
 import { supabase } from '../../utils/supabase';
@@ -1249,6 +1250,28 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
     }
   };
 
+  const [pingingMemberId, setPingingMemberId] = useState<string | null>(null);
+
+  const handlePingMember = async (m: MemberStatus) => {
+    if (!profile?.id) return;
+    if (m.isMe) return;
+
+    setPingingMemberId(m.id);
+    try {
+      await NotificationService.createRadarPingNotification(
+        profile.id,
+        myDisplayName,
+        m.id,
+        activeTrip?.id
+      );
+      Alert.alert('Ping Sent! 📡', `Location ping sent to ${m.name}. They will receive an instant notification.`);
+    } catch {
+      Alert.alert('Ping Error', 'Unable to send ping. Please try again.');
+    } finally {
+      setPingingMemberId(null);
+    }
+  };
+
   const handleSelectWaypoint = (wp: ItineraryWaypoint) => {
     setSelectedWaypointId(wp.id);
     setActiveBottomTab('itinerary');
@@ -2061,6 +2084,30 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                   </View>
                 </View>
               </TouchableOpacity>
+
+              {/* Ping Member Button */}
+              {currentMember && !currentMember.isMe && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  disabled={pingingMemberId === currentMember.id}
+                  onPress={() => handlePingMember(currentMember)}
+                  style={{
+                    backgroundColor: '#0171F8',
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 100,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    marginRight: 4,
+                  }}
+                >
+                  <Radio size={12} color="#FFFFFF" />
+                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
+                    {pingingMemberId === currentMember.id ? 'Pinging…' : 'Ping'}
+                  </Text>
+                </TouchableOpacity>
+              )}
 
               {/* Battery & Last Updated */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>

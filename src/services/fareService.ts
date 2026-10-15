@@ -1,7 +1,7 @@
 // Fare estimation: Google Routes API for real distance/duration AND real
 // multi-leg transit itineraries, + Gemini/Groq (raced for speed) for
 // per-ride fare estimates. Results are cached in memory for 10 minutes.
-import { PlacePrediction } from './googlePlaces';
+import { PlacePrediction, getPlaceLatLng } from './googlePlaces';
 import { requestJsonRace, StructuredAiSource } from './aiStructuredService';
 
 const API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
@@ -57,19 +57,74 @@ export interface FareResult {
 
 export type FareStage = 'routing' | 'estimating';
 
+function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+async function buildWaypointPayload(p: PlacePrediction): Promise<{ payload: any; lat?: number; lng?: number }> {
+  try {
+    const coords = await getPlaceLatLng(p.placeId);
+    if (coords && typeof coords.latitude === 'number' && typeof coords.longitude === 'number' && coords.latitude !== 0) {
+      return {
+        payload: {
+          location: {
+            latLng: {
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            },
+          },
+        },
+        lat: coords.latitude,
+        lng: coords.longitude,
+      };
+    }
+  } catch {}
+
+  const isCustomId = p.placeId.startsWith('tt_') || p.placeId.startsWith('photon_') || p.placeId.startsWith('ai_');
+  if (p.placeId && !isCustomId) {
+    return { payload: { placeId: p.placeId } };
+  }
+
+  const address = [p.mainText, p.secondaryText].filter(Boolean).join(', ') || p.mainText;
+  return { payload: { address } };
+}
+
 /**
  * Query the Google Routes API (v2) for the driving distance and duration
- * between two places. Passes place IDs straight to the API (no extra
- * coordinate lookup needed). Uses TRAFFIC_AWARE since we only need a
- * reference figure for the header.
+ * between two places. Uses coordinates or place IDs, with Haversine fallback.
  */
 export async function getRouteDistance(
   origin: PlacePrediction,
   destination: PlacePrediction
 ): Promise<RouteInfo> {
+  const [origWp, destWp] = await Promise.all([
+    buildWaypointPayload(origin),
+    buildWaypointPayload(destination),
+  ]);
+
+  let fallbackDistance: number | null = null;
+  let fallbackDuration: number | null = null;
+
+  if (origWp.lat && origWp.lng && destWp.lat && destWp.lng) {
+    const crowDist = calculateHaversineDistanceKm(origWp.lat, origWp.lng, destWp.lat, destWp.lng);
+    // Typical urban/suburban road multiplier is ~1.30x – 1.35x crow flies distance
+    fallbackDistance = Math.round(crowDist * 1.32 * 10) / 10;
+    // Average traffic speed ~20 km/h in PH/Southeast Asia, minimum 4 min
+    fallbackDuration = Math.round(Math.max(4, (fallbackDistance / 20) * 60));
+  }
+
   if (!API_KEY) {
-    console.warn('getRouteDistance: EXPO_PUBLIC_GOOGLE_PLACES_API_KEY is not set');
-    return { distanceKm: null, durationMin: null };
+    return { distanceKm: fallbackDistance, durationMin: fallbackDuration };
   }
 
   try {
@@ -81,8 +136,8 @@ export async function getRouteDistance(
         'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
       },
       body: JSON.stringify({
-        origin: { placeId: origin.placeId },
-        destination: { placeId: destination.placeId },
+        origin: origWp.payload,
+        destination: destWp.payload,
         travelMode: 'DRIVE',
         routingPreference: 'TRAFFIC_AWARE',
       }),
@@ -91,12 +146,12 @@ export async function getRouteDistance(
     if (!res.ok) {
       const errText = await res.text();
       console.warn('getRouteDistance HTTP error:', res.status, errText.slice(0, 300));
-      return { distanceKm: null, durationMin: null };
+      return { distanceKm: fallbackDistance, durationMin: fallbackDuration };
     }
 
     const json = await res.json();
     const route = json?.routes?.[0];
-    if (!route) return { distanceKm: null, durationMin: null };
+    if (!route) return { distanceKm: fallbackDistance, durationMin: fallbackDuration };
 
     const meters = route.distanceMeters ? Number(route.distanceMeters) : null;
     const durationSec = typeof route.duration === 'string'
@@ -104,12 +159,12 @@ export async function getRouteDistance(
       : route.duration;
 
     return {
-      distanceKm: meters ? meters / 1000 : null,
-      durationMin: durationSec ? Math.round(durationSec / 60) : null,
+      distanceKm: meters ? Math.round((meters / 1000) * 10) / 10 : fallbackDistance,
+      durationMin: durationSec ? Math.round(durationSec / 60) : fallbackDuration,
     };
   } catch (err: any) {
     console.warn('getRouteDistance exception:', err?.message);
-    return { distanceKm: null, durationMin: null };
+    return { distanceKm: fallbackDistance, durationMin: fallbackDuration };
   }
 }
 
@@ -157,6 +212,11 @@ export async function getTransitRoutes(
 ): Promise<TransitRoute[]> {
   if (!API_KEY) return [];
   try {
+    const [origWp, destWp] = await Promise.all([
+      buildWaypointPayload(origin),
+      buildWaypointPayload(destination),
+    ]);
+
     const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
@@ -165,8 +225,8 @@ export async function getTransitRoutes(
         'X-Goog-FieldMask': TRANSIT_FIELDS,
       },
       body: JSON.stringify({
-        origin: { placeId: origin.placeId },
-        destination: { placeId: destination.placeId },
+        origin: origWp.payload,
+        destination: destWp.payload,
         travelMode: 'TRANSIT',
         computeAlternativeRoutes: true,
         transitPreferences: { routingPreference: 'FEWER_TRANSFERS' },
@@ -321,28 +381,98 @@ function normalizeJourneys(raw: any): JourneyOption[] {
 }
 
 const FARE_SYSTEM_PROMPT = [
-  'You are a transport fare estimator for "Barkadash", a travel app used worldwide but based in the Philippines.',
-  'Given an origin, a destination, and (when available) REAL multi-leg transit itineraries from Google Maps, list realistic journeys between them with estimated fares. Real passengers combine rides — e.g. jeepney + LRT, bus + tricycle, walk + train + jeep — so multi-leg journeys are expected, and the user should have options.',
+  'You are an expert transport fare calculator and route planner for "Barkadash", a travel app based in the Philippines and used worldwide.',
+  'Given an origin, a destination, and distance/duration metrics, calculate realistic journeys and accurate transport fares.',
+  '',
+  'CRITICAL REALISTIC MULTI-TRANSPO & CONNECTING RIDES RULES:',
+  '  1. NEVER assume a single direct public bus or single jeepney exists door-to-door between different towns, cities, or transit corridors.',
+  '  2. In reality, commuters and travelers MUST transfer between connecting lines at real terminals, interchanges, or junctions.',
+  '  3. For intercity/provincial trips (> 25 km, e.g. Manila to Batangas/Cavite/Laguna/Rizal/Baguio/Zambales, or Cebu City to Moalboal):',
+  '     • MUST provide realistic multi-bus or bus-to-bus/jeepney connections.',
+  '     • Example Multi-Bus Journey:',
+  '       - Leg 1: Feeder ride (Tricycle, Modern Jeepney, or Walk) to the primary bus terminal (e.g. PITX, Buendia/Pasay Terminal, Cubao Bus Terminal, or South Bus Terminal).',
+  '       - Leg 2: Main Express / Provincial Bus along highway/expressway to the regional interchange or central junction (e.g. DLTB, JAM, Victory Liner, Genesis, Ceres Liner to Tagaytay Olivarez, Turbina, or Batangas Grand Terminal).',
+  '       - Leg 3: Second Connecting Local Bus (e.g. BSC, Kersteen, San Agustin, local mini-bus) or Jeepney from that junction to the destination municipality.',
+  '       - Leg 4: Local Tricycle (special/shared) or short walk from the highway/drop-off to the exact doorstep/resort.',
+  '     • Example Train + Provincial Bus Journey:',
+  '       - Leg 1: MRT-3 / LRT-1 train to the bus terminal (e.g. Taft/EDSA, North Ave, or Gil Puyat).',
+  '       - Leg 2: Provincial aircon bus to regional junction.',
+  '       - Leg 3: Connecting local jeepney or tricycle to destination.',
+  '  4. For cross-metro trips (> 12 km within Metro Manila, Cebu, Davao):',
+  '     • Realistic Multi-Transit Journey: Feeder Jeepney/E-Jeep -> Rail (MRT/LRT) or EDSA Carousel Bus -> Connecting City Bus (e.g. BGC Bus, Alabang bus, Fairview bus) -> Last mile walk/tricycle.',
+  '  5. For every public transit journey, name the real specific terminals, stations, and transfer points (e.g. "PITX", "Pasay Buendia DLTB Terminal", "Cubao Araneta Terminal", "Olivarez Plaza Rotunda", "Batangas Grand Terminal", "Turbina Calamba", "Ayala MRT/One Ayala Bus Bay", "Balintawak").',
+  '',
+  'OFFICIAL PHILIPPINE FARE BENCHMARKS (LTFRB 2024–2026 Rates):',
+  '  • Traditional Jeepney: ₱13 base (first 4 km) + ₱1.80 per additional km.',
+  '  • Modern Jeepney (E-Jeep / BEEP): ₱15 base (first 4 km) + ₱2.20 per additional km.',
+  '  • City Public Bus: ₱15 base (first 5 km) + ₱2.65/km for aircon (₱13 base + ₱2.25/km ordinary).',
+  '  • Provincial Aircon Bus: ₱2.00–₱2.50 per km (e.g. 40 km is ~₱95–₱110; 60 km is ~₱140–₱165; 100 km is ~₱230–₱270).',
+  '  • Metro Rail (LRT-1, LRT-2, MRT-3): ₱15 base boarding fee + ₱1.21/km (ranges ₱15–₱35 total).',
+  '  • UV Express / FX / Shared Vans: ₱15–₱20 base for first 2 km + ₱2.00–₱2.50/km.',
+  '  • Tricycle: Local short trips: ₱15–₱25 shared; ₱50–₱90 special (solo / private ride). Rural/resort strips: ₱80–₱150.',
+  '  • Motorcycle Taxi (Angkas, JoyRide, Move It): ₱50 base (first 2 km) + ₱10–₱15/km (only sensible for trips under ~35 km).',
+  '  • Metered White Taxi: ₱45 flagdown + ₱13.50/km + ₱2/min waiting time.',
+  '  • Ride-Hailing (GrabCar, inDrive): ₱45–₱50 flagdown + ₱18–₱22/km + surge/time (typical minimum ₱100–₱140).',
+  '  • Private Car / Driving: Estimate actual fuel cost (~₱7–₱9/km) + highway tolls (e.g. SLEX, NLEX, Skyway, CALAX, CAVITEX if applicable).',
+  '',
+  'INTERNATIONAL FARE BENCHMARKS:',
+  '  • If the trip is in another country (e.g. Japan, Singapore, Thailand, US, Europe), use that country\'s real currency and standard local transit/taxi tariffs (e.g. Bangkok BTS ฿17–฿62, Tokyo Metro ¥180–¥330, SG MRT S$1.50–S$2.80, Grab/taxi meter).',
   '',
   'Return ONLY a single JSON object — no markdown, no commentary — with this exact structure:',
   '{',
   '  "currency": "PHP",',
   '  "journeys": [',
   '    {',
-  '      "name": "Jeepney + LRT Line 1",',
-  '      "tag": "Cheapest",',
+  '      "name": "Connecting Buses via PITX & Olivarez Rotunda",',
+  '      "tag": "Recommended",',
   '      "legs": [',
   '        {',
   '          "type": "public",',
-  '          "mode": "Jeepney",',
-  '          "from": "SM North EDSA",',
-  '          "to": "Roosevelt Station",',
-  '          "distance_km": 2.0,',
-  '          "duration_min": 12,',
-  '          "estimated_fare": 14,',
-  '          "range_low": 13,',
-  '          "range_high": 16,',
-  '          "notes": "Flag down any jeepney headed to Roosevelt"',
+  '          "mode": "Modern Jeepney",',
+  '          "from": "Origin Neighborhood",',
+  '          "to": "PITX Terminal (Gate 2)",',
+  '          "distance_km": 6.0,',
+  '          "duration_min": 25,',
+  '          "estimated_fare": 20,',
+  '          "range_low": 18,',
+  '          "range_high": 22,',
+  '          "notes": "Board modern jeepney bound for PITX"',
+  '        },',
+  '        {',
+  '          "type": "public",',
+  '          "mode": "Provincial Aircon Bus (DLTB / Kersteen)",',
+  '          "from": "PITX Terminal",',
+  '          "to": "Tagaytay Olivarez Plaza Rotunda",',
+  '          "distance_km": 54.0,',
+  '          "duration_min": 85,',
+  '          "estimated_fare": 135,',
+  '          "range_low": 125,',
+  '          "range_high": 150,',
+  '          "notes": "Board bus with signboard Tagaytay / Mendez via CAVITEX"',
+  '        },',
+  '        {',
+  '          "type": "public",',
+  '          "mode": "Connecting Local Bus (BSC / San Agustin)",',
+  '          "from": "Olivarez Plaza Rotunda",',
+  '          "to": "Nasugbu Town Proper",',
+  '          "distance_km": 38.0,',
+  '          "duration_min": 60,',
+  '          "estimated_fare": 95,',
+  '          "range_low": 85,',
+  '          "range_high": 110,',
+  '          "notes": "Transfer at rotunda; board connecting bus to Nasugbu"',
+  '        },',
+  '        {',
+  '          "type": "public",',
+  '          "mode": "Tricycle (Special)",',
+  '          "from": "Nasugbu Bus Stop",',
+  '          "to": "Final Destination / Resort",',
+  '          "distance_km": 3.5,',
+  '          "duration_min": 10,',
+  '          "estimated_fare": 60,',
+  '          "range_low": 50,',
+  '          "range_high": 80,',
+  '          "notes": "Agree on special tricycle fare before boarding"',
   '        }',
   '      ]',
   '    }',
@@ -350,16 +480,15 @@ const FARE_SYSTEM_PROMPT = [
   '}',
   '',
   'Rules:',
-  '- currency: use the real local currency code of the trip (PHP for the Philippines, USD, EUR, INR, THB, IDR, MYR, SGD, AUD, GBP, JPY, VND, etc.). For cross-country trips use the destination country\'s currency.',
-  '- Include 4-6 journeys covering different budgets and modes: 2-3 public-transit combos mixing first-mile (walk/tricycle/jeepney), a main ride (jeepney/bus/train/van), and last-mile (walk/tricycle/jeepney); plus a direct metered taxi, a direct ride-hailing ride (Grab/Uber/Gojek/Bolt/inDrive), a direct motorcycle taxi where common (Angkas/GoRide/GrabBike/Gojek), and a private car (fuel + tolls + parking) where sensible.',
-  '- For every journey, list each ride/walk as a separate "leg" in order. The last leg must end at the destination.',
-  '- "type" must be one of: "walk", "public", "taxi", "ridehail", "motorbike", "car".',
-  '- When a REAL ROUTE is provided below, include a journey that follows it exactly: keep the same vehicles, line names, agency, and stop names — only add fares, estimated times, and first/last-mile walk legs. Also add cheaper alt-connector journeys (e.g. swap the walk for a tricycle/jeepney) so the user can choose.',
-  '- estimated_fare / range_low / range_high are plain numbers in the main currency (e.g. 15 for ₱15). Use 0 for free legs like short walks. Range low/high should bracket the real-world fare spread.',
-  '- Scale fares and travel times realistically to the distances given (drive distance is provided). Do not invent wildly wrong prices for the country.',
-  '- distance_km and duration_min are plain numbers per leg; their sums should roughly match the total trip.',
-  '- "tag": optional, at most two journeys — mark the cheapest overall "Cheapest" and the fastest overall "Fastest". Use "Recommended" only for a balanced public-transit route when it is also the best value.',
-  '- notes: short, practical (beep card, flag down, agree on tricycle fare first, tolls, parking).',
+  '- currency: use the real local currency code of the trip (PHP for the Philippines, USD, EUR, etc.).',
+  '- Provide 4-6 realistic journeys:',
+  '  • 2 to 3 multi-leg connecting public transit journeys. Include multi-bus transfers where appropriate (Feeder -> Express Trunk Bus -> Connecting Local Bus/Jeep -> Last mile).',
+  '  • 1 direct Metered Taxi or Ride-Hailing (GrabCar).',
+  '  • 1 Motorcycle Taxi (Angkas/JoyRide) if under 35 km, OR 1 UV Express / Van combo if provincial.',
+  '  • 1 Private Car / Driving option (estimate realistic fuel + tolls).',
+  '- NEVER output a single direct public bus for intercity or cross-corridor routes. Real public transit requires connecting legs.',
+  '- Each leg must have realistic distance_km, duration_min, and LTFRB-compliant estimated_fare, range_low, and range_high.',
+  '- Use 0 for free walking legs.',
   '- Numbers only. No currency symbols inside numbers, no formatting strings, no markdown.',
 ].join('\n');
 
@@ -404,15 +533,37 @@ export async function estimateFares(
   const hasTransit = transitRoutes.length > 0;
   const transitSummary = buildTransitSummary(transitRoutes);
 
+  const tripDistance = route.distanceKm ?? 25;
+  let connectionGuidance = '';
+  if (tripDistance > 35) {
+    connectionGuidance = [
+      `TRIP DISTANCE: ~${tripDistance} km (Intercity / Provincial).`,
+      `CRITICAL REQUIREMENT: Direct door-to-door public buses DO NOT exist for this trip.`,
+      `You MUST create realistic multi-leg public transit journeys with connecting transfers:`,
+      `  • Option 1 (Connecting Buses): Feeder ride -> Main Provincial Bus to regional junction/terminal -> Second Connecting Local Bus (or Jeepney/Van) to destination town -> Local tricycle to doorstep.`,
+      `  • Option 2 (Train + Provincial Bus): LRT/MRT to bus terminal (e.g. PITX, Pasay Buendia, Cubao) -> Provincial Bus -> Connecting ride.`,
+      `  • Option 3 (UV Express / Shared Van): Van to highway crossing -> Connecting bus or jeepney.`,
+    ].join('\n');
+  } else if (tripDistance > 12) {
+    connectionGuidance = [
+      `TRIP DISTANCE: ~${tripDistance} km (Cross-Metro Corridor).`,
+      `CRITICAL REQUIREMENT: Direct public transit requires connecting legs between transit corridors:`,
+      `  • Multi-Ride Option: Feeder Jeepney/E-Jeep -> Rail (MRT/LRT) or EDSA Carousel Bus -> Connecting City Bus (e.g. BGC Bus, Alabang bus) -> Last mile walk/trike.`,
+    ].join('\n');
+  } else {
+    connectionGuidance = `TRIP DISTANCE: ~${tripDistance} km (Local Urban Route). Break public transit into realistic feeder + main ride + walk.`;
+  }
+
   const user = [
     `Origin: ${originName}`,
     `Destination: ${destName}`,
     route.distanceKm ? `Direct driving distance: ${route.distanceKm} km` : '',
     route.durationMin ? `Direct driving time: ${route.durationMin} min` : '',
+    connectionGuidance,
     hasTransit
       ? `Real transit itineraries from Google (build the public-transit journeys from these and keep their vehicles, line names, and stop names — only add fares and times):\n${transitSummary}`
       : '',
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean).join('\n\n');
 
   const result = await requestJsonRace(FARE_SYSTEM_PROMPT, user, { maxTokens: 4096 });
   if (!result) return null;

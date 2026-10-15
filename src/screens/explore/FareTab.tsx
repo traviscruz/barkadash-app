@@ -8,6 +8,7 @@ import {
   Animated,
   Easing,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import {
   ArrowDownUp,
@@ -763,10 +764,35 @@ export const FareTab: React.FC<FareTabProps> = ({ accentColor, onScrollDirection
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Info size={11} color={colors.orangeAccent} strokeWidth={2.4} />
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: colors.orangeAccent }}>Local-knowledge estimates</Text>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: colors.orangeAccent }}>Calibrated transport estimates</Text>
                 </View>
               )}
             </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                const originQuery = encodeURIComponent(result.origin);
+                const destQuery = encodeURIComponent(result.destination);
+                const url = `https://www.google.com/maps/dir/?api=1&origin=${originQuery}&destination=${destQuery}&travelmode=transit`;
+                Linking.openURL(url).catch(() => {});
+              }}
+              activeOpacity={0.8}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                backgroundColor: `${accentColor}18`,
+                borderRadius: 12,
+                paddingVertical: 10,
+                marginTop: 12,
+              }}
+            >
+              <Navigation2 size={13} color={accentColor} strokeWidth={2.4} />
+              <Text style={{ fontSize: 12, fontWeight: '800', color: accentColor }}>
+                Open live directions in Google Maps
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Multi-leg journeys */}

@@ -89,10 +89,10 @@ async function runGeminiJson(apiKey: string, system: string, user: string, maxTo
   return parsed;
 }
 
-async function runGroqJson(system: string, user: string, maxTokens = 400): Promise<any> {
+async function runGroqJson(system: string, user: string, maxTokens = 2048): Promise<any> {
   const groqKey = getGroqKey();
   if (!groqKey) throw new Error('Missing EXPO_PUBLIC_GROQ_API_KEY');
-  const safeTokens = Math.min(maxTokens, 450);
+  const safeTokens = Math.max(1024, Math.min(maxTokens, 4096));
   const models = getGroqModels();
   let lastError: any = null;
 

@@ -19,7 +19,15 @@ export interface AppNotification {
     | 'itinerary_reaction'
     | 'stay_added'
     | 'stay_reaction'
-    | 'stay_comment';
+    | 'stay_comment'
+    | 'radar_ping'
+    | 'expense_added'
+    | 'expense_alert'
+    | 'settlement_verified'
+    | 'checklist_assigned'
+    | 'poll_proposed'
+    | 'commitment_updated'
+    | 'commitment_nudge';
   title: string;
   message: string;
   isRead: boolean;
@@ -524,6 +532,286 @@ export const NotificationService = {
       return true;
     } catch (err: any) {
       console.warn('createStayCommentNotification error:', err.message);
+      return false;
+    }
+  },
+
+  /**
+   * Send a radar ping notification to a squad member.
+   */
+  async createRadarPingNotification(
+    senderId: string,
+    senderName: string,
+    targetUserId: string,
+    tripId?: string
+  ): Promise<boolean> {
+    try {
+      if (!senderId || !targetUserId || senderId === targetUserId) return false;
+
+      const { error } = await supabase.from('notifications').insert({
+        user_id: targetUserId,
+        actor_id: senderId,
+        trip_id: tripId || null,
+        type: 'radar_ping',
+        category: 'radar',
+        title: `Radar Ping from ${senderName} 📡`,
+        message: `${senderName} is pinging your live location on Barkada Radar! Tap to open radar.`,
+        action_url: 'radar',
+        is_read: false,
+      });
+
+      if (error) {
+        console.warn('createRadarPingNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createRadarPingNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify trip members when a new shared expense is added.
+   */
+  async createExpenseAddedNotification(
+    actorId: string,
+    actorName: string,
+    tripId: string,
+    tripTitle: string,
+    expenseTitle: string,
+    amount: number,
+    splitCount: number
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const perPerson = splitCount > 1 ? ` Your share: ₱${Math.round(amount / splitCount)}.` : '';
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        trip_id: tripId,
+        type: 'expense_added',
+        category: 'expense',
+        title: 'New Shared Expense 💰',
+        message: `${actorName} added "${expenseTitle}" (₱${amount.toLocaleString()}) to ${tripTitle}.${perPerson}`,
+        action_url: 'expenses',
+        is_read: false,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createExpenseAddedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createExpenseAddedNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the payee when a debtor submits an expense settlement proof.
+   */
+  async createSettlementSubmittedNotification(
+    payerId: string,
+    payerName: string,
+    payeeId: string,
+    tripId: string,
+    tripTitle: string,
+    amount: number
+  ): Promise<boolean> {
+    try {
+      if (!payerId || !payeeId || payerId === payeeId) return false;
+
+      const { error } = await supabase.from('notifications').insert({
+        user_id: payeeId,
+        actor_id: payerId,
+        trip_id: tripId,
+        type: 'expense_alert',
+        category: 'expense',
+        title: 'Payment Proof Submitted 💸',
+        message: `${payerName} sent a payment proof for ₱${amount.toLocaleString()} in ${tripTitle}. Tap to review and verify.`,
+        action_url: 'expenses',
+        is_read: false,
+      });
+
+      if (error) {
+        console.warn('createSettlementSubmittedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createSettlementSubmittedNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify the debtor when the payee verifies or rejects their payment proof.
+   */
+  async createSettlementVerifiedNotification(
+    payeeId: string,
+    payeeName: string,
+    payerId: string,
+    tripId: string,
+    tripTitle: string,
+    amount: number,
+    status: 'verified' | 'rejected'
+  ): Promise<boolean> {
+    try {
+      if (!payeeId || !payerId || payeeId === payerId) return false;
+
+      const isVerified = status === 'verified';
+      const title = isVerified ? 'Payment Verified! 🎉' : 'Payment Proof Rejected ⚠️';
+      const message = isVerified
+        ? `${payeeName} verified your payment of ₱${amount.toLocaleString()} for ${tripTitle}. You're all settled up!`
+        : `${payeeName} rejected your payment proof for ₱${amount.toLocaleString()} in ${tripTitle}. Please check your ledger.`;
+
+      const { error } = await supabase.from('notifications').insert({
+        user_id: payerId,
+        actor_id: payeeId,
+        trip_id: tripId,
+        type: 'settlement_verified',
+        category: 'expense',
+        title,
+        message,
+        action_url: 'expenses',
+        is_read: false,
+      });
+
+      if (error) {
+        console.warn('createSettlementVerifiedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createSettlementVerifiedNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify a squad member when an essential checklist item is assigned to them.
+   */
+  async createChecklistAssignedNotification(
+    actorId: string,
+    actorName: string,
+    assignedUserId: string,
+    tripId: string,
+    tripTitle: string,
+    itemTitle: string
+  ): Promise<boolean> {
+    try {
+      if (!assignedUserId || actorId === assignedUserId) return false;
+
+      const { error } = await supabase.from('notifications').insert({
+        user_id: assignedUserId,
+        actor_id: actorId,
+        trip_id: tripId,
+        type: 'checklist_assigned',
+        category: 'checklist',
+        title: 'Packing Item Assigned 🎒',
+        message: `${actorName} assigned you to pack "${itemTitle}" for ${tripTitle}. Don't forget to pack it!`,
+        action_url: 'checklist',
+        is_read: false,
+      });
+
+      if (error) {
+        console.warn('createChecklistAssignedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createChecklistAssignedNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify trip participants when a member proposes a new destination or date option.
+   */
+  async createPollOptionProposedNotification(
+    actorId: string,
+    actorName: string,
+    tripId: string,
+    tripTitle: string,
+    optionTitle: string,
+    pollType: 'place' | 'date'
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const typeLabel = pollType === 'place' ? 'destination' : 'date option';
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        trip_id: tripId,
+        type: 'poll_proposed',
+        category: 'poll',
+        title: 'New Poll Suggestion 🗳️',
+        message: `${actorName} suggested "${optionTitle}" for the ${tripTitle} ${typeLabel}. Cast your vote!`,
+        action_url: 'planner',
+        is_read: false,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createPollOptionProposedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createPollOptionProposedNotification exception:', err?.message);
+      return false;
+    }
+  },
+
+  /**
+   * Notify trip host/participants when a member updates their commitment level.
+   */
+  async createCommitmentUpdatedNotification(
+    actorId: string,
+    actorName: string,
+    tripId: string,
+    tripTitle: string,
+    level: number,
+    note?: string
+  ): Promise<boolean> {
+    try {
+      if (!actorId || !tripId) return false;
+      const members = await this.fetchAcceptedTripMemberIds(tripId);
+      const targets = members.filter((id) => id !== actorId);
+      if (targets.length === 0) return true;
+
+      const noteSuffix = note ? ` ("${note}")` : '';
+      const rows = targets.map((userId) => ({
+        user_id: userId,
+        actor_id: actorId,
+        trip_id: tripId,
+        type: 'commitment_updated',
+        category: 'commitment',
+        title: 'Commitment Level Updated 📊',
+        message: `${actorName} updated their commitment for ${tripTitle} to ${level}%${noteSuffix}.`,
+        action_url: 'commitment',
+        is_read: false,
+      }));
+
+      const { error } = await supabase.from('notifications').insert(rows);
+      if (error) {
+        console.warn('createCommitmentUpdatedNotification error:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('createCommitmentUpdatedNotification exception:', err?.message);
       return false;
     }
   },

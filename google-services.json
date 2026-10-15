@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "796151985824",
+    "project_id": "barkadash-2b1b6",
+    "storage_bucket": "barkadash-2b1b6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:796151985824:android:7b87163b361f58a0647bc5",
+        "android_client_info": {
+          "package_name": "barkadash.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCR4dZRHwyW7P7-WzhN6IWXfWlZmp0TPzE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

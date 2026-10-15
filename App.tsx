@@ -10,6 +10,30 @@ import { AuthFlowContainer } from './src/screens/auth/AuthFlowContainer';
 import { MainAppContainer } from './src/components/nav/MainAppContainer';
 import { supabase } from './src/utils/supabase';
 import { PushService } from './src/services/pushService';
+import { registerForPushNotificationsAsync } from './src/lib/pushToken';
+import { NotificationWatcher } from './src/components/NotificationWatcher';
+import { useUser } from './src/context/UserContext';
+
+function PushRegistrar({ userId }: { userId?: string }) {
+  useEffect(() => {
+    if (userId) {
+      registerForPushNotificationsAsync(userId);
+    }
+  }, [userId]);
+  return null;
+}
+
+function AuthenticatedApp({ onLogout }: { onLogout: () => void }) {
+  const { profile } = useUser();
+
+  return (
+    <>
+      <PushRegistrar userId={profile?.id} />
+      <NotificationWatcher userId={profile?.id} />
+      <MainAppContainer onLogout={onLogout} />
+    </>
+  );
+}
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -68,7 +92,7 @@ export default function App() {
           {isAuthenticated === null ? (
             <AppSplashScreen />
           ) : isAuthenticated ? (
-            <MainAppContainer onLogout={handleLogout} />
+            <AuthenticatedApp onLogout={handleLogout} />
           ) : (
             <AuthFlowContainer onAuthenticated={() => setIsAuthenticated(true)} />
           )}
@@ -77,3 +101,4 @@ export default function App() {
     </ThemeProvider>
   );
 }
+

@@ -1,102 +1,19 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
-import { supabase } from '../utils/supabase';
-
-// Present incoming pushes quietly while the app is open — the in-app
-// notification banner (driven by realtime) shows the message instead, so
-// we avoid double banners. A sound still plays.
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: false,
-    shouldShowList: false,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
-const getProjectId = (): string | undefined => {
-  return (
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId
-  );
-};
-
-const getDeviceToken = async (): Promise<string | null> => {
-  const projectId = getProjectId();
-  try {
-    if (projectId) {
-      const token = await Notifications.getExpoPushTokenAsync({ projectId });
-      return token.data;
-    }
-    // Fallback for projects without an explicit EAS project id.
-    const token = await Notifications.getExpoPushTokenAsync();
-    return token.data;
-  } catch (err: any) {
-    // aps-environment error occurs normally in iOS Simulator or un-provisioned dev builds
-    if (err?.message?.includes('aps-environment') || err?.message?.includes('Simulator')) {
-      console.log('Push notifications disabled (iOS Simulator / Dev client without APNs profile)');
-    } else {
-      console.warn('Push token fetch failed:', err?.message);
-    }
-    return null;
-  }
-};
+import {
+  registerForPushNotificationsAsync as registerPushAsync,
+  unregisterPushTokenAsync,
+} from '../lib/pushToken';
 
 export const PushService = {
   /**
-   * Ask for permission and save the user's Expo push token to Supabase.
-   * Safe to call on every sign-in; it self-heals when the token rotates.
+   * Ask for permission and save the user's push token (Native FCM/APNs or Expo) to Supabase.
    */
   async registerPushToken(userId?: string): Promise<boolean> {
-    if (!userId) return false;
-    if (Platform.OS === 'web') return false;
-
+    if (!userId || Platform.OS === 'web') return false;
     try {
-      // Android 13+ requires a channel before the permission prompt shows.
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Barkadash Alerts',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-        });
-      }
-
-      const current = await Notifications.getPermissionsAsync();
-      let granted = current.granted;
-      if (Platform.OS === 'ios') {
-        granted =
-          granted ||
-          current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
-      }
-      if (!granted) {
-        const requested = await Notifications.requestPermissionsAsync({
-          ios: { allowAlert: true, allowBadge: true, allowSound: true },
-        });
-        granted =
-          requested.granted ||
-          requested.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
-      }
-      if (!granted) return false;
-
-      const token = await getDeviceToken();
-      if (!token) return false;
-
-      const { error } = await supabase.from('push_tokens').upsert(
-        {
-          user_id: userId,
-          token,
-          platform: Platform.OS,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' }
-      );
-
-      if (error) {
-        console.warn('push_tokens upsert error:', error.message);
-        return false;
-      }
-      return true;
+      const token = await registerPushAsync(userId);
+      return !!token;
     } catch (err: any) {
       console.warn('PushService.registerPushToken exception:', err?.message);
       return false;
@@ -109,9 +26,9 @@ export const PushService = {
   async unregisterPushToken(userId?: string): Promise<void> {
     if (!userId || Platform.OS === 'web') return;
     try {
-      await supabase.from('push_tokens').delete().eq('user_id', userId);
+      await unregisterPushTokenAsync(userId);
     } catch (err: any) {
-      console.warn('push_tokens delete error:', err?.message);
+      console.warn('PushService.unregisterPushToken error:', err?.message);
     }
   },
 
@@ -138,3 +55,4 @@ export const PushService = {
 
 export const registerForPushNotificationsAsync =
   PushService.registerPushToken.bind(PushService);
+

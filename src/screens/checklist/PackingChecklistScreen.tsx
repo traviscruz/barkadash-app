@@ -233,7 +233,8 @@ export const PackingChecklistScreen: React.FC<PackingChecklistScreenProps> = ({
     );
 
     try {
-      await ChecklistService.getInstance().assignChecklistItemDB(itemId, memberId);
+      const myName = [profile?.firstName, profile?.lastName].filter(Boolean).join(' ') || profile?.username || 'A squad member';
+      await ChecklistService.getInstance().assignChecklistItemDB(itemId, memberId, profile?.id, myName);
       showToast(memberId ? `Assigned to ${memberName || 'member'}` : 'Set to General (Everyone)');
     } catch (e) {
       console.warn('Error assigning member:', e);

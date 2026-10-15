@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,10 @@ import {
   Check,
 } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
+import {
+  isPushNotificationEnabled,
+  setPushNotificationEnabled,
+} from '../../lib/notify';
 
 interface SettingsScreenProps {
   onBack?: () => void;
@@ -36,6 +40,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [notifPush, setNotifPush] = useState(true);
   const [notifExpense, setNotifExpense] = useState(true);
   const [radarLocation, setRadarLocation] = useState(true);
+
+  useEffect(() => {
+    isPushNotificationEnabled().then(setNotifPush);
+  }, []);
+
+  const handleTogglePush = async (val: boolean) => {
+    setNotifPush(val);
+    await setPushNotificationEnabled(val);
+  };
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.paper }]} edges={['top']}>
@@ -66,7 +79,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </View>
             <Switch
               value={notifPush}
-              onValueChange={setNotifPush}
+              onValueChange={handleTogglePush}
               trackColor={{ false: '#E6E8F0', true: colors.tealDark }}
             />
           </View>

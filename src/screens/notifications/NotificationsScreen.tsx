@@ -11,7 +11,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2, MapPin, ThumbsUp, BedDouble, MessageCircle } from 'lucide-react-native';
+import { ChevronLeft, Bell, UserCheck, UserPlus, CheckCheck, Sparkles, CheckCircle2, XCircle, Trash2, MapPin, ThumbsUp, BedDouble, MessageCircle, Radio, Receipt, Vote, CheckSquare, Activity, Flame } from 'lucide-react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
 import { NotificationService, AppNotification } from '../../services/notificationService';
@@ -25,9 +25,10 @@ interface NotificationsScreenProps {
   onBack?: () => void;
   onNavigateToTab?: (index: number) => void;
   onNavigateToConnections?: () => void;
+  onNavigateToSubScreen?: (screen: any) => void;
 }
 
-export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack, onNavigateToTab, onNavigateToConnections }) => {
+export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack, onNavigateToTab, onNavigateToConnections, onNavigateToSubScreen }) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const currentUserId = profile?.id;
@@ -130,12 +131,48 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
       onNavigateToConnections?.();
       return;
     }
-    if (item.type === 'itinerary_added' || item.type === 'itinerary_reaction' || item.type === 'poll_result' || item.type === 'stay_added' || item.type === 'stay_reaction' || item.type === 'stay_comment') {
+    if (item.type === 'radar_ping') {
+      onBack?.();
+      onNavigateToTab?.(2);
+      return;
+    }
+    if (item.type === 'expense_added' || item.type === 'expense_alert' || item.type === 'settlement_verified') {
+      onBack?.();
+      onNavigateToTab?.(3);
+      return;
+    }
+    if (item.type === 'checklist_assigned') {
+      onBack?.();
+      if (onNavigateToSubScreen) {
+        onNavigateToSubScreen('checklist');
+      } else {
+        onNavigateToTab?.(1);
+      }
+      return;
+    }
+    if (item.type === 'commitment_updated' || item.type === 'commitment_nudge') {
+      onBack?.();
+      if (onNavigateToSubScreen) {
+        onNavigateToSubScreen('commitment');
+      } else {
+        onNavigateToTab?.(1);
+      }
+      return;
+    }
+    if (
+      item.type === 'itinerary_added' ||
+      item.type === 'itinerary_reaction' ||
+      item.type === 'poll_result' ||
+      item.type === 'poll_proposed' ||
+      item.type === 'stay_added' ||
+      item.type === 'stay_reaction' ||
+      item.type === 'stay_comment'
+    ) {
       onBack?.();
       onNavigateToTab?.(1);
       return;
     }
-    // system notifications have nowhere to go — stay put
+    // generic system notifications stay put
   };
 
   useEffect(() => {
@@ -289,11 +326,19 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
             const isSystem =
               item.type === 'system' ||
               item.type === 'poll_result' ||
+              item.type === 'poll_proposed' ||
               item.type === 'itinerary_added' ||
               item.type === 'itinerary_reaction' ||
               item.type === 'stay_added' ||
               item.type === 'stay_reaction' ||
-              item.type === 'stay_comment';
+              item.type === 'stay_comment' ||
+              item.type === 'radar_ping' ||
+              item.type === 'expense_added' ||
+              item.type === 'expense_alert' ||
+              item.type === 'settlement_verified' ||
+              item.type === 'checklist_assigned' ||
+              item.type === 'commitment_updated' ||
+              item.type === 'commitment_nudge';
             const isInviteResponse = item.type === 'trip_invite_response';
             const isAcceptedResp = isInviteResponse && item.title?.toLowerCase().includes('accepted');
             const respTripTitle = isInviteResponse ? item.message.match(/"(.*?)"/)?.[1] : null;
@@ -301,6 +346,26 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
               item.actorId && localFollowMap[item.actorId] !== undefined
                 ? localFollowMap[item.actorId]
                 : item.isFollowingActor ?? false;
+
+            const badgeBg = isInvite
+              ? '#FF9F1C'
+              : isInviteResponse
+              ? (isAcceptedResp ? '#10B981' : '#EF4444')
+              : item.type === 'radar_ping'
+              ? '#0171F8'
+              : item.type === 'expense_added' || item.type === 'settlement_verified'
+              ? '#10B981'
+              : item.type === 'expense_alert'
+              ? '#F59E0B'
+              : item.type === 'checklist_assigned'
+              ? '#8B5CF6'
+              : item.type === 'poll_proposed'
+              ? '#EC4899'
+              : item.type === 'commitment_updated'
+              ? '#F97316'
+              : item.type === 'commitment_nudge'
+              ? '#EF4444'
+              : colors.tealDark;
 
             return (
               <SwipeableNotificationRow
@@ -327,7 +392,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                     <View style={[styles.avatarCircle, { backgroundColor: item.actorAvatarBg }]}>
                       <Text style={styles.avatarText}>{item.actorInitials}</Text>
                     </View>
-                    <View style={[styles.typeBadgeCircle, { backgroundColor: isInvite ? '#FF9F1C' : isInviteResponse ? (isAcceptedResp ? '#10B981' : '#EF4444') : colors.tealDark }]}>
+                    <View style={[styles.typeBadgeCircle, { backgroundColor: badgeBg }]}>
                       {isInvite ? (
                         <Sparkles size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : isInviteResponse ? (
@@ -338,6 +403,20 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({ onBack
                         )
                       ) : item.type === 'follow_back' ? (
                         <UserCheck size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'radar_ping' ? (
+                        <Radio size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'expense_added' || item.type === 'expense_alert' ? (
+                        <Receipt size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'settlement_verified' ? (
+                        <CheckCircle2 size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'checklist_assigned' ? (
+                        <CheckSquare size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'poll_proposed' ? (
+                        <Vote size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'commitment_updated' ? (
+                        <Activity size={9} color="#FFFFFF" strokeWidth={3} />
+                      ) : item.type === 'commitment_nudge' ? (
+                        <Flame size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : item.type === 'itinerary_added' ? (
                         <MapPin size={9} color="#FFFFFF" strokeWidth={3} />
                       ) : item.type === 'itinerary_reaction' ? (

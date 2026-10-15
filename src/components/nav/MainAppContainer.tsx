@@ -103,7 +103,23 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
       const type = data?.type;
       if (type === 'follow' || type === 'follow_back') {
         handleOpenSubScreen('connections');
-      } else if (type === 'itinerary_added' || type === 'itinerary_reaction' || type === 'poll_result' || type === 'stay_added' || type === 'stay_reaction' || type === 'stay_comment') {
+      } else if (type === 'radar_ping') {
+        handleTabChange(2);
+      } else if (type === 'expense_added' || type === 'expense_alert' || type === 'settlement_verified') {
+        handleTabChange(3);
+      } else if (type === 'checklist_assigned') {
+        handleOpenSubScreen('checklist');
+      } else if (type === 'commitment_updated' || type === 'commitment_nudge') {
+        handleOpenSubScreen('commitment');
+      } else if (
+        type === 'itinerary_added' ||
+        type === 'itinerary_reaction' ||
+        type === 'poll_result' ||
+        type === 'poll_proposed' ||
+        type === 'stay_added' ||
+        type === 'stay_reaction' ||
+        type === 'stay_comment'
+      ) {
         handleTabChange(1);
       } else {
         handleOpenSubScreen('notifications');
@@ -169,7 +185,23 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
     if (!notif) return;
     if (notif.type === 'follow' || notif.type === 'follow_back') {
       handleOpenSubScreen('connections');
-    } else if (notif.type === 'itinerary_added' || notif.type === 'itinerary_reaction' || notif.type === 'poll_result' || notif.type === 'stay_added' || notif.type === 'stay_reaction' || notif.type === 'stay_comment') {
+    } else if (notif.type === 'radar_ping') {
+      handleTabChange(2);
+    } else if (notif.type === 'expense_added' || notif.type === 'expense_alert' || notif.type === 'settlement_verified') {
+      handleTabChange(3);
+    } else if (notif.type === 'checklist_assigned') {
+      handleOpenSubScreen('checklist');
+    } else if (notif.type === 'commitment_updated' || notif.type === 'commitment_nudge') {
+      handleOpenSubScreen('commitment');
+    } else if (
+      notif.type === 'itinerary_added' ||
+      notif.type === 'itinerary_reaction' ||
+      notif.type === 'poll_result' ||
+      notif.type === 'poll_proposed' ||
+      notif.type === 'stay_added' ||
+      notif.type === 'stay_reaction' ||
+      notif.type === 'stay_comment'
+    ) {
       handleTabChange(1);
     } else {
       handleOpenSubScreen('notifications');
@@ -330,6 +362,7 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
                 onBack={handleBackRootSub}
                 onNavigateToTab={handleTabChange}
                 onNavigateToConnections={() => handleOpenSubScreen('connections')}
+                onNavigateToSubScreen={(screen) => handleOpenSubScreen(screen)}
               />
             </View>
             <View style={[styles.subScreenContainer, { display: activeSubScreen === 'commitment' ? 'flex' : 'none' }]}>

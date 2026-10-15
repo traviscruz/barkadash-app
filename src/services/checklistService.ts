@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../utils/supabase';
 import { ChecklistItem, ChecklistCategory, CHECKLIST_CATEGORIES } from '../types/checklistItem';
 import { requestJsonRace, requestJson } from './aiStructuredService';
+import { NotificationService } from './notificationService';
 
 export class ChecklistService {
   private static instance: ChecklistService;
@@ -197,9 +198,17 @@ export class ChecklistService {
    */
   public async assignChecklistItemDB(
     itemId: string,
-    assignedTo: string | null
+    assignedTo: string | null,
+    actorId?: string,
+    actorName?: string
   ): Promise<boolean> {
     try {
+      const { data: itemData } = await supabase
+        .from('trip_checklist_items')
+        .select('trip_id, title, created_by')
+        .eq('id', itemId)
+        .maybeSingle();
+
       const { error } = await supabase
         .from('trip_checklist_items')
         .update({
@@ -212,6 +221,41 @@ export class ChecklistService {
         console.warn('assignChecklistItemDB error:', error.message);
         return false;
       }
+
+      if (assignedTo && itemData) {
+        try {
+          const effectiveActorId = actorId || itemData.created_by;
+          let effectiveActorName = actorName;
+          if (!effectiveActorName && effectiveActorId) {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('first_name, last_name, username')
+              .eq('id', effectiveActorId)
+              .maybeSingle();
+            if (prof) {
+              effectiveActorName = [prof.first_name, prof.last_name].filter(Boolean).join(' ') || prof.username || 'A squad member';
+            }
+          }
+          const { data: tripData } = await supabase
+            .from('trips')
+            .select('title')
+            .eq('id', itemData.trip_id)
+            .maybeSingle();
+          const tripTitle = tripData?.title || 'Barkada Trip';
+
+          await NotificationService.createChecklistAssignedNotification(
+            effectiveActorId || '',
+            effectiveActorName || 'A squad member',
+            assignedTo,
+            itemData.trip_id,
+            tripTitle,
+            itemData.title
+          );
+        } catch (notifErr) {
+          console.warn('assignChecklistItemDB notification error:', notifErr);
+        }
+      }
+
       return true;
     } catch (err: any) {
       console.warn('assignChecklistItemDB exception:', err?.message);
