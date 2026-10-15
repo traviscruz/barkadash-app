@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "barkadash-app",
+    "name": "Barkadash",
     "slug": "barkadash-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,6 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.ishwopogi.barkadash",
       "infoPlist": {
         "UIBackgroundModes": [
           "location"
@@ -56,13 +57,6 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Barkadash to access your photos so you can attach receipts."
-        }
-      ],
-      [
-        "expo-notifications",
-        {
-          "color": "#0B132B",
-          "defaultChannel": "default"
         }
       ],
       [

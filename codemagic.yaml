@@ -1,0 +1,72 @@
+workflows:
+  ios-unsigned:
+    name: iOS Unsigned
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 20
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      - name: Expo Prebuild (iOS)
+        script: |
+          npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+      - name: Build unsigned iOS app
+        script: |
+          cd ios
+          
+          # Automatically detect the .xcworkspace and scheme
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          if [ -z "$WORKSPACE" ]; then
+            echo "Error: No .xcworkspace found!"
+            exit 1
+          fi
+          
+          # Extract first scheme or fallback to workspace name
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json 2>/dev/null | tr -d '\n' | grep -o '"schemes":\[[^]]*\]' | sed 's/"schemes":\[//;s/\]//;s/"//g' | cut -d',' -f1 | tr -d ' ')
+          if [ -z "$SCHEME" ]; then
+            SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          fi
+          
+          echo "Detected Workspace: $WORKSPACE"
+          echo "Detected Scheme: $SCHEME"
+          
+          BUILD_DIR="$HOME/build/derived_data"
+          
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$BUILD_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            clean build
+            
+          APP_PATH=$(find "$BUILD_DIR/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app file not found in $BUILD_DIR/Build/Products/Release-iphoneos"
+            exit 1
+          fi
+          
+          echo "Found compiled app at: $APP_PATH"
+          
+          # Package into standard iOS Payload structure and zip as unsigned IPA
+          rm -rf Payload app-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r -y "$CM_BUILD_DIR/app-unsigned.ipa" Payload
+          rm -rf Payload
+      - name: Verify unsigned IPA output
+        script: |
+          ls -lh "$CM_BUILD_DIR/app-unsigned.ipa"
+    artifacts:
+      - app-unsigned.ipa
