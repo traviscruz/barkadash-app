@@ -85,7 +85,7 @@ interface Participant {
   initials: string;
   avatarBg: string;
   avatarUrl?: string;
-  role: 'host' | 'member';
+  role: 'host' | 'co-host' | 'member';
   status: 'accepted' | 'pending';
 }
 

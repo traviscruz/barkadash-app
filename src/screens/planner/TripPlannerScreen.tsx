@@ -230,7 +230,11 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
   const [showUndoModal, setShowUndoModal] = useState(false);
   const [loadingUndo, setLoadingUndo] = useState(false);
 
-  const isHost = !!profile?.id && activeTrip?.hostId === profile.id;
+  const isHost =
+    !!profile?.id &&
+    (activeTrip?.hostId === profile.id ||
+      activeTrip?.myRole === 'host' ||
+      activeTrip?.myRole === 'co-host');
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async () => {

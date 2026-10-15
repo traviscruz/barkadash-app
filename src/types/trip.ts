@@ -132,6 +132,7 @@ export interface Trip {
   votingDeadline?: string | null;
   planningStage?: 'DESTINATION_VOTING' | 'ITINERARY_BUILDING' | 'READY';
   invitedFriendIds?: string[];
+  myRole?: 'host' | 'co-host' | 'member';
 }
 
 export interface MemberCommitment {
@@ -141,7 +142,7 @@ export interface MemberCommitment {
   initials: string;
   avatarBg: string;
   avatarUrl?: string;
-  role: 'host' | 'member';
+  role: 'host' | 'co-host' | 'member';
   status: 'accepted' | 'pending';
   commitmentLevel: number; // 0 - 100
   commitmentNote?: string;

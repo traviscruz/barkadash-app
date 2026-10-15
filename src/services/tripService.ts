@@ -526,8 +526,9 @@ export class TripService {
             nextActivityTime: 'Open for Voting',
             inviteCode: t.invite_code,
             inviteLink: `https://barkadash.app/join/${t.invite_code}`,
-            hostName: p.role === 'host' ? 'You' : 'Barkada Host',
+            hostName: (p.role === 'host' || t.host_id === effectiveUserId) ? 'You' : 'Barkada Host',
             hostId: t.host_id || undefined,
+            myRole: ((p.role === 'host' || t.host_id === effectiveUserId) ? 'host' : p.role === 'co-host' ? 'co-host' : 'member') as 'host' | 'co-host' | 'member',
             votingDeadline: t.voting_deadline || null,
             planningStage: t.planning_stage || 'DESTINATION_VOTING',
             day1Itinerary: [],
@@ -570,6 +571,7 @@ export class TripService {
               inviteLink: `https://barkadash.app/join/${t.invite_code}`,
               hostName: 'You',
               hostId: t.host_id || undefined,
+              myRole: 'host',
               votingDeadline: t.voting_deadline || null,
               planningStage: t.planning_stage || 'DESTINATION_VOTING',
               day1Itinerary: [],
@@ -850,6 +852,121 @@ export class TripService {
     } catch (err: any) {
       console.warn('removeParticipantDB exception:', err?.message);
       return false;
+    }
+  }
+
+  /**
+   * Transfer Primary Host ownership of a trip to another participant (Host-only).
+   * 1. Updates public.trips host_id
+   * 2. Sets new host's participant role = 'host'
+   * 3. Sets previous host's participant role = 'co-host'
+   */
+  public async transferHostDB(
+    tripId: string,
+    newHostUserId: string,
+    currentHostUserId: string
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      // 1. Update trips table host_id
+      const { error: tripErr } = await supabase
+        .from('trips')
+        .update({ host_id: newHostUserId, updated_at: new Date().toISOString() })
+        .eq('id', tripId);
+
+      if (tripErr) {
+        console.warn('transferHostDB trips update error:', tripErr.message);
+        return { success: false, message: tripErr.message };
+      }
+
+      // 2. Update new host's participant role
+      await supabase
+        .from('trip_participants')
+        .update({ role: 'host' })
+        .eq('trip_id', tripId)
+        .eq('user_id', newHostUserId);
+
+      // 3. Update previous host's participant role to 'co-host'
+      await supabase
+        .from('trip_participants')
+        .update({ role: 'co-host' })
+        .eq('trip_id', tripId)
+        .eq('user_id', currentHostUserId);
+
+      // Update local trips cache
+      this.trips = this.trips.map((t) =>
+        t.id === tripId ? { ...t, hostId: newHostUserId, myRole: 'co-host' } : t
+      );
+      this.notify();
+
+      // 4. Send notification
+      try {
+        const tripObj = this.trips.find((t) => t.id === tripId);
+        const tripTitle = tripObj?.title || 'Your Barkada trip';
+        await supabase.from('notifications').insert({
+          user_id: newHostUserId,
+          actor_id: currentHostUserId,
+          type: 'system',
+          title: 'You are now the Trip Host!',
+          message: `You have been transferred primary host ownership of "${tripTitle}".`,
+          is_read: false,
+          trip_id: tripId,
+        });
+      } catch (notifErr) {
+        console.warn('transferHostDB notification notice:', notifErr);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.warn('transferHostDB exception:', err?.message);
+      return { success: false, message: err?.message };
+    }
+  }
+
+  /**
+   * Set participant role ('co-host' or 'member') for a trip participant (Host-only).
+   */
+  public async setParticipantRoleDB(
+    tripId: string,
+    targetUserId: string,
+    newRole: 'co-host' | 'member',
+    currentHostUserId: string
+  ): Promise<{ success: boolean; message?: string }> {
+    try {
+      const { error } = await supabase
+        .from('trip_participants')
+        .update({ role: newRole })
+        .eq('trip_id', tripId)
+        .eq('user_id', targetUserId);
+
+      if (error) {
+        console.warn('setParticipantRoleDB error:', error.message);
+        return { success: false, message: error.message };
+      }
+
+      // Send notification
+      try {
+        const tripObj = this.trips.find((t) => t.id === tripId);
+        const tripTitle = tripObj?.title || 'Your Barkada trip';
+        await supabase.from('notifications').insert({
+          user_id: targetUserId,
+          actor_id: currentHostUserId,
+          type: 'system',
+          title: newRole === 'co-host' ? 'Added as Co-Host' : 'Trip Role Updated',
+          message:
+            newRole === 'co-host'
+              ? `You are now a Co-Host of "${tripTitle}". You have full access to manage itineraries, stays, and settings!`
+              : `Your role in "${tripTitle}" was updated to member.`,
+          is_read: false,
+          trip_id: tripId,
+        });
+      } catch (notifErr) {
+        console.warn('setParticipantRoleDB notification notice:', notifErr);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.warn('setParticipantRoleDB exception:', err?.message);
+      return { success: false, message: err?.message };
     }
   }
 
@@ -2442,7 +2559,7 @@ export class TripService {
     initials: string;
     avatarBg: string;
     avatarUrl?: string;
-    role: 'host' | 'member';
+    role: 'host' | 'co-host' | 'member';
     status: 'accepted' | 'pending';
   }>> {
     try {
@@ -2484,6 +2601,9 @@ export class TripService {
           const handle = prof.username ? `@${prof.username}` : '@user';
           const initials = `${(fn[0] || '').toUpperCase()}${(ln[0] || '').toUpperCase()}` || 'U';
 
+          const mappedRole: 'host' | 'co-host' | 'member' =
+            p.role === 'host' ? 'host' : p.role === 'co-host' ? 'co-host' : 'member';
+
           return {
             id: p.user_id,
             name,
@@ -2491,8 +2611,8 @@ export class TripService {
             initials,
             avatarBg: getBg(p.user_id),
             avatarUrl: prof.avatar_url || undefined,
-            role: p.role === 'host' ? 'host' : 'member',
-            status: p.role === 'host' ? 'accepted' : ((p.status || 'accepted') as 'accepted' | 'pending'),
+            role: mappedRole,
+            status: mappedRole === 'host' ? 'accepted' : ((p.status || 'accepted') as 'accepted' | 'pending'),
           };
         });
     } catch (err: any) {
@@ -2570,7 +2690,7 @@ export class TripService {
             initials,
             avatarBg: getBg(p.user_id),
             avatarUrl: prof.avatar_url || undefined,
-            role: p.role === 'host' ? 'host' : 'member',
+            role: (p.role === 'host' ? 'host' : p.role === 'co-host' ? 'co-host' : 'member') as 'host' | 'co-host' | 'member',
             status: p.role === 'host' ? 'accepted' : ((p.status || 'accepted') as 'accepted' | 'pending'),
             commitmentLevel,
             commitmentNote: p.commitment_note || undefined,

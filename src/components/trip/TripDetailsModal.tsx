@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useUser } from '../../context/UserContext';
@@ -41,6 +42,10 @@ import {
   Settings,
   ChevronDown,
   ChevronUp,
+  Star,
+  ShieldCheck,
+  ArrowRightLeft,
+  Sparkles,
 } from 'lucide-react-native';
 
 interface TripDetailsModalProps {
@@ -58,7 +63,7 @@ export interface TripMember {
   initials: string;
   avatarBg: string;
   avatarUrl?: string;
-  role: 'host' | 'member';
+  role: 'host' | 'co-host' | 'member';
   status?: 'accepted' | 'pending';
 }
 
@@ -129,10 +134,14 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
     loadFriendsToInvite('');
   };
 
-  const isCurrentHost =
+  const isPrimaryHost =
     (!!profile?.id && trip?.hostId === profile.id) ||
     trip?.hostName === 'You' ||
-    members.some((m) => m.id === profile?.id && m.role === 'host') ||
+    (!trip?.hostId && members.length > 0 && members[0]?.id === profile?.id);
+
+  const isCurrentHost =
+    isPrimaryHost ||
+    members.some((m) => m.id === profile?.id && (m.role === 'host' || m.role === 'co-host')) ||
     members.length === 0 ||
     !trip?.hostId;
 
@@ -140,6 +149,66 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
   const [loadingKick, setLoadingKick] = useState(false);
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [loadingLeave, setLoadingLeave] = useState(false);
+
+  // Role & Host Management State
+  const [roleActionTarget, setRoleActionTarget] = useState<TripMember | null>(null);
+  const [transferTarget, setTransferTarget] = useState<TripMember | null>(null);
+  const [loadingRoleAction, setLoadingRoleAction] = useState(false);
+  const [showHostSwitchPicker, setShowHostSwitchPicker] = useState(false);
+
+  const handleToggleCoHost = async (target: TripMember) => {
+    if (!trip || !profile?.id) return;
+    const newRole: 'co-host' | 'member' = target.role === 'co-host' ? 'member' : 'co-host';
+    setLoadingRoleAction(true);
+    try {
+      const res = await TripService.getInstance().setParticipantRoleDB(
+        trip.id,
+        target.id,
+        newRole,
+        profile.id
+      );
+      if (res.success) {
+        setMembers((prev) =>
+          prev.map((m) => (m.id === target.id ? { ...m, role: newRole } : m))
+        );
+        setRoleActionTarget(null);
+        onTripUpdated?.();
+      } else {
+        Alert.alert('Role Update', res.message || 'Could not update participant role.');
+      }
+    } finally {
+      setLoadingRoleAction(false);
+    }
+  };
+
+  const confirmTransferHost = async () => {
+    if (!trip || !transferTarget || !profile?.id) return;
+    setLoadingRoleAction(true);
+    try {
+      const res = await TripService.getInstance().transferHostDB(
+        trip.id,
+        transferTarget.id,
+        profile.id
+      );
+      if (res.success) {
+        setMembers((prev) =>
+          prev.map((m) => {
+            if (m.id === transferTarget.id) return { ...m, role: 'host' };
+            if (m.id === profile.id) return { ...m, role: 'co-host' };
+            return m;
+          })
+        );
+        setTransferTarget(null);
+        setRoleActionTarget(null);
+        setShowHostSwitchPicker(false);
+        onTripUpdated?.();
+      } else {
+        Alert.alert('Transfer Host', res.message || 'Could not transfer host ownership.');
+      }
+    } finally {
+      setLoadingRoleAction(false);
+    }
+  };
 
   // Complete Trip & Undo Complete State
   const [showCompleteModal, setShowCompleteModal] = useState(false);
@@ -439,10 +508,14 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                     <TouchableOpacity
                       activeOpacity={0.7}
                       onPress={() => setIsParticipantsCollapsed(!isParticipantsCollapsed)}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1, minWidth: 0, marginRight: 8 }}
                     >
                       <Users size={16} color={colors.ink} />
-                      <Text style={{ fontSize: 13.5, fontWeight: '900', color: colors.ink }}>
+                      <Text
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                        style={{ fontSize: 13.5, fontWeight: '900', color: colors.ink, flexShrink: 1 }}
+                      >
                         Trip Participants ({members.length || trip.memberCount}/{MAX_TRIP_MEMBERS})
                       </Text>
                       {isParticipantsCollapsed ? (
@@ -452,7 +525,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                       )}
                     </TouchableOpacity>
 
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                       <TouchableOpacity
                         onPress={handleOpenInviteMode}
                         disabled={members.length >= MAX_TRIP_MEMBERS}
@@ -564,13 +637,16 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                                 alignItems: 'center',
                                 justifyContent: 'space-between',
                                 backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
-                                padding: 8,
-                                borderRadius: 10,
+                                paddingVertical: 8,
+                                paddingHorizontal: 10,
+                                borderRadius: 12,
                                 borderWidth: 1,
                                 borderColor: colors.cardBorder,
+                                gap: 8,
                               }}
                             >
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                              {/* Left: Avatar + Name + Handle + Inline Role Badge */}
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1, minWidth: 0 }}>
                                 <View
                                   style={{
                                     width: 32,
@@ -579,55 +655,96 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                                     backgroundColor: member.avatarBg,
                                     alignItems: 'center',
                                     justifyContent: 'center',
+                                    flexShrink: 0,
                                   }}
                                 >
                                   <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '900' }}>
                                     {member.initials}
                                   </Text>
                                 </View>
-                                <View>
-                                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: colors.ink }}>
-                                    {member.name}
-                                  </Text>
-                                  <Text style={{ fontSize: 9.5, fontWeight: '600', color: colors.inkSoft }}>
+                                <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                                    <Text
+                                      numberOfLines={1}
+                                      ellipsizeMode="tail"
+                                      style={{ fontSize: 12.5, fontWeight: '800', color: colors.ink, flexShrink: 1 }}
+                                    >
+                                      {member.name}
+                                    </Text>
+                                    {member.role === 'host' ? (
+                                      <View
+                                        style={{
+                                          backgroundColor: colors.lightOrangeBg,
+                                          paddingHorizontal: 6,
+                                          paddingVertical: 2,
+                                          borderRadius: 100,
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          gap: 3,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        <Crown size={9} color={colors.orangeAccent} />
+                                        <Text style={{ fontSize: 8.5, fontWeight: '900', color: colors.orangeAccent }}>
+                                          HOST
+                                        </Text>
+                                      </View>
+                                    ) : member.role === 'co-host' ? (
+                                      <View
+                                        style={{
+                                          backgroundColor: isDark ? 'rgba(59,122,158,0.22)' : '#E0F2FE',
+                                          paddingHorizontal: 6,
+                                          paddingVertical: 2,
+                                          borderRadius: 100,
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          gap: 3,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        <Star size={9} color={colors.tealDark} />
+                                        <Text style={{ fontSize: 8.5, fontWeight: '900', color: colors.tealDark }}>
+                                          CO-HOST
+                                        </Text>
+                                      </View>
+                                    ) : null}
+                                  </View>
+                                  <Text
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                    style={{ fontSize: 9.5, fontWeight: '600', color: colors.inkSoft, marginTop: 1 }}
+                                  >
                                     {member.handle}
                                   </Text>
                                 </View>
                               </View>
 
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                {member.role === 'host' ? (
-                                  <View
-                                    style={{
-                                      backgroundColor: colors.lightOrangeBg,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 3,
-                                      borderRadius: 100,
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      gap: 3,
-                                    }}
-                                  >
-                                    <Crown size={10} color={colors.orangeAccent} />
-                                    <Text style={{ fontSize: 9, fontWeight: '900', color: colors.orangeAccent }}>
-                                      HOST
-                                    </Text>
-                                  </View>
-                                ) : member.status === 'pending' ? (
+                              {/* Right: Actions / Pending Status */}
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  flexShrink: 0,
+                                  justifyContent: 'flex-end',
+                                }}
+                              >
+                                {member.status === 'pending' ? (
                                   <>
                                     <View
                                       style={{
                                         backgroundColor: '#FEF3C7',
-                                        paddingHorizontal: 8,
+                                        paddingHorizontal: 6,
                                         paddingVertical: 3,
                                         borderRadius: 100,
                                         flexDirection: 'row',
                                         alignItems: 'center',
                                         gap: 3,
+                                        flexShrink: 0,
                                       }}
                                     >
-                                      <Clock size={10} color="#D97706" />
-                                      <Text style={{ fontSize: 9, fontWeight: '900', color: "#D97706" }}>
+                                      <Clock size={9} color="#D97706" />
+                                      <Text style={{ fontSize: 8.5, fontWeight: '900', color: '#D97706' }}>
                                         PENDING
                                       </Text>
                                     </View>
@@ -640,40 +757,70 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                                           alignItems: 'center',
                                           gap: 3,
                                           backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
-                                          paddingHorizontal: 8,
-                                          paddingVertical: 4,
+                                          paddingHorizontal: 7,
+                                          paddingVertical: 3.5,
                                           borderRadius: 100,
+                                          flexShrink: 0,
                                         }}
                                       >
-                                        <UserMinus size={11} color="#EF4444" strokeWidth={2.2} />
-                                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#EF4444' }}>
+                                        <UserMinus size={10} color="#EF4444" strokeWidth={2.2} />
+                                        <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#EF4444' }}>
                                           Kick
                                         </Text>
                                       </TouchableOpacity>
                                     )}
                                   </>
                                 ) : (
-                                  /* Joined Member */
-                                  isCurrentHost && member.id !== profile?.id ? (
-                                    <TouchableOpacity
-                                      onPress={() => handleKickPress(member.id, member.name)}
-                                      activeOpacity={0.75}
-                                      style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 3,
-                                        backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
-                                        paddingHorizontal: 9,
-                                        paddingVertical: 4,
-                                        borderRadius: 100,
-                                      }}
-                                    >
-                                      <UserMinus size={11} color="#EF4444" strokeWidth={2.2} />
-                                      <Text style={{ fontSize: 10, fontWeight: '800', color: '#EF4444' }}>
-                                        Kick
-                                      </Text>
-                                    </TouchableOpacity>
-                                  ) : null
+                                  /* Joined Member Actions */
+                                  member.id !== profile?.id && (
+                                    <>
+                                      {isPrimaryHost && (
+                                        <TouchableOpacity
+                                          onPress={() => setRoleActionTarget(member)}
+                                          activeOpacity={0.75}
+                                          style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            backgroundColor: colors.subtleBg,
+                                            paddingHorizontal: 7,
+                                            paddingVertical: 3.5,
+                                            borderRadius: 100,
+                                            borderWidth: 1,
+                                            borderColor: colors.cardBorder,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          <ArrowRightLeft size={9} color={colors.inkSoft} strokeWidth={2.4} />
+                                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: colors.ink }}>
+                                            Role
+                                          </Text>
+                                        </TouchableOpacity>
+                                      )}
+                                      {/* If co-host (not primary host), allow direct kick button */}
+                                      {!isPrimaryHost && isCurrentHost && (
+                                        <TouchableOpacity
+                                          onPress={() => handleKickPress(member.id, member.name)}
+                                          activeOpacity={0.75}
+                                          style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            gap: 3,
+                                            backgroundColor: isDark ? 'rgba(239,68,68,0.15)' : '#FCE8E6',
+                                            paddingHorizontal: 7,
+                                            paddingVertical: 3.5,
+                                            borderRadius: 100,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          <UserMinus size={10} color="#EF4444" strokeWidth={2.2} />
+                                          <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#EF4444' }}>
+                                            Kick
+                                          </Text>
+                                        </TouchableOpacity>
+                                      )}
+                                    </>
+                                  )
                                 )}
                               </View>
                             </View>
@@ -705,15 +852,18 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                       borderBottomColor: colors.cardBorder,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, marginRight: 8 }}>
                       <Settings size={15} color={colors.tealDark} />
                       <Text
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
                         style={{
                           fontSize: 11,
                           fontWeight: '900',
                           color: colors.tealDark,
                           textTransform: 'uppercase',
                           letterSpacing: 0.8,
+                          flexShrink: 1,
                         }}
                       >
                         Trip Settings & Controls
@@ -728,6 +878,7 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                         paddingHorizontal: 8,
                         paddingVertical: 3,
                         borderRadius: 100,
+                        flexShrink: 0,
                       }}
                     >
                       <Text
@@ -747,6 +898,54 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                       </Text>
                     </View>
                   </View>
+
+                  {/* Host & Co-Host Permissions Setting (Primary Host only) */}
+                  {isPrimaryHost && members.filter((m) => m.id !== profile?.id && m.status !== 'pending').length > 0 && (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: isDark ? 'rgba(240,169,62,0.1)' : '#FFFBEB',
+                        padding: 12,
+                        borderRadius: 14,
+                        borderWidth: 1.5,
+                        borderColor: isDark ? 'rgba(240,169,62,0.3)' : '#FDE68A',
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Crown size={15} color={colors.orangeAccent} />
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                            Host & Permissions
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 10.5, fontWeight: '500', color: colors.inkSoft, marginTop: 2, lineHeight: 14 }}>
+                          Switch primary host or assign co-hosts who share equal planning access.
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        onPress={() => setShowHostSwitchPicker(true)}
+                        style={{
+                          backgroundColor: colors.orangeAccent,
+                          paddingHorizontal: 12,
+                          paddingVertical: 7,
+                          borderRadius: 100,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                      >
+                        <ArrowRightLeft size={12} color="#FFFFFF" strokeWidth={2.4} />
+                        <Text style={{ fontSize: 11.5, fontWeight: '900', color: '#FFFFFF' }}>
+                          Switch Host
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* Yellow Edit Tour Action Button (For Host - ONLY if tour hasn't started) */}
                   {canEditTour && (
@@ -1556,6 +1755,440 @@ export const TripDetailsModal: React.FC<TripDetailsModalProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Member Role & Permission Management Modal */}
+      <Modal
+        transparent
+        visible={!!roleActionTarget}
+        animationType="fade"
+        onRequestClose={() => setRoleActionTarget(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setRoleActionTarget(null)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: roleActionTarget?.avatarBg || colors.tealDark,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 13, fontWeight: '900' }}>
+                    {roleActionTarget?.initials || 'U'}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ fontSize: 15, fontWeight: '900', color: colors.ink }}>
+                    {roleActionTarget?.name}
+                  </Text>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft }}>
+                    {roleActionTarget?.handle}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setRoleActionTarget(null)}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 15,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={15} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 11, fontWeight: '800', color: colors.inkSoft, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>
+              Role & Permissions
+            </Text>
+
+            <View style={{ gap: 10 }}>
+              {/* Option 1: Toggle Co-Host */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => roleActionTarget && handleToggleCoHost(roleActionTarget)}
+                disabled={loadingRoleAction}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 12,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(59,122,158,0.15)' : '#F0F9FF',
+                  borderWidth: 1.5,
+                  borderColor: isDark ? 'rgba(59,122,158,0.35)' : '#BAE6FD',
+                }}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    backgroundColor: isDark ? 'rgba(59,122,158,0.3)' : '#E0F2FE',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Star size={18} color={colors.tealDark} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                    {roleActionTarget?.role === 'co-host' ? 'Remove Co-Host Role' : 'Make Co-Host'}
+                  </Text>
+                  <Text style={{ fontSize: 10.5, fontWeight: '500', color: colors.inkSoft, marginTop: 1 }}>
+                    {roleActionTarget?.role === 'co-host'
+                      ? 'Revert back to regular member permissions'
+                      : 'Give same planning & itinerary access as host'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Option 2: Transfer Primary Host */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  const target = roleActionTarget;
+                  setRoleActionTarget(null);
+                  if (target) setTransferTarget(target);
+                }}
+                disabled={loadingRoleAction}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 12,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(240,169,62,0.15)' : '#FFFBEB',
+                  borderWidth: 1.5,
+                  borderColor: isDark ? 'rgba(240,169,62,0.35)' : '#FDE68A',
+                }}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    backgroundColor: isDark ? 'rgba(240,169,62,0.3)' : '#FEF3C7',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Crown size={18} color={colors.orangeAccent} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                    Make Primary Host
+                  </Text>
+                  <Text style={{ fontSize: 10.5, fontWeight: '500', color: colors.inkSoft, marginTop: 1 }}>
+                    Transfer trip ownership to {roleActionTarget?.name}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Option 3: Kick Member */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => {
+                  const target = roleActionTarget;
+                  setRoleActionTarget(null);
+                  if (target) handleKickPress(target.id, target.name);
+                }}
+                disabled={loadingRoleAction}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: 12,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(239,68,68,0.12)' : '#FEF2F2',
+                  borderWidth: 1,
+                  borderColor: isDark ? 'rgba(239,68,68,0.25)' : '#FEE2E2',
+                }}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    backgroundColor: isDark ? 'rgba(239,68,68,0.2)' : '#FEE2E2',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <UserMinus size={18} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '800', color: '#EF4444' }}>
+                    Kick from Trip
+                  </Text>
+                  <Text style={{ fontSize: 10.5, fontWeight: '500', color: colors.inkSoft, marginTop: 1 }}>
+                    Remove member from this trip
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Transfer Host Confirmation Modal */}
+      <Modal
+        transparent
+        visible={!!transferTarget}
+        animationType="fade"
+        onRequestClose={() => setTransferTarget(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setTransferTarget(null)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 360,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 14,
+                  backgroundColor: isDark ? 'rgba(240,169,62,0.2)' : '#FEF3C7',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Crown size={22} color={colors.orangeAccent} strokeWidth={2.4} />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setTransferTarget(null)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 17, fontWeight: '900', color: colors.ink, marginBottom: 4 }}>
+              Make {transferTarget?.name} Host?
+            </Text>
+            <Text style={{ fontSize: 12.5, fontWeight: '500', color: colors.inkSoft, lineHeight: 18, marginBottom: 16 }}>
+              {transferTarget?.name} will become the Primary Host of "{trip?.title}". You will remain as a Co-Host with full organizing privileges.
+            </Text>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={confirmTransferHost}
+                disabled={loadingRoleAction}
+                style={{
+                  backgroundColor: colors.orangeAccent,
+                  paddingVertical: 13,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {loadingRoleAction ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <Crown size={15} color="#FFF" />
+                    <Text style={{ color: '#FFF', fontSize: 13.5, fontWeight: '800' }}>
+                      Yes, Transfer Host
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setTransferTarget(null)}
+                disabled={loadingRoleAction}
+                style={{
+                  paddingVertical: 11,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: colors.subtleBg,
+                }}
+              >
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Switch Host Picker Modal */}
+      <Modal
+        transparent
+        visible={showHostSwitchPicker}
+        animationType="fade"
+        onRequestClose={() => setShowHostSwitchPicker(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowHostSwitchPicker(false)} />
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 380,
+              backgroundColor: colors.card,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: colors.cardBorder,
+              padding: 22,
+              maxHeight: '80%',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.2,
+              shadowRadius: 20,
+              elevation: 12,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Crown size={20} color={colors.orangeAccent} />
+                <Text style={{ fontSize: 16, fontWeight: '900', color: colors.ink }}>
+                  Switch Trip Host
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowHostSwitchPicker(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.subtleBg,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={16} color={colors.inkSoft} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 12, fontWeight: '500', color: colors.inkSoft, marginBottom: 14, lineHeight: 16 }}>
+              Choose a participant to make the new Primary Host of "{trip?.title}":
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 280 }}>
+              <View style={{ gap: 8 }}>
+                {members
+                  .filter((m) => m.id !== profile?.id && m.status !== 'pending')
+                  .map((m) => (
+                    <TouchableOpacity
+                      key={m.id}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setShowHostSwitchPicker(false);
+                        setTransferTarget(m);
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: 10,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: colors.cardBorder,
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC',
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0, marginRight: 8 }}>
+                        <View
+                          style={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: 17,
+                            backgroundColor: m.avatarBg,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Text style={{ color: '#FFF', fontSize: 11.5, fontWeight: '900' }}>
+                            {m.initials}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 13, fontWeight: '800', color: colors.ink }}>
+                            {m.name}
+                          </Text>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: 10, fontWeight: '600', color: colors.inkSoft }}>
+                            {m.handle}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View
+                        style={{
+                          backgroundColor: colors.lightOrangeBg,
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 100,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Crown size={11} color={colors.orangeAccent} />
+                        <Text style={{ fontSize: 10.5, fontWeight: '900', color: colors.orangeAccent }}>
+                          Make Host
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>

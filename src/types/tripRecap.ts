@@ -40,7 +40,7 @@ export interface TripRecapData {
     name: string;
     avatarUrl?: string;
     initials: string;
-    role: 'host' | 'member';
+    role: 'host' | 'co-host' | 'member';
   }>;
   placesVisited: Array<{
     id: string;

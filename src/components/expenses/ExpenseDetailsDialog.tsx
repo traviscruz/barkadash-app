@@ -134,7 +134,7 @@ export const ExpenseDetailsDialog: React.FC<ExpenseDetailsDialogProps> = ({
                       if (memberShare === undefined) return null;
                       return (
                         <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 }}>
                             <View
                               style={{
                                 width: 24,
@@ -145,15 +145,16 @@ export const ExpenseDetailsDialog: React.FC<ExpenseDetailsDialogProps> = ({
                                 justifyContent: 'center',
                                 borderWidth: 1,
                                 borderColor: colors.cardBorder,
+                                flexShrink: 0,
                               }}
                             >
                               <Text style={{ fontSize: 10, fontWeight: '900', color: colors.ink }}>
                                 {m.name.charAt(0).toUpperCase()}
                               </Text>
                             </View>
-                            <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>{m.name}</Text>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink, flexShrink: 1 }}>{m.name}</Text>
                           </View>
-                          <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.tealDark }}>
+                          <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.tealDark, flexShrink: 0 }}>
                             {formatCurrency(memberShare)}
                           </Text>
                         </View>

@@ -588,6 +588,7 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
                                 backgroundColor: isDark ? 'rgba(59,122,158,0.22)' : '#EBF5FB',
                                 borderWidth: 1,
                                 borderColor: isDark ? 'rgba(59,122,158,0.45)' : '#BCE0F5',
+                                flexShrink: 0,
                               }}
                             >
                               <Text style={{ fontSize: 9, fontWeight: '900', color: colors.tealDark, letterSpacing: 0.3 }}>
