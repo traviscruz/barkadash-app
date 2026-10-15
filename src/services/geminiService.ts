@@ -67,7 +67,7 @@ const runGemini = async (contents: any[], key: string, trip?: TripContext): Prom
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   let current = contents;
   const tools: ChatToolResult[] = [];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     const res = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -89,7 +89,7 @@ const runGemini = async (contents: any[], key: string, trip?: TripContext): Prom
       current = [...current, candidate.content];
       const responses = [];
       for (const fc of functionCalls) {
-        const result = await executeTool(fc.functionCall.name, fc.functionCall.args);
+        const result = await executeTool(fc.functionCall.name, fc.functionCall.args, trip);
         const name = fc.functionCall.name;
         if (name === 'get_weather' && result && !result.error) {
           tools.push({ type: 'weather', weather: result });
@@ -118,7 +118,7 @@ const runGemini = async (contents: any[], key: string, trip?: TripContext): Prom
   }
 
   return textReply(
-    "Okay, I need a bit more detail to nail that down — tell me what you're after (food, activities, weather, budget) and I'll tailor ideas for your barkada."
+    "Oops, I got a bit tangled up there! Could you ask again? Whether it is food spots, beaches, hotels, or a full day itinerary, I am here to help you plan the perfect barkada trip."
   );
 };
 

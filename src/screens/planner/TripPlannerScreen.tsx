@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useResponsive } from '../../utils/responsive';
 import { useTheme } from '../../context/ThemeContext';
 import { AppColors } from '../../utils/colors';
-import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings, Coffee, Palmtree, Sun, Mountain, ShoppingBag, Landmark } from 'lucide-react-native';
+import { MapPin, Compass, Utensils, Menu, Plus, KeyRound, ChevronDown, ChevronUp, Vote, Share2, Users, Sparkles, CheckCircle2, Pencil, Lock, ThumbsUp, ThumbsDown, Trash2, UsersRound, Navigation, RefreshCw, BedDouble, Link as LinkIcon, MessageCircle, Send, CalendarDays, RotateCcw, AlertTriangle, Flag, X, Check, Settings, Coffee, Palmtree, Sun, Mountain, ShoppingBag, Landmark, Star } from 'lucide-react-native';
 import { isWithinTripDates, getTripDayInfo, getTodayTripDay, sortItineraryChronological, parseTripDateRange, tripDayCount as calcTripDayCount } from '../../utils/tripDates';
 import { BarkadashLogo } from '../../components/common/BarkadashLogo';
 import { ShimmerImage } from '../../components/common/ShimmerImage';
@@ -53,6 +53,7 @@ interface TripPlannerScreenProps {
   onOpenCabinet?: () => void;
   pendingInvite?: PendingTripInvite | null;
   onViewInvitation?: () => void;
+  onNavigateToTab?: (tabIndex: number) => void;
 }
 
 const getSpotCategoryMeta = (category?: string, name?: string) => {
@@ -184,7 +185,7 @@ const SpotCard: React.FC<SpotCardProps> = ({ spot, isPicked, isDark, teal, width
       </View>
       <Text numberOfLines={1} style={{ fontSize: titleSize, fontWeight: '900', color: isPicked ? teal : textDark, letterSpacing: 0 }}>{spot.name}</Text>
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={{ fontSize: 10, fontWeight: '700', marginTop: 2 }}>
-        {spot.rating ? <Text style={{ color: '#F59E0B' }}>{spot.rating.toFixed(1)}★</Text> : <Text style={{ color: subtleDark }}>Top pick</Text>}
+        {spot.rating ? <Text style={{ color: '#F59E0B' }}>{spot.rating.toFixed(1)} / 5</Text> : <Text style={{ color: subtleDark }}>Top pick</Text>}
         {'  ·  '}
         <Text style={{ color: AppColors.emerald }}>{spot.matchScore}% match</Text>
       </Text>
@@ -195,7 +196,13 @@ const SpotCard: React.FC<SpotCardProps> = ({ spot, isPicked, isDark, teal, width
   );
 };
 
-export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDirection, onOpenCabinet, pendingInvite, onViewInvitation }) => {
+export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({
+  onScrollDirection,
+  onOpenCabinet,
+  pendingInvite,
+  onViewInvitation,
+  onNavigateToTab,
+}) => {
   const { colors, isDark } = useTheme();
   const { profile } = useUser();
   const { sp, fs, icon, isTablet, insets, width, bottomNavOffset } = useResponsive();
@@ -1635,16 +1642,51 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                 })}
               </View>
 
-              {/* Day Summary */}
-              <View style={{ marginBottom: sp.xl, paddingLeft: 12, borderLeftWidth: 4, borderLeftColor: AppColors.emerald }}>
-                <Text style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark }}>
-                  {activeTrip?.destination || 'Island Hopping + Lagoons'}
-                </Text>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: COLORS.subtleDark, marginTop: 4, letterSpacing: 0.5 }}>
-                  {hasTripDates && tripDates
-                    ? `Day ${selectedDay} · ${getDayDate(selectedDay - 1).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
-                    : `${itineraryItems.length} ${itineraryItems.length === 1 ? 'stop' : 'stops'} planned`}
-                </Text>
+              {/* Day Summary & Radar Shortcut */}
+              <View
+                style={{
+                  marginBottom: sp.xl,
+                  paddingLeft: 12,
+                  borderLeftWidth: 4,
+                  borderLeftColor: AppColors.emerald,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={{ fontSize: fs.lg, fontWeight: '900', color: COLORS.textDark }}>
+                    {activeTrip?.destination || 'Island Hopping + Lagoons'}
+                  </Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: COLORS.subtleDark, marginTop: 4, letterSpacing: 0.5 }}>
+                    {hasTripDates && tripDates
+                      ? `Day ${selectedDay} · ${getDayDate(selectedDay - 1).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+                      : `${itineraryItems.length} ${itineraryItems.length === 1 ? 'stop' : 'stops'} planned`}
+                  </Text>
+                </View>
+
+                {onNavigateToTab && (
+                  <TouchableOpacity
+                    onPress={() => onNavigateToTab(2)}
+                    activeOpacity={0.8}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      backgroundColor: isDark ? 'rgba(1, 113, 248, 0.18)' : '#E0EFFF',
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: isDark ? 'rgba(1, 113, 248, 0.35)' : 'rgba(1, 113, 248, 0.25)',
+                    }}
+                  >
+                    <Compass size={14} color="#0171F8" strokeWidth={2.5} />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#0171F8', letterSpacing: 0.3 }}>
+                      Live Radar
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {/* Add-to-Itinerary CTA */}
@@ -2137,9 +2179,12 @@ export const TripPlannerScreen: React.FC<TripPlannerScreenProps> = ({ onScrollDi
                         {selectedSpot.address}
                       </Text>
                       {!!selectedSpot.rating && (
-                        <Text style={{ fontSize: 11, fontWeight: '900', color: '#F59E0B' }}>
-                          {selectedSpot.rating.toFixed(1)}★
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <Star size={12} color="#F59E0B" fill="#F59E0B" />
+                          <Text style={{ fontSize: 11, fontWeight: '900', color: '#F59E0B' }}>
+                            {selectedSpot.rating.toFixed(1)}
+                          </Text>
+                        </View>
                       )}
                     </View>
 

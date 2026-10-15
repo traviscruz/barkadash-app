@@ -604,6 +604,7 @@ export class TripService {
 
       const fetchedTrips = Array.from(tripMap.values());
       this.trips = fetchedTrips;
+      AsyncStorage.setItem('@barkadash_cached_user_trips', JSON.stringify(fetchedTrips)).catch(() => {});
 
       if (this.trips.length > 0) {
         // 1. Try matching current activeTripId
@@ -663,6 +664,19 @@ export class TripService {
       return this.trips;
     } catch (err: any) {
       console.warn('fetchUserTripsDB exception:', err?.message);
+      if (this.trips.length === 0) {
+        try {
+          const cached = await AsyncStorage.getItem('@barkadash_cached_user_trips');
+          if (cached) {
+            this.trips = JSON.parse(cached);
+            if (this.trips.length > 0 && !this.activeTripId) {
+              this.activeTripId = this.trips[0].id;
+              this.activeTripName = this.trips[0].title;
+            }
+            this.notify();
+          }
+        } catch {}
+      }
       return this.trips;
     }
   }
@@ -1204,6 +1218,7 @@ export class TripService {
    * with like/dislike reactions and creator/editor names attached.
    */
   public async fetchTripItineraryDB(tripId: string, dayNumber?: number): Promise<ItineraryItem[]> {
+    const cacheKey = `@barkadash_itinerary_${tripId}_${dayNumber ?? 'all'}`;
     try {
       let query = supabase
         .from('trip_itinerary_items')
@@ -1241,6 +1256,10 @@ export class TripService {
 
       if (error || !data) {
         console.warn('fetchTripItineraryDB error:', error?.message);
+        try {
+          const cached = await AsyncStorage.getItem(cacheKey);
+          if (cached) return JSON.parse(cached);
+        } catch {}
         return [];
       }
 
@@ -1297,9 +1316,15 @@ export class TripService {
         };
       });
 
-      return sortItineraryChronological(items);
+      const sorted = sortItineraryChronological(items);
+      AsyncStorage.setItem(cacheKey, JSON.stringify(sorted)).catch(() => {});
+      return sorted;
     } catch (err: any) {
       console.warn('fetchTripItineraryDB exception:', err?.message);
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) return JSON.parse(cached);
+      } catch {}
       return [];
     }
   }
@@ -2562,6 +2587,7 @@ export class TripService {
     role: 'host' | 'co-host' | 'member';
     status: 'accepted' | 'pending';
   }>> {
+    const cacheKey = `@barkadash_participants_${tripId}`;
     try {
       const { data, error } = await supabase
         .from('trip_participants')
@@ -2581,6 +2607,10 @@ export class TripService {
         .eq('trip_id', tripId);
 
       if (error || !data || data.length === 0) {
+        try {
+          const cached = await AsyncStorage.getItem(cacheKey);
+          if (cached) return JSON.parse(cached);
+        } catch {}
         return [];
       }
 
@@ -2591,7 +2621,7 @@ export class TripService {
         return AVATAR_BG_COLORS[sum % AVATAR_BG_COLORS.length];
       };
 
-      return data
+      const result = data
         .filter((p: any) => p.status !== 'declined')
         .map((p: any) => {
           const prof = p.profiles || {};
@@ -2615,8 +2645,15 @@ export class TripService {
             status: mappedRole === 'host' ? 'accepted' : ((p.status || 'accepted') as 'accepted' | 'pending'),
           };
         });
+
+      AsyncStorage.setItem(cacheKey, JSON.stringify(result)).catch(() => {});
+      return result;
     } catch (err: any) {
       console.warn('fetchTripParticipantsDB exception:', err?.message);
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) return JSON.parse(cached);
+      } catch {}
       return [];
     }
   }

@@ -268,10 +268,15 @@ export const MainAppContainer: React.FC<MainAppContainerProps> = ({ onLogout }) 
               onOpenCabinet={handleOpenCabinet}
               pendingInvite={pendingInvites.length > 0 ? pendingInvites[0] : null}
               onViewInvitation={handleOpenInvitation}
+              onNavigateToTab={handleTabChange}
             />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 2 ? 'flex' : 'none' }]}>
-            <BarkadaRadarScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />
+            <BarkadaRadarScreen
+              onScrollDirection={handleScrollDirection}
+              onOpenCabinet={handleOpenCabinet}
+              onNavigateToTab={handleTabChange}
+            />
           </View>
           <View style={[styles.tabScreenContainer, { display: currentTab === 3 ? 'flex' : 'none' }]}>
             <ExpenseLedgerScreen onScrollDirection={handleScrollDirection} onOpenCabinet={handleOpenCabinet} />

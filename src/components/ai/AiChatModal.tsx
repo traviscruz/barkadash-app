@@ -184,7 +184,18 @@ export const AiChatModal: React.FC<AiChatModalProps> = ({ visible, onClose }) =>
     if (!text || sending) return;
     setDraft('');
     setSending(true);
-    await service.sendMessage(text, activeTrip);
+
+    const isPlaceholderDest =
+      !activeTrip?.destination || PLACEHOLDER_DESTINATIONS.includes(activeTrip.destination.trim());
+    const sanitizedTrip = activeTrip
+      ? {
+          title: activeTrip.title,
+          destination: isPlaceholderDest ? undefined : activeTrip.destination.trim(),
+          dateRange: activeTrip.dateRange,
+        }
+      : null;
+
+    await service.sendMessage(text, sanitizedTrip);
     setSending(false);
   };
 

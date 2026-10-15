@@ -16,8 +16,13 @@ import {
 const getGroqKey = () => process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
 const getGroqModels = () => {
   const custom = process.env.EXPO_PUBLIC_GROQ_MODEL;
-  const list = ['qwen/qwen3.8-27b', 'qwen/qwen3.6-27b'];
-  if (custom && !list.includes(custom) && !custom.includes('compound')) {
+  // Only models confirmed available on this Groq key (verified via /v1/models).
+  // openai/gpt-oss-120b: best quality, full OpenAI-format tool calling support.
+  // openai/gpt-oss-20b: fast fallback, also supports tool calling.
+  // qwen/qwen3.8-27b: last resort (has OTPM limits but does work).
+  const list = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b'];
+  // Only prepend custom if it's a real model different from our list
+  if (custom && !list.includes(custom) && !custom.includes('compound') && !custom.includes('groq/')) {
     return [custom, ...list];
   }
   return list;
@@ -71,7 +76,7 @@ export async function generateGroqReply(
   }
 
   return textReply(
-    "Okay, I need a bit more detail to nail that down — tell me what you're after (food, activities, weather, budget) and I'll tailor ideas for your barkada."
+    "Oops, I got a bit tangled up there! Could you ask again? Whether it is food spots, beaches, hotels, or a full day itinerary, I am here to help you plan the perfect barkada trip."
   );
 }
 
@@ -85,7 +90,7 @@ async function runGroqWithModel(
   let current = messages;
   const tools: ChatToolResult[] = [];
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -96,9 +101,10 @@ async function runGroqWithModel(
         model,
         messages: current,
         tools: OPENAI_TOOLS,
-        temperature: 0.8,
+        tool_choice: 'auto',
+        temperature: 0.7,
         top_p: 0.95,
-        max_tokens: 1024,
+        max_tokens: 800,
       }),
     });
 
@@ -122,7 +128,7 @@ async function runGroqWithModel(
           args = {};
         }
         const name = tc.function?.name;
-        const result = await executeTool(name, args);
+        const result = await executeTool(name, args, trip);
         if (name === 'get_weather' && result && !result.error) {
           tools.push({ type: 'weather', weather: result });
         } else if (name === 'search_places' && Array.isArray(result?.places)) {

@@ -116,16 +116,20 @@ Rules:
 - Provide 1 to 4 best matching real places or destinations.
 - Accurately determine the real country, city, and coordinates worldwide.
 - For local spots or regional businesses, accurately pinpoint their area and country.
+- STRICT GEOGRAPHIC SCOPE: If a location, city, island, or region is specified (e.g. "El Nido, Palawan", "Tokyo, Japan", "Siargao"), EVERY place returned MUST be physically located in that exact specified destination and its home country. NEVER return places with similar names from other cities, provinces, or countries (e.g. never return places in Manila or Spain for El Nido).
 - "category" must be one of: "city", "attraction", "nature", "beach", "hotel", "restaurant", "cafe".
 - Ensure latitude and longitude are accurate numbers for the real location.`;
 
-async function searchWithAiAssistant(query: string, bypassCache = false): Promise<PlacePrediction[]> {
-  const clean = query.trim().toLowerCase();
+export async function searchWithAiAssistant(query: string, location?: string, bypassCache = false): Promise<PlacePrediction[]> {
+  const cleanLoc = (location || '').trim();
+  const clean = `${query} ${cleanLoc}`.trim().toLowerCase();
   if (clean.length < 2) return [];
   if (!bypassCache && aiQueryCache.has(clean)) return aiQueryCache.get(clean) || [];
 
   try {
-    const userPrompt = `Provide JSON for query: "${query}"`;
+    const userPrompt = cleanLoc
+      ? `Provide JSON for query: "${query}" strictly located in "${cleanLoc}". Every place MUST be physically situated in "${cleanLoc}" and nowhere else.`
+      : `Provide JSON for query: "${query}"`;
     const res = await requestJson<{ places: Array<any> }>(
       AI_PLACE_SYSTEM_PROMPT,
       userPrompt,
@@ -181,19 +185,27 @@ async function searchWithAiAssistant(query: string, bypassCache = false): Promis
 /**
  * On-Demand Explicit AI Look Up function triggered by the user's "Look up with AI" button.
  */
-export async function searchPlacesWithAi(query: string, bypassCache = false): Promise<PlaceSearchResult> {
+export async function searchPlacesWithAi(
+  query: string,
+  locationOrBypass?: string | boolean,
+  bypassCache = false
+): Promise<PlaceSearchResult> {
   const clean = query?.trim();
   if (!clean || clean.length < 2) return { predictions: [], error: null };
-  const cacheKey = clean.toLowerCase();
-  if (!bypassCache && aiQueryCache.has(cacheKey)) {
+
+  const location = typeof locationOrBypass === 'string' ? locationOrBypass.trim() : undefined;
+  const bypass = typeof locationOrBypass === 'boolean' ? locationOrBypass : bypassCache;
+
+  const cacheKey = `${clean} ${location || ''}`.trim().toLowerCase();
+  if (!bypass && aiQueryCache.has(cacheKey)) {
     const cached = aiQueryCache.get(cacheKey) || [];
     if (cached.length > 0) {
       console.log(`\n✨ [Exact Location Lookup] Query: "${clean}" (⚡ Cache Hit - 0 AI requests used)`);
       return { predictions: cached, error: null };
     }
   }
-  console.log(`\n✨ [Exact Location Lookup] Query: "${clean}"`);
-  const predictions = await searchWithAiAssistant(clean, false);
+  console.log(`\n✨ [Exact Location Lookup] Query: "${clean}" Location: "${location || 'any'}"`);
+  const predictions = await searchWithAiAssistant(clean, location, bypass);
   if (predictions.length > 0) {
     console.log(`   ✨ [Exact Location Result] Found ${predictions.length} matching places (Top: "${predictions[0].mainText}")`);
     return { predictions, error: null };
@@ -444,18 +456,169 @@ export async function getPlaceLatLng(placeId: string): Promise<LatLng | null> {
 }
 
 /**
- * Find spots (restaurants, hotels, attractions, activities) around a place.
+ * Check if a destination is located in the Philippines
+ */
+export function isPhilippineDestination(location?: string): boolean {
+  if (!location) return true;
+  const l = location.toLowerCase();
+  const foreign = [
+    'japan', 'tokyo', 'osaka', 'kyoto', 'korea', 'seoul', 'busan',
+    'indonesia', 'bali', 'thailand', 'bangkok', 'phuket', 'vietnam',
+    'singapore', 'taiwan', 'france', 'paris', 'italy', 'rome',
+    'spain', 'barcelona', 'madrid', 'usa', 'united states', 'california',
+    'hawaii', 'new york', 'australia', 'sydney', 'canada'
+  ];
+  return !foreign.some((f) => l.includes(f));
+}
+
+/**
+ * Returns all acceptable region-level keywords that confirm a result belongs
+ * to the given Philippine destination (destination name + province + region + country).
+ * A geocoder result MUST contain at least one of these.
+ */
+function getPhilippineLocationAliases(dest: string): string[] {
+  const d = dest.toLowerCase();
+  // Each entry: [destination keyword, ...accepted aliases in geocoder output]
+  const map: Array<[string, string[]]> = [
+    ['el nido',   ['el nido', 'palawan', 'mimaropa', 'philippines']],
+    ['palawan',   ['palawan', 'mimaropa', 'philippines']],
+    ['boracay',   ['boracay', 'malay', 'aklan', 'western visayas', 'philippines']],
+    ['siargao',   ['siargao', 'surigao del norte', 'caraga', 'philippines']],
+    ['baguio',    ['baguio', 'benguet', 'cordillera', 'philippines']],
+    ['cebu',      ['cebu', 'central visayas', 'philippines']],
+    ['davao',     ['davao', 'davao del sur', 'philippines']],
+    ['iloilo',    ['iloilo', 'western visayas', 'philippines']],
+    ['manila',    ['manila', 'metro manila', 'ncr', 'national capital', 'philippines']],
+    ['quezon',    ['quezon', 'metro manila', 'ncr', 'philippines']],
+    ['batangas',  ['batangas', 'calabarzon', 'philippines']],
+    ['tagaytay',  ['tagaytay', 'cavite', 'calabarzon', 'philippines']],
+    ['camiguin',  ['camiguin', 'northern mindanao', 'philippines']],
+    ['dumaguete', ['dumaguete', 'negros oriental', 'central visayas', 'philippines']],
+    ['coron',     ['coron', 'palawan', 'mimaropa', 'philippines']],
+    ['puerto princesa', ['puerto princesa', 'palawan', 'mimaropa', 'philippines']],
+  ];
+  for (const [key, aliases] of map) {
+    if (d.includes(key)) return aliases;
+  }
+  // Generic PH fallback — just require "Philippines" appears somewhere
+  return ['philippines'];
+}
+
+/**
+ * Filter places so they STRICTLY belong to the requested destination.
+ *
+ * Strategy:
+ *  1. POSITIVE CHECK — the geocoder result's address/secondaryText must contain
+ *     at least one of the destination's known region aliases (e.g. "boracay",
+ *     "aklan", "western visayas", "philippines"). Generic results like
+ *     "Beach Area, Kerala, India" fail immediately because they contain none.
+ *  2. NEGATIVE CHECK — even if step 1 passes, reject any result that explicitly
+ *     mentions a foreign country or a different Philippine city.
+ */
+export function isPlaceMatchingDestination(
+  place: { name?: string; address?: string; secondaryText?: string },
+  location?: string
+): boolean {
+  if (!location || !location.trim()) return true;
+
+  const secondary = (place.secondaryText || '').toLowerCase();
+  const addr = (place.address || '').toLowerCase();
+  const combined = `${secondary} ${addr}`;
+
+  if (isPhilippineDestination(location)) {
+    // POSITIVE CHECK: result must mention the destination or one of its regional aliases
+    const aliases = getPhilippineLocationAliases(location);
+    const passesPositive = aliases.some((alias) => combined.includes(alias));
+    if (!passesPositive) return false;
+
+    // NEGATIVE CHECK: hard-reject known foreign countries
+    const foreignKeywords = [
+      'spain', 'españa', 'united states', 'usa', 'mexico', 'china',
+      'thailand', 'egypt', 'united arab emirates', 'uae', 'brazil', 'greece',
+      'czechia', 'poland', 'india', 'myanmar', 'france', 'italy', 'indonesia',
+      'vietnam', 'japan', 'korea', 'germany', 'united kingdom', 'uk', 'australia',
+      'canada', 'singapore', 'taiwan', 'sierra leone', 'colombia', 'nepal',
+      'croatia', 'georgia', 'florida', 'california', 'new york', 'illinois',
+      'texas', 'ohio'
+    ];
+    if (foreignKeywords.some((fk) => combined.includes(fk))) return false;
+
+    // NEGATIVE CHECK: reject results belonging to other Philippine islands/cities
+    const loc = location.toLowerCase();
+    if (loc.includes('el nido') || loc.includes('palawan')) {
+      const exclude = ['manila', 'quezon city', 'makati', 'taguig', 'cebu', 'davao', 'baguio', 'boracay', 'siargao', 'iloilo'];
+      if (exclude.some((m) => combined.includes(m))) return false;
+    } else if (loc.includes('siargao')) {
+      const exclude = ['manila', 'quezon city', 'cebu', 'palawan', 'el nido', 'boracay', 'baguio', 'davao'];
+      if (exclude.some((m) => combined.includes(m))) return false;
+    } else if (loc.includes('boracay')) {
+      const exclude = ['manila', 'quezon city', 'makati', 'cebu', 'palawan', 'el nido', 'siargao', 'baguio', 'davao'];
+      if (exclude.some((m) => combined.includes(m))) return false;
+    } else if (loc.includes('baguio')) {
+      const exclude = ['manila', 'quezon city', 'cebu', 'palawan', 'el nido', 'siargao', 'boracay', 'davao'];
+      if (exclude.some((m) => combined.includes(m))) return false;
+    } else if (loc.includes('cebu')) {
+      const exclude = ['manila', 'quezon city', 'palawan', 'el nido', 'siargao', 'boracay', 'baguio', 'davao'];
+      if (exclude.some((m) => combined.includes(m))) return false;
+    }
+  } else {
+    // International destination: must positively match country or city name
+    const words = location.toLowerCase().split(',').map((w) => w.trim()).filter(Boolean);
+    const hasMatch = words.some((w) => w.length > 2 && combined.includes(w));
+    if (!hasMatch) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Find spots (restaurants, hotels, attractions, activities) strictly around a place.
  */
 export async function searchPlacesNear(query: string, location?: string): Promise<NearbyPlacesResult> {
-  const fullQuery = location && location.trim() ? `${query} ${location}` : query;
+  const cleanLoc = (location || '').trim();
+  const fullQuery = cleanLoc && !query.toLowerCase().includes(cleanLoc.toLowerCase())
+    ? `${query} ${cleanLoc}`
+    : query;
+
+  console.log(`\n🔍 [searchPlacesNear] Query: "${query}", Location: "${cleanLoc}" -> Full: "${fullQuery}"`);
   const res = await searchPlaces(fullQuery);
 
-  const places: NearbyPlace[] = (res.predictions || []).slice(0, 5).map((p, idx) => {
+  // Filter results strictly matching the destination and country
+  let validPredictions = (res.predictions || []).filter((p) => {
+    const cached = placeDetailsCache.get(p.placeId);
+    return isPlaceMatchingDestination(
+      {
+        name: p.mainText,
+        secondaryText: p.secondaryText,
+        address: cached?.address || '',
+      },
+      cleanLoc
+    );
+  });
+
+  // If TravelTime / Photon had 0 results matching the strict destination, fall back to AI Place Assistant
+  if (validPredictions.length === 0 && cleanLoc) {
+    console.log(`   ⚡ [searchPlacesNear] No strict location matches from geocoders for "${cleanLoc}". Falling back to AI Place Finder.`);
+    const aiPredictions = await searchWithAiAssistant(query, cleanLoc, true);
+    validPredictions = aiPredictions.filter((p) => {
+      const cached = placeDetailsCache.get(p.placeId);
+      return isPlaceMatchingDestination(
+        {
+          name: p.mainText,
+          secondaryText: p.secondaryText,
+          address: cached?.address || '',
+        },
+        cleanLoc
+      );
+    });
+  }
+
+  const places: NearbyPlace[] = validPredictions.slice(0, 5).map((p, idx) => {
     const cached = placeDetailsCache.get(p.placeId);
     return {
       placeId: p.placeId,
       name: p.mainText,
-      address: p.secondaryText || cached?.address || '',
+      address: p.secondaryText || cached?.address || (cleanLoc ? `${p.mainText}, ${cleanLoc}` : ''),
       rating: Math.round((4.6 + (idx % 3) * 0.1) * 10) / 10,
       userRatingsTotal: 150 + idx * 30,
       priceLevel: (idx % 3) + 1,
