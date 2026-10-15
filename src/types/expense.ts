@@ -20,6 +20,8 @@ export interface Expense {
   splitMode?: 'split' | 'pinaluwal' | 'solo';
   splitCount?: number;
   notes?: string;
+  /** Custom per-member share amounts for 'split' expenses: memberId → amount */
+  customShares?: Record<string, number>;
 }
 
 export interface ExpenseSettlementItem {

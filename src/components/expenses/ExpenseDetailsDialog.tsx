@@ -36,6 +36,14 @@ export const ExpenseDetailsDialog: React.FC<ExpenseDetailsDialogProps> = ({
   const splitCount = expense.splitCount ?? 1;
   const share = expense.amount / splitCount;
   const isSolo = expense.splitMode === 'solo';
+  const customSharesList = expense.customShares ? Object.values(expense.customShares) : [];
+  const hasCustom = !isSolo && customSharesList.length > 0;
+  const minShare = hasCustom ? Math.min(...customSharesList) : share;
+  const maxShare = hasCustom ? Math.max(...customSharesList) : share;
+  const isCustomRange = hasCustom && Math.abs(maxShare - minShare) >= 0.01;
+  const shareLabel = isCustomRange
+    ? `${formatCurrency(minShare)} – ${formatCurrency(maxShare)}`
+    : `${formatCurrency(share)} each`;
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
@@ -103,9 +111,56 @@ export const ExpenseDetailsDialog: React.FC<ExpenseDetailsDialogProps> = ({
                     <Text style={{ fontSize: fs.xs, color: colors.inkSoft, fontWeight: '700' }}>Split</Text>
                   </View>
                   <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink }}>
-                    {isSolo ? 'Not split' : `${splitCount} ways · ${formatCurrency(share)} each`}
+                    {isSolo ? 'Not split' : `${splitCount} ways · ${shareLabel}`}
                   </Text>
                 </View>
+
+                {/* Custom per-member breakdown */}
+                {hasCustom && members.length > 0 && (
+                  <View
+                    style={{
+                      marginTop: 4,
+                      backgroundColor: colors.paperDim,
+                      borderRadius: 12,
+                      padding: 12,
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ fontSize: 10.5, fontWeight: '800', color: colors.inkSoft, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+                      Custom Share Breakdown
+                    </Text>
+                    {members.map((m) => {
+                      const memberShare = expense.customShares![m.id];
+                      if (memberShare === undefined) return null;
+                      return (
+                        <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View
+                              style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: 12,
+                                backgroundColor: colors.card,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                borderWidth: 1,
+                                borderColor: colors.cardBorder,
+                              }}
+                            >
+                              <Text style={{ fontSize: 10, fontWeight: '900', color: colors.ink }}>
+                                {m.name.charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: fs.xs, fontWeight: '700', color: colors.ink }}>{m.name}</Text>
+                          </View>
+                          <Text style={{ fontSize: fs.sm, fontWeight: '800', color: colors.tealDark }}>
+                            {formatCurrency(memberShare)}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
 
                 <View
                   style={{

@@ -521,9 +521,19 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
                 const share = exp.amount / splitCount;
                 const isSolo = exp.splitMode === 'solo';
 
+                const customSharesList = exp.customShares ? Object.values(exp.customShares) : [];
+                const hasCustomShares = !isSolo && customSharesList.length > 0;
+                const minShare = hasCustomShares ? Math.min(...customSharesList) : share;
+                const maxShare = hasCustomShares ? Math.max(...customSharesList) : share;
+                const isCustomRange = hasCustomShares && Math.abs(maxShare - minShare) >= 0.01;
+
+                const shareText = isCustomRange
+                  ? `${formatCurrency(minShare)} – ${formatCurrency(maxShare)}`
+                  : `${formatCurrency(share)} each`;
+
                 const metaText = isSolo
                   ? `${payerLabel(exp)} · not split`
-                  : `${payerLabel(exp)} · ${splitCount}-way · ${formatCurrency(share)} each`;
+                  : `${payerLabel(exp)} · ${splitCount}-way · ${shareText}`;
 
                 return (
                   <BouncyReveal key={exp.id} index={idx}>
@@ -562,12 +572,30 @@ export const ExpenseLedgerScreen: React.FC<ExpenseLedgerScreenProps> = ({ onScro
                       </View>
 
                       <View style={{ flex: 1 }}>
-                        <Text
-                          numberOfLines={1}
-                          style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink, letterSpacing: -0.2 }}
-                        >
-                          {exp.title}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{ fontSize: fs.sm, fontWeight: '800', color: colors.ink, letterSpacing: -0.2, flexShrink: 1 }}
+                          >
+                            {exp.title}
+                          </Text>
+                          {isCustomRange && (
+                            <View
+                              style={{
+                                paddingHorizontal: 6,
+                                paddingVertical: 1,
+                                borderRadius: 6,
+                                backgroundColor: isDark ? 'rgba(59,122,158,0.22)' : '#EBF5FB',
+                                borderWidth: 1,
+                                borderColor: isDark ? 'rgba(59,122,158,0.45)' : '#BCE0F5',
+                              }}
+                            >
+                              <Text style={{ fontSize: 9, fontWeight: '900', color: colors.tealDark, letterSpacing: 0.3 }}>
+                                CUSTOM
+                              </Text>
+                            </View>
+                          )}
+                        </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
                           <View
                             style={{

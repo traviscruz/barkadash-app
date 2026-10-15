@@ -1,6 +1,7 @@
 import { supabase } from '../utils/supabase';
 import { Expense, SettleUpItem, ExpenseSettlement, ItemizedDebt } from '../types/expense';
 import { uploadExpensePhotos, deleteExpensePhotos, receiptPublicUrl } from './storageService';
+import { formatCurrency } from '../utils/formatters';
 
 export interface ExpenseMember {
   id: string;
@@ -63,6 +64,32 @@ interface ExpenseRow {
   profiles?: { first_name?: string; last_name?: string }[];
 }
 
+/** Prefix used to embed custom split shares JSON in the notes column (transparent to users). */
+const CUSTOM_SHARES_PREFIX = '__cs__:';
+
+/** Encode customShares into the notes string for DB storage. */
+export const encodeCustomShares = (notes: string | undefined, shares: Record<string, number> | undefined): string | undefined => {
+  if (!shares || Object.keys(shares).length === 0) return notes || undefined;
+  const json = CUSTOM_SHARES_PREFIX + JSON.stringify(shares);
+  return notes ? `${json}\n${notes}` : json;
+};
+
+/** Decode customShares from a raw notes string (strips the prefix). */
+export const decodeCustomShares = (raw: string | null | undefined): { customShares?: Record<string, number>; notes?: string } => {
+  if (!raw) return {};
+  const lines = raw.split('\n');
+  if (lines[0]?.startsWith(CUSTOM_SHARES_PREFIX)) {
+    try {
+      const shares = JSON.parse(lines[0].slice(CUSTOM_SHARES_PREFIX.length));
+      const notes = lines.slice(1).join('\n').trim() || undefined;
+      return { customShares: shares, notes };
+    } catch {
+      return { notes: raw || undefined };
+    }
+  }
+  return { notes: raw || undefined };
+};
+
 const mapExpenseRow = (row: ExpenseRow): Expense => {
   const payer = row.profiles?.[0] || {};
   const payerName = [payer.first_name, payer.last_name].filter(Boolean).join(' ').trim() || 'Barkada';
@@ -71,6 +98,20 @@ const mapExpenseRow = (row: ExpenseRow): Expense => {
   const splitCount = Number(row.split_count) || 1;
   const paths = (row.expense_photos || []).map((p) => p.storage_path);
   const meta = CATEGORY_META[(row.category || 'general').toLowerCase()] || CATEGORY_META.general;
+  const { customShares, notes } = decodeCustomShares(row.notes);
+
+  const customSharesList = customShares ? Object.values(customShares) : [];
+  const hasCustomShares = splitMode !== 'solo' && customSharesList.length > 0;
+  const minShare = hasCustomShares ? Math.min(...customSharesList) : 0;
+  const maxShare = hasCustomShares ? Math.max(...customSharesList) : 0;
+  const isCustomRange = hasCustomShares && Math.abs(maxShare - minShare) >= 0.01;
+
+  const splitDetails =
+    splitMode === 'solo'
+      ? `${payerName} · not split`
+      : isCustomRange
+      ? `${payerName} · ${splitCount}-way · ${formatCurrency(minShare)} – ${formatCurrency(maxShare)}`
+      : `${payerName} · split ${splitCount} ways`;
 
   return {
     id: row.id,
@@ -81,8 +122,7 @@ const mapExpenseRow = (row: ExpenseRow): Expense => {
     createdBy: row.created_by || row.payer_id,
     payerAvatar: payerName.substring(0, 1).toUpperCase(),
     amount: Number(row.amount) || 0,
-    splitDetails:
-      splitMode === 'solo' ? `${payerName} · not split` : `${payerName} · split ${splitCount} ways`,
+    splitDetails,
     category: row.category || 'General',
     categoryIconName: meta.iconName,
     categoryBg: meta.bg,
@@ -93,7 +133,8 @@ const mapExpenseRow = (row: ExpenseRow): Expense => {
     isPinaluwal,
     splitMode,
     splitCount,
-    notes: row.notes || undefined,
+    notes,
+    customShares,
   };
 };
 
@@ -125,13 +166,22 @@ export const computeSettleUps = (
   for (const exp of expenses) {
     if (exp.splitMode !== 'pinaluwal') continue;
     const splitCount = exp.splitCount || members.length;
-    const share = Math.round((exp.amount / splitCount) * 100) / 100;
+    const equalShare = Math.round((exp.amount / splitCount) * 100) / 100;
     const creditor = members.find((m) => m.id === exp.payerId);
     const creditorName = creditor?.name || exp.paidBy || 'Payer';
     const creditorId = exp.payerId || '';
 
     for (const debtor of members) {
       if (debtor.id === creditorId) continue; // Skip payer themselves
+
+      // Use custom per-member share if set, otherwise fall back to equal split
+      const amountOwed =
+        exp.customShares && exp.customShares[debtor.id] !== undefined
+          ? Math.round(exp.customShares[debtor.id] * 100) / 100
+          : equalShare;
+
+      // If their custom share is 0, they owe nothing — skip
+      if (amountOwed <= 0) continue;
 
       const key = `${exp.id}_${debtor.id}`;
       const activeSettlement = settlementByExpenseAndDebtor.get(key);
@@ -160,7 +210,7 @@ export const computeSettleUps = (
         debtorName: debtor.name,
         creditorId,
         creditorName,
-        amountOwed: share,
+        amountOwed,
         status,
         settlement: activeSettlement,
       });
@@ -515,10 +565,12 @@ export class ExpenseService {
     splitCount?: number;
     notes?: string;
     photos?: string[];
+    customShares?: Record<string, number>;
   }): Promise<Expense | null> {
     const uploaded = await uploadExpensePhotos(params.photos || []);
     const splitMode = params.splitMode || 'split';
     const splitCount = params.splitCount || 1;
+    const dbNotes = encodeCustomShares(params.notes, splitMode === 'pinaluwal' ? params.customShares : undefined);
 
     try {
       const { data, error } = await supabase
@@ -532,7 +584,7 @@ export class ExpenseService {
           category: params.category,
           split_mode: splitMode,
           split_count: splitCount,
-          notes: params.notes || null,
+          notes: dbNotes || null,
         })
         .select()
         .single();
@@ -596,10 +648,12 @@ export class ExpenseService {
       notes?: string;
       addPhotoUris?: string[];
       removePhotoPaths?: string[];
+      customShares?: Record<string, number>;
     }
   ): Promise<boolean> {
     const uploaded = await uploadExpensePhotos(params.addPhotoUris || []);
     const splitMode = params.splitMode || 'split';
+    const dbNotes = encodeCustomShares(params.notes, splitMode === 'pinaluwal' ? params.customShares : undefined);
 
     try {
       const { error } = await supabase
@@ -610,7 +664,7 @@ export class ExpenseService {
           category: params.category,
           split_mode: splitMode,
           split_count: params.splitCount || 1,
-          notes: params.notes || null,
+          notes: dbNotes || null,
         })
         .eq('id', id);
       if (error) throw error;

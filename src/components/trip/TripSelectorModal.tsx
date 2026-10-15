@@ -38,6 +38,8 @@ interface TripSelectorModalProps {
   currentUserId?: string;
   onDeleteTrip?: (tripId: string) => Promise<boolean>;
   onRenameTrip?: (tripId: string, newTitle: string) => Promise<boolean>;
+  /** When true, shows ALL trips including completed ones past the 7-day grace period (for Recap context). */
+  showAllTrips?: boolean;
 }
 
 export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
@@ -50,6 +52,7 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
   currentUserId,
   onDeleteTrip,
   onRenameTrip,
+  showAllTrips = false,
 }) => {
   const { colors, isDark } = useTheme();
   const { sp, fs } = useResponsive();
@@ -61,12 +64,20 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
   const editNameRef = useRef<TextInput>(null);
 
   // Hide trips that have finished status and are past 7 days (accessible for 7 days for expense ledger)
-  const visibleTrips = trips.filter((trip) => {
-    if (trip.id && TripService.getInstance().isTripEnded(trip) === false && trip.status !== 'Completed') {
-      return true;
-    }
-    return !isTripPast7DaysGracePeriod(trip);
-  });
+  // When showAllTrips=true (Recap context) we bypass the grace-period filter so all completed trips are visible.
+  const visibleTrips = showAllTrips
+    ? [...trips].sort((a, b) => {
+        // Sort: non-completed first, then completed (oldest last)
+        if (a.status === 'Completed' && b.status !== 'Completed') return 1;
+        if (a.status !== 'Completed' && b.status === 'Completed') return -1;
+        return 0;
+      })
+    : trips.filter((trip) => {
+        if (trip.id && TripService.getInstance().isTripEnded(trip) === false && trip.status !== 'Completed') {
+          return true;
+        }
+        return !isTripPast7DaysGracePeriod(trip);
+      });
 
   if (!visible) return null;
 
@@ -107,10 +118,10 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
           <View style={styles.headerRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.headerTitle, { color: colors.ink }]}>
-                Switch Barkada Trip
+                {showAllTrips ? 'Select a Trip Recap' : 'Switch Barkada Trip'}
               </Text>
               <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginTop: 2 }}>
-                Select an active trip.
+                {showAllTrips ? 'View memories from any of your trips.' : 'Select an active trip.'}
               </Text>
             </View>
 
@@ -130,9 +141,13 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
             {visibleTrips.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Plane size={26} color={colors.inkSoft} style={{ opacity: 0.5, marginBottom: 8 }} />
-                <Text style={[styles.emptyTitle, { color: colors.ink }]}>No Active Trips</Text>
+                <Text style={[styles.emptyTitle, { color: colors.ink }]}>
+                  {showAllTrips ? 'No Trips Found' : 'No Active Trips'}
+                </Text>
                 <Text style={[styles.emptySubtitle, { color: colors.inkSoft }]}>
-                  Finished trips older than 7 days are archived. Host or join a new trip below!
+                  {showAllTrips
+                    ? 'Host or join a trip to start logging memories and recaps!'
+                    : 'Finished trips older than 7 days are archived. Host or join a new trip below!'}
                 </Text>
               </View>
             ) : (
@@ -158,7 +173,7 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
                   >
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flex: 1, paddingRight: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
                         <Text
                           style={{ fontSize: 15, fontWeight: '900', color: colors.ink, flexShrink: 1 }}
                           numberOfLines={1}
@@ -169,6 +184,11 @@ export const TripSelectorModal: React.FC<TripSelectorModalProps> = ({
                         {isSelected && (
                           <View style={[styles.activeTagPill, { flexShrink: 0 }]}>
                             <Text style={styles.activeTagText}>ACTIVE</Text>
+                          </View>
+                        )}
+                        {showAllTrips && trip.status === 'Completed' && !isSelected && (
+                          <View style={[styles.completedTagPill, { flexShrink: 0 }]}>
+                            <Text style={styles.completedTagText}>COMPLETED</Text>
                           </View>
                         )}
                       </View>
@@ -511,6 +531,17 @@ const styles = StyleSheet.create({
     borderRadius: 100,
   },
   activeTagText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  completedTagPill: {
+    backgroundColor: '#6366F1',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 100,
+  },
+  completedTagText: {
     color: '#FFFFFF',
     fontSize: 9,
     fontWeight: '900',

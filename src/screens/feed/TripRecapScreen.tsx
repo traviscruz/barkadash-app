@@ -314,6 +314,7 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
           activeTripId=""
           trips={allTrips}
           currentUserId={profile?.id}
+          showAllTrips
           onClose={() => setTripSelectorVisible(false)}
           onSelectTrip={(id) => {
             setRecapData(null);
@@ -1526,8 +1527,11 @@ export const TripRecapScreen: React.FC<TripRecapScreenProps> = ({
         activeTripId={activeTrip.id}
         trips={allTrips}
         currentUserId={profile?.id}
+        showAllTrips
         onClose={() => setTripSelectorVisible(false)}
         onSelectTrip={(id) => {
+          setRecapData(null);
+          setLoading(true);
           TripService.getInstance().setActiveTripId(id);
           setTripSelectorVisible(false);
         }}
