@@ -5,6 +5,8 @@ const BASE_URL = 'https://api.flightapi.io';
 const DUFFEL_API_KEY = process.env.EXPO_PUBLIC_DUFFEL_API_KEY || '';
 const DUFFEL_BASE_URL = 'https://api.duffel.com';
 
+import { ignavSearchAirports } from './ignavService';
+
 export interface FlightAirport {
   code: string; // IATA code, e.g. MNL
   name: string;
@@ -100,11 +102,13 @@ const carrierCodeOf = (carrier: any): string => {
 
 // flightapi.io returns booking links as relative /transport_deeplink/... paths.
 // Normalize to a real, openable https URL so Linking.openURL works.
+// NOTE: Skyscanner links are intentionally dropped here; the provider layer
+// resolves direct airline URLs via its look-up table.
 const normalizeDeeplink = (url: string): string => {
   if (!url) return '';
   const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith('/transport_deeplink/')) return `https://www.skyscanner.net${trimmed}`;
+  // Only keep absolute non-Skyscanner URLs
+  if (/^https?:\/\//i.test(trimmed) && !/skyscanner/i.test(trimmed)) return trimmed;
   return '';
 };
 
@@ -231,8 +235,9 @@ async function searchFlightsDuffel(params: FlightSearchParams): Promise<FlightIt
         const durationMinutes = slice.duration ? parseIsoDurationToMinutes(slice.duration) : 135;
         const stopCount = segments.length > 1 ? segments.length - 1 : 0;
         
-        const dateStr = params.date;
-        const deeplink = `https://www.skyscanner.net/transport/flights/${originCode.toLowerCase()}/${destinationCode.toLowerCase()}/${dateStr}`;
+        // Do NOT link to Skyscanner. Leave deeplink empty so the provider
+        // layer can resolve an airline-direct URL from its look-up table.
+        const deeplink = '';
         
         return {
           id: offer.id || String(Math.random()),
@@ -365,8 +370,28 @@ async function fetchFlightsFromFlightApi(params: FlightSearchParams, apiKey: str
   return { flights: [], success: false, noFlightsFound: false };
 }
 
-/** Autocomplete airports by name/city using flightapi.io's IATA lookup with backup key and Duffel fallback. */
+/** Autocomplete airports by name/city using Ignav as primary with FlightAPI and Duffel fallback. */
 export async function searchAirports(query: string): Promise<{ airports: FlightAirport[]; error: FlightSearchError }> {
+  // 0. Try Ignav Primary
+  try {
+    const ignavList = await ignavSearchAirports(query);
+    if (ignavList && ignavList.length > 0) {
+      return {
+        airports: ignavList.map((a) => ({
+          code: a.code,
+          name: a.name,
+          city: a.city,
+          country: a.country,
+          title: `${a.city ? `${a.city} ` : ''}(${a.code}) - ${a.name}`,
+          subtitle: `${a.city ? `${a.city}, ` : ''}${a.country}`,
+        })),
+        error: null,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[FlightAPI] Ignav searchAirports fallback:', err?.message);
+  }
+
   // 1. Try FlightAPI Key 1
   if (API_KEY) {
     console.log('[FlightAPI] searchAirports trying Primary Key...');

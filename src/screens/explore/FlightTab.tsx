@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -9,37 +9,59 @@ import {
   Platform,
   Linking,
   RefreshControl,
-} from 'react-native';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import { ArrowUpDown, Search, CalendarDays, Clock, ArrowRight, Sparkles, ExternalLink } from 'lucide-react-native';
-import { useResponsive } from '../../utils/responsive';
-import { useTheme } from '../../context/ThemeContext';
-import { FlightAirport, searchFlights, FlightItinerary } from '../../services/flightapiService';
-import { AirportAutocompleteInput } from './AirportAutocompleteInput';
+} from "react-native";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import {
+  ArrowUpDown,
+  Search,
+  CalendarDays,
+  Clock,
+  ArrowRight,
+  Sparkles,
+  ExternalLink,
+  Info,
+} from "lucide-react-native";
+import { useResponsive } from "../../utils/responsive";
+import { useTheme } from "../../context/ThemeContext";
+import { FlightAirport } from "../../services/flightapiService";
+import {
+  searchFlightsUnified,
+  resolveBookingUrl,
+  FlightResult,
+  UnifiedSearchParams,
+} from "../../services/flightSearchProvider";
+import { AirportAutocompleteInput } from "./AirportAutocompleteInput";
 
 interface FlightTabProps {
   accentColor: string;
-  onScrollDirection?: (direction: 'up' | 'down') => void;
+  onScrollDirection?: (direction: "up" | "down") => void;
 }
 
 const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
 
 const formatTime = (iso: string): string => {
-  if (!iso) return '—';
+  if (!iso) return "—";
   const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return "—";
   let h = d.getHours();
-  const min = d.getMinutes().toString().padStart(2, '0');
-  const ampm = h >= 12 ? 'PM' : 'AM';
+  const min = d.getMinutes().toString().padStart(2, "0");
+  const ampm = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
   return `${h}:${min} ${ampm}`;
 };
 
 const formatDuration = (minutes: number): string => {
-  if (!minutes) return '—';
+  if (!minutes) return "—";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+};
+
+// Friendly tier label shown in the badge
+const TIER_LABEL: Record<number, string> = {
+  1: "ignav · PR/5J",
+  2: "ignav",
+  3: "flightapi.io",
 };
 
 export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirection }) => {
@@ -56,8 +78,11 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
   });
   const [showAndroidPicker, setShowAndroidPicker] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [flights, setFlights] = useState<FlightItinerary[]>([]);
-  const [error, setError] = useState('');
+  const [flights, setFlights] = useState<FlightResult[]>([]);
+  const [tier, setTier] = useState<1 | 2 | 3>(1);
+  const [noPriority, setNoPriority] = useState(false);
+  const [error, setError] = useState("");
+  const [bookingLoadingId, setBookingLoadingId] = useState<string | null>(null);
 
   const handleSwap = () => {
     setFrom(to);
@@ -66,44 +91,69 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
 
   const onAndroidDateChange = (event: DateTimePickerEvent, selected?: Date) => {
     setShowAndroidPicker(false);
-    if (event.type === 'set' && selected) setDate(selected);
+    if (event.type === "set" && selected) setDate(selected);
   };
 
   const handleSearch = async () => {
     if (!from || !to) {
-      setError('Pick both an origin and a destination airport first.');
+      setError("Pick both an origin and a destination airport first.");
       return;
     }
     setLoading(true);
-    setError('');
+    setError("");
     setFlights([]);
-    const res = await searchFlights({
+    setNoPriority(false);
+
+    const params: UnifiedSearchParams = {
       originCode: from.code,
       destinationCode: to.code,
       date: toISODate(date),
       adults: 1,
-      currency: 'PHP',
+      currency: "PHP",
       limit: 10,
-    });
+    };
+
+    const res = await searchFlightsUnified(params);
     setLoading(false);
 
-    if (res.error === 'no-key') {
-      setError('flightapi.io key is missing — add your EXPO_PUBLIC_FLIGHTAPI_KEY in .env.local.');
+    if (res.error === "no-key") {
+      setError("Flight API key is missing — check your .env.local file.");
       return;
     }
-    if (res.error === 'rate-limited') {
-      setError('flightapi.io rate limit reached — wait a minute and try again.');
+    if (res.error === "rate-limited") {
+      setError("Rate limit reached — wait a minute and try again.");
       return;
     }
-    if (res.error === 'forbidden') {
-      setError('flightapi.io rejected this key — check EXPO_PUBLIC_FLIGHTAPI_KEY in your dashboard.');
+    if (res.error === "forbidden") {
+      setError("API key rejected — check your dashboard.");
       return;
     }
-    if (res.error || res.flights.length === 0) {
-      setError('No flights found for that route and date. Try another date or a different route.');
+    if (res.error || res.results.length === 0) {
+      setError(
+        "No flights found for that route and date. Try another date or a different route."
+      );
       return;
     }
-    setFlights(res.flights);
+
+    setFlights(res.results);
+    setTier(res.tier);
+    setNoPriority(res.noPriorityFlights);
+  };
+
+  const openBooking = async (f: FlightResult) => {
+    try {
+      setBookingLoadingId(f.id);
+      const url = await resolveBookingUrl(f);
+      if (!url) {
+        setError("No booking link available for this flight.");
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      setError("Couldn\u2019t open the booking link.");
+    } finally {
+      setBookingLoadingId(null);
+    }
   };
 
   return (
@@ -121,15 +171,26 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
         const currentY = e.nativeEvent.contentOffset.y;
         const delta = currentY - lastOffsetY.current;
         lastOffsetY.current = currentY;
-        if (currentY < 15) onScrollDirection?.('up');
-        else if (delta > 2) onScrollDirection?.('down');
-        else if (delta < -2) onScrollDirection?.('up');
+        if (currentY < 15) onScrollDirection?.("up");
+        else if (delta > 2) onScrollDirection?.("down");
+        else if (delta < -2) onScrollDirection?.("up");
       }}
       scrollEventThrottle={16}
       style={{ flex: 1 }}
-      contentContainerStyle={{ paddingHorizontal: sp.lg, paddingBottom: bottomNavOffset + 24 }}
+      contentContainerStyle={{
+        paddingHorizontal: sp.lg,
+        paddingBottom: bottomNavOffset + 24,
+      }}
     >
-      <Text style={{ fontSize: 12.5, fontWeight: '700', color: colors.inkSoft, marginBottom: sp.md, lineHeight: 18 }}>
+      <Text
+        style={{
+          fontSize: 12.5,
+          fontWeight: "700",
+          color: colors.inkSoft,
+          marginBottom: sp.md,
+          lineHeight: 18,
+        }}
+      >
         Compare one-way flight prices between any two airports or cities.
       </Text>
 
@@ -138,11 +199,11 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
           label="From"
           placeholder="e.g. Manila"
           accentColor={accentColor}
-          value={from ? from.title : ''}
+          value={from ? from.title : ""}
           onSelect={setFrom}
         />
 
-        <View style={{ alignItems: 'center', marginVertical: -2 }}>
+        <View style={{ alignItems: "center", marginVertical: -2 }}>
           <TouchableOpacity
             onPress={handleSwap}
             activeOpacity={0.8}
@@ -153,8 +214,8 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
               backgroundColor: colors.card,
               borderWidth: 1.5,
               borderColor: accentColor,
-              alignItems: 'center',
-              justifyContent: 'center',
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <ArrowUpDown size={18} color={accentColor} strokeWidth={2.4} />
@@ -165,25 +226,39 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
           label="To"
           placeholder="e.g. Cebu"
           accentColor={accentColor}
-          value={to ? to.title : ''}
+          value={to ? to.title : ""}
           onSelect={setTo}
         />
 
         {/* Date picker */}
         <View>
-          <Text style={{ fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8, color: colors.inkSoft, marginBottom: 6 }}>
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: "800",
+              textTransform: "uppercase",
+              letterSpacing: 0.8,
+              color: colors.inkSoft,
+              marginBottom: 6,
+            }}
+          >
             Depart date
           </Text>
-          {Platform.OS === 'android' ? (
+          {Platform.OS === "android" ? (
             showAndroidPicker ? (
-              <DateTimePicker value={date} mode="date" minimumDate={new Date()} onChange={onAndroidDateChange} />
+              <DateTimePicker
+                value={date}
+                mode="date"
+                minimumDate={new Date()}
+                onChange={onAndroidDateChange}
+              />
             ) : (
               <TouchableOpacity
                 onPress={() => setShowAndroidPicker(true)}
                 activeOpacity={0.8}
                 style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
+                  flexDirection: "row",
+                  alignItems: "center",
                   gap: 10,
                   backgroundColor: colors.card,
                   borderWidth: 1.5,
@@ -194,19 +269,34 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
                 }}
               >
                 <CalendarDays size={16} color={accentColor} strokeWidth={2.2} />
-                <Text style={{ fontSize: 14, fontWeight: '700', color: colors.ink }}>
-                  {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                <Text style={{ fontSize: 14, fontWeight: "700", color: colors.ink }}>
+                  {date.toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
                 </Text>
               </TouchableOpacity>
             )
           ) : (
-            <View style={{ backgroundColor: colors.card, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+              }}
+            >
               <DateTimePicker
                 value={date}
                 mode="date"
                 minimumDate={new Date()}
                 display="spinner"
-                onChange={(_e, d) => { if (d) setDate(d); }}
+                onChange={(_e, d) => {
+                  if (d) setDate(d);
+                }}
                 style={{ width: 320, height: 140 }}
               />
             </View>
@@ -214,15 +304,16 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
         </View>
       </View>
 
+      {/* Search button */}
       <TouchableOpacity
         onPress={handleSearch}
         disabled={loading}
         activeOpacity={0.85}
         style={{
           marginTop: sp.lg,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
           gap: 8,
           backgroundColor: accentColor,
           borderRadius: 18,
@@ -234,135 +325,459 @@ export const FlightTab: React.FC<FlightTabProps> = ({ accentColor, onScrollDirec
         ) : (
           <Search size={icon.md} color="#FFFFFF" strokeWidth={2.4} />
         )}
-        <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: -0.2 }}>
-          {loading ? 'Searching…' : 'Search flights'}
+        <Text
+          style={{
+            color: "#FFFFFF",
+            fontSize: 15,
+            fontWeight: "900",
+            letterSpacing: -0.2,
+          }}
+        >
+          {loading ? "Searching\u2026" : "Search flights"}
         </Text>
       </TouchableOpacity>
 
+      {/* Error state */}
       {error ? (
-        <View style={{ marginTop: sp.lg, backgroundColor: colors.lightRedBg, borderRadius: 16, padding: 14 }}>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: colors.redAccent, textAlign: 'center' }}>{error}</Text>
+        <View
+          style={{
+            marginTop: sp.lg,
+            backgroundColor: colors.lightRedBg,
+            borderRadius: 16,
+            padding: 14,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 13,
+              fontWeight: "700",
+              color: colors.redAccent,
+              textAlign: "center",
+            }}
+          >
+            {error}
+          </Text>
+          <Text
+            style={{
+              fontSize: 11,
+              fontWeight: "600",
+              color: colors.redAccent,
+              textAlign: "center",
+              marginTop: 6,
+              opacity: 0.8,
+            }}
+          >
+            If all providers fail, try a different route or date.
+          </Text>
         </View>
       ) : null}
 
+      {/* Results */}
       {flights.length > 0 && (
         <View style={{ marginTop: sp.xl }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.md }}>
+          {/* Header row */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: sp.md,
+            }}
+          >
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15, fontWeight: '900', color: colors.ink, letterSpacing: -0.3 }}>
-                {flights.length} {flights.length === 1 ? 'flight' : 'flights'}
+              <Text
+                style={{
+                  fontSize: 15,
+                  fontWeight: "900",
+                  color: colors.ink,
+                  letterSpacing: -0.3,
+                }}
+              >
+                {flights.length} {flights.length === 1 ? "flight" : "flights"}
               </Text>
-              <Text style={{ fontSize: 11, fontWeight: '600', color: colors.inkSoft, marginTop: 1 }} numberOfLines={1}>
-                {from?.title} → {to?.title}
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: "600",
+                  color: colors.inkSoft,
+                  marginTop: 1,
+                }}
+                numberOfLines={1}
+              >
+                {from?.title} \u2192 {to?.title}
               </Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.lightBlueBg, borderRadius: 100, paddingHorizontal: 8, paddingVertical: 3 }}>
+            {/* Provider badge */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 4,
+                backgroundColor: colors.lightBlueBg,
+                borderRadius: 100,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+              }}
+            >
               <Sparkles size={10} color={colors.tealAccent} />
-              <Text style={{ fontSize: 9, fontWeight: '800', color: colors.tealAccent, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                flightapi.io
+              <Text
+                style={{
+                  fontSize: 9,
+                  fontWeight: "800",
+                  color: colors.tealAccent,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                {TIER_LABEL[tier] ?? "ignav"}
               </Text>
             </View>
           </View>
 
+          {/* No-priority-airlines notice */}
+          {noPriority && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                backgroundColor: colors.lightOrangeBg,
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: sp.md,
+              }}
+            >
+              <Info size={14} color={colors.orangeAccent} strokeWidth={2.4} />
+              <Text
+                style={{
+                  flex: 1,
+                  fontSize: 11.5,
+                  fontWeight: "700",
+                  color: colors.orangeAccent,
+                  lineHeight: 16,
+                }}
+              >
+                No PAL or Cebu Pacific flights found for this route/date. Showing
+                other available airlines.
+              </Text>
+            </View>
+          )}
+
+          {/* Flight cards */}
           <View style={{ gap: sp.md }}>
             {flights.map((f) => (
               <View
                 key={f.id}
-                style={{ backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1, borderRadius: 20, padding: 16 }}
+                style={{
+                  backgroundColor: colors.card,
+                  borderColor: f.isPriority ? accentColor : colors.cardBorder,
+                  borderWidth: f.isPriority ? 2 : 1,
+                  borderRadius: 20,
+                  padding: 16,
+                }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-                    {f.airlineLogo ? (
-                      <Image source={{ uri: f.airlineLogo }} style={{ width: 30, height: 30, borderRadius: 8 }} resizeMode="contain" />
+                {/* Priority ribbon */}
+                {f.isPriority && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      backgroundColor: accentColor,
+                      borderTopRightRadius: 18,
+                      borderBottomLeftRadius: 12,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 8.5,
+                        fontWeight: "900",
+                        color: isDark ? "#121212" : "#FFFFFF",
+                        textTransform: "uppercase",
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      {f.airlineCode === "PR" ? "PAL" : "Cebu Pacific"}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Airline + price row */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      flex: 1,
+                    }}
+                  >
+                    {f.logo ? (
+                      <Image
+                        source={{ uri: f.logo }}
+                        style={{ width: 30, height: 30, borderRadius: 8 }}
+                        resizeMode="contain"
+                      />
                     ) : (
-                      <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: `${accentColor}22`, alignItems: 'center', justifyContent: 'center' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '900', color: accentColor }}>
-                          {(f.airline[0] || '?').toUpperCase()}
+                      <View
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 9,
+                          backgroundColor: `${accentColor}22`,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            fontWeight: "900",
+                            color: accentColor,
+                          }}
+                        >
+                          {(f.airline[0] || "?").toUpperCase()}
                         </Text>
                       </View>
                     )}
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink }} numberOfLines={1}>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "800",
+                          color: colors.ink,
+                        }}
+                        numberOfLines={1}
+                      >
                         {f.airline}
                       </Text>
-                      {f.flightNumber ? (
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.inkSoft, marginTop: 1 }}>
-                          {f.flightNumber}
-                        </Text>
-                      ) : null}
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "700",
+                          color: colors.inkSoft,
+                          marginTop: 1,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.3,
+                        }}
+                      >
+                        {f.airlineCode}
+                      </Text>
                     </View>
                   </View>
-                  <Text style={{ fontSize: 17, fontWeight: '900', color: accentColor, letterSpacing: -0.4 }}>
+                  <Text
+                    style={{
+                      fontSize: 17,
+                      fontWeight: "900",
+                      color: accentColor,
+                      letterSpacing: -0.4,
+                    }}
+                  >
                     {f.priceFormatted}
                   </Text>
                 </View>
 
-                <View style={{ height: 1, backgroundColor: colors.rule, marginVertical: 14 }} />
+                <View
+                  style={{
+                    height: 1,
+                    backgroundColor: colors.rule,
+                    marginVertical: 14,
+                  }}
+                />
 
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {/* Depart / duration / arrive */}
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.8 }}>
-                      {formatTime(f.departure)}
+                    <Text
+                      style={{
+                        fontSize: 21,
+                        fontWeight: "900",
+                        color: colors.ink,
+                        letterSpacing: -0.8,
+                      }}
+                    >
+                      {formatTime(f.departTime)}
                     </Text>
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.inkSoft, marginTop: 2, letterSpacing: 1 }}>
-                      {f.originCode}
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "800",
+                        color: colors.inkSoft,
+                        marginTop: 2,
+                        letterSpacing: 1,
+                      }}
+                    >
+                      {from?.code ?? ""}
                     </Text>
                   </View>
 
-                  <View style={{ flex: 1.2, alignItems: 'center' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ flex: 1.2, alignItems: "center" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                       <Clock size={11} color={colors.inkSoft} />
-                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
+                      <Text
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: "700",
+                          color: colors.inkSoft,
+                        }}
+                      >
                         {formatDuration(f.durationMinutes)}
                       </Text>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, width: '100%' }}>
-                      <View style={{ flex: 1, height: 1.5, backgroundColor: colors.cardBorder }} />
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginTop: 4,
+                        width: "100%",
+                      }}
+                    >
+                      <View
+                        style={{
+                          flex: 1,
+                          height: 1.5,
+                          backgroundColor: colors.cardBorder,
+                        }}
+                      />
                       <ArrowRight size={14} color={accentColor} strokeWidth={2.4} />
-                      <View style={{ flex: 1, height: 1.5, backgroundColor: colors.cardBorder }} />
+                      <View
+                        style={{
+                          flex: 1,
+                          height: 1.5,
+                          backgroundColor: colors.cardBorder,
+                        }}
+                      />
                     </View>
-                    <Text style={{ fontSize: 10, fontWeight: '800', color: colors.inkSoft, marginTop: 4, letterSpacing: 0.3 }}>
-                      {f.stopCount === 0 ? 'NON-STOP' : `${f.stopCount} ${f.stopCount === 1 ? 'STOP' : 'STOPS'}`}
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: "800",
+                        color: colors.inkSoft,
+                        marginTop: 4,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {f.stops === 0
+                        ? "NON-STOP"
+                        : `${f.stops} ${f.stops === 1 ? "STOP" : "STOPS"}`}
                     </Text>
                   </View>
 
-                  <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                    <Text style={{ fontSize: 21, fontWeight: '900', color: colors.ink, letterSpacing: -0.8 }}>
-                      {formatTime(f.arrival)}
+                  <View style={{ flex: 1, alignItems: "flex-end" }}>
+                    <Text
+                      style={{
+                        fontSize: 21,
+                        fontWeight: "900",
+                        color: colors.ink,
+                        letterSpacing: -0.8,
+                      }}
+                    >
+                      {formatTime(f.arriveTime)}
                     </Text>
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: colors.inkSoft, marginTop: 2, letterSpacing: 1 }}>
-                      {f.destinationCode}
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        fontWeight: "800",
+                        color: colors.inkSoft,
+                        marginTop: 2,
+                        letterSpacing: 1,
+                      }}
+                    >
+                      {to?.code ?? ""}
                     </Text>
                   </View>
                 </View>
 
-                {f.deeplink ? (
+                {/* Book button */}
+                {f.bookingUrl ? (
                   <TouchableOpacity
-                    onPress={() => f.deeplink && Linking.openURL(f.deeplink).catch(() => setError('Couldn\u2019t open the booking link.'))}
+                    onPress={() => openBooking(f)}
+                    disabled={bookingLoadingId === f.id}
                     activeOpacity={0.85}
                     style={{
                       marginTop: 16,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "center",
                       gap: 6,
                       backgroundColor: accentColor,
                       borderRadius: 14,
                       paddingVertical: 12,
+                      opacity: bookingLoadingId === f.id ? 0.75 : 1,
                     }}
                   >
-                    <ExternalLink size={14} color={isDark ? colors.paper : '#FFFFFF'} strokeWidth={2.4} />
-                    <Text style={{ fontSize: 13, fontWeight: '900', color: isDark ? colors.paper : '#FFFFFF', letterSpacing: -0.2 }}>
-                      Open booking
-                    </Text>
+                    {bookingLoadingId === f.id ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={isDark ? colors.paper : "#FFFFFF"}
+                      />
+                    ) : (
+                      <>
+                        <ExternalLink
+                          size={14}
+                          color={isDark ? colors.paper : "#FFFFFF"}
+                          strokeWidth={2.4}
+                        />
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            fontWeight: "900",
+                            color: isDark ? colors.paper : "#FFFFFF",
+                            letterSpacing: -0.2,
+                          }}
+                        >
+                          {f.bookingLabel}
+                        </Text>
+                      </>
+                    )}
                   </TouchableOpacity>
-                ) : null}
+                ) : (
+                  <View
+                    style={{
+                      marginTop: 14,
+                      backgroundColor: colors.paperDim,
+                      borderRadius: 12,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: "700",
+                        color: colors.inkSoft,
+                        textAlign: "center",
+                      }}
+                    >
+                      No direct booking link available for this flight.
+                    </Text>
+                  </View>
+                )}
               </View>
             ))}
           </View>
 
-          <Text style={{ fontSize: 10.5, fontWeight: '600', color: colors.inkSoft, textAlign: 'center', marginTop: sp.md, lineHeight: 15 }}>
-            Live prices via flightapi.io — fares change often, confirm before booking.
+          {/* Disclaimer */}
+          <Text
+            style={{
+              fontSize: 10.5,
+              fontWeight: "600",
+              color: colors.inkSoft,
+              textAlign: "center",
+              marginTop: sp.md,
+              lineHeight: 15,
+            }}
+          >
+            Prices are indicative and may change on the airline\u2019s site.
+            {tier === 3 ? " Powered by flightapi.io." : " Powered by Ignav."}
           </Text>
         </View>
       )}
