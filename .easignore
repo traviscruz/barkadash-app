@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native builds
+.kotlin/
+*.orig.*
+/ios
+/android
+
+# Debug & logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+
+# Note: .env is intentionally NOT in .easignore so EAS can bundle environment variables for the preview APK.
