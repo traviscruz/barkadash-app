@@ -45,9 +45,16 @@ const SafeStorage = {
   },
 }
 
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_KEY || 'placeholder'
+
+if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_KEY) {
+  console.warn('⚠️ [Supabase] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_KEY. Please verify your environment configuration.')
+}
+
 export const supabase = createClient(
-  process.env.EXPO_PUBLIC_SUPABASE_URL!,
-  process.env.EXPO_PUBLIC_SUPABASE_KEY!,
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       storage: SafeStorage,

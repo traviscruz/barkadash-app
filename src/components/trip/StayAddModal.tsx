@@ -16,6 +16,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
 import { TripStay } from '../../types/trip';
 import { TripService } from '../../services/tripService';
+import { uploadTripPlacePhoto } from '../../services/storageService';
+import { PlacePhotoPicker } from './PlacePhotoPicker';
 import {
   searchPlaces,
   searchPlacesWithAi,
@@ -27,80 +29,7 @@ import {
   PlaceSearchError,
 } from '../../services/googlePlaces';
 
-// Cover Photo Picker (Google Places candidates) — same as the itinerary sheet
-interface PhotoPickerRowProps {
-  photos: PlacePhoto[];
-  selectedRef?: string;
-  onSelect: (ref: string) => void;
-  accent: string;
-  border: string;
-  isDark: boolean;
-}
 
-const PhotoPickerRow: React.FC<PhotoPickerRowProps> = ({
-  photos,
-  selectedRef,
-  onSelect,
-  accent,
-  border,
-  isDark,
-}) => {
-  const validPhotos = (photos || []).filter((ph) => !!getPlacePhotoUrl(ph.reference, 400));
-  if (validPhotos.length === 0) return null;
-  return (
-    <View style={{ marginTop: 10 }}>
-      <Text style={{ fontSize: 10, fontWeight: '800', color: isDark ? '#9CA3AF' : '#64748B', marginBottom: 6, letterSpacing: 0.5 }}>
-        COVER PHOTO
-      </Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: 8 }}
-      >
-        {validPhotos.map((ph) => {
-          const selected = ph.reference === selectedRef;
-          const uri = getPlacePhotoUrl(ph.reference, 400);
-          if (!uri) return null;
-          return (
-            <TouchableOpacity
-              key={ph.reference}
-              onPress={() => onSelect(ph.reference)}
-              activeOpacity={0.8}
-            >
-              <ShimmerImage
-                source={{ uri: getPlacePhotoUrl(ph.reference, 400) }}
-                style={{ width: 64, height: 64, borderRadius: 12 }}
-                containerStyle={{
-                  borderRadius: 12,
-                  borderWidth: selected ? 2 : 1,
-                  borderColor: selected ? accent : border,
-                }}
-              />
-              {selected && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: 3,
-                    right: 3,
-                    width: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    backgroundColor: accent,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Check size={11} color="#FFFFFF" strokeWidth={3.5} />
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-};
 
 // Day slider row (animated sliding pill with spring bounce) — matches the
 // day selector on the plan page. Used for both check-in and check-out nights.
@@ -265,7 +194,7 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
   onSaved,
 }) => {
   const { colors, isDark } = useTheme();
-  const { sp } = useResponsive();
+  const { fs, sp } = useResponsive();
 
   const days = Math.max(1, dayCount || 1);
 
@@ -294,6 +223,7 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
   const [link, setLink] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [customPhoto, setCustomPhoto] = useState<string>('');
 
   // Slide-bounce animation for the Google vs manual segmented toggle
   const toggleAnim = useRef(new Animated.Value(0)).current;
@@ -327,6 +257,7 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
         setNote(initialStay.note || '');
         setEntryType(initialStay.placeId ? 'place' : 'manual');
         setPlaceInput(initialStay.placeName || initialStay.title || '');
+        setCustomPhoto(initialStay.photoReference || '');
         setSelectedPlace(
           initialStay.placeId
             ? {
@@ -354,6 +285,7 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
         setEntryType('place');
         setPlaceInput('');
         setSelectedPlace(null);
+        setCustomPhoto('');
       }
     }
   }, [visible, mode, initialStay, initialDay, days]);
@@ -399,6 +331,9 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
       }
       : { placeId: pred.placeId, name: pred.mainText, address: pred.secondaryText };
     setSelectedPlace(sel);
+    if (photoRef) {
+      setCustomPhoto(photoRef);
+    }
     setPlaceInput(sel.name);
     setTitle(sel.name);
   };
@@ -412,6 +347,11 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
     const start = Math.max(1, startDay);
     const end = Math.max(start, endDay);
 
+    let finalPhoto = customPhoto;
+    if (customPhoto && !customPhoto.startsWith('http://') && !customPhoto.startsWith('https://') && !customPhoto.startsWith('AUac')) {
+      finalPhoto = await uploadTripPlacePhoto(customPhoto, tripId, userId);
+    }
+
     const payload = {
       title: title.trim(),
       startDay: start,
@@ -419,7 +359,7 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
       placeId: selectedPlace?.placeId,
       placeName: selectedPlace?.name,
       placeAddress: selectedPlace?.address,
-      photoReference: selectedPlace?.photoReference,
+      photoReference: finalPhoto || undefined,
       link: link.trim(),
       note: note.trim(),
     };
@@ -724,18 +664,29 @@ export const StayAddModal: React.FC<StayAddModalProps> = ({
                 </View>
               )}
 
-              {selectedPlace?.photos && selectedPlace.photos.length > 0 && (
-                <PhotoPickerRow
-                  photos={selectedPlace.photos}
-                  selectedRef={selectedPlace.photoReference}
-                  onSelect={(ref) => setSelectedPlace((prev) => (prev ? { ...prev, photoReference: ref } : prev))}
-                  accent={accent}
-                  border={border}
-                  isDark={isDark}
-                />
-              )}
             </>
           )}
+
+          {/* Cover Photo Picker (Google Places candidates, Upload Image, or Image Link) */}
+          <PlacePhotoPicker
+            googlePhotos={entryType === 'place' ? selectedPlace?.photos : undefined}
+            selectedPhoto={customPhoto}
+            onSelectPhoto={(refOrUrl) => {
+              setCustomPhoto(refOrUrl);
+              setSelectedPlace((prev) => (prev ? { ...prev, photoReference: refOrUrl } : prev));
+            }}
+            onClearPhoto={() => {
+              setCustomPhoto('');
+              setSelectedPlace((prev) => (prev ? { ...prev, photoReference: undefined } : prev));
+            }}
+            accent={accent}
+            border={border}
+            ink={colors.ink}
+            muted={muted}
+            paper={colors.paper}
+            isDark={isDark}
+            fs={fs}
+          />
 
           {/* Name — only when adding manually; Google mode uses the picked place */}
           {entryType === 'manual' && (

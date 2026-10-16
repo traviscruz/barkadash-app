@@ -183,6 +183,16 @@ const formatSpeedText = (speedMps: number | null | undefined): { text: string; k
   return { text: `Walking • ${Math.round(kmh)} km/h`, kmh: Math.round(kmh), isMoving: true };
 };
 
+const getFirstName = (name?: string): string => {
+  if (!name) return 'Member';
+  const clean = name.trim();
+  const isYou = clean.toLowerCase().includes('(you)');
+  const baseName = clean.replace(/\s*\([^)]*\)/g, '').trim();
+  const first = baseName.split(/\s+/)[0] || baseName;
+  return isYou ? `${first} (You)` : first;
+};
+
+
 const buildMembers = (
   participantsList: Participant[],
   myLat: number | null,
@@ -207,6 +217,8 @@ const buildMembers = (
       let statusText = 'Live Location';
       if (!isDeviceOnline) {
         statusText = 'Offline (GPS Active)';
+      } else if (!hasLocation) {
+        statusText = 'Location not sharing';
       } else if (speedMeta.isMoving) {
         statusText = speedMeta.text;
       }
@@ -254,7 +266,7 @@ const buildMembers = (
 
     let statusText = 'Trip Member';
     if (!hasLocation) {
-      statusText = 'Location not shared yet';
+      statusText = 'Location not sharing';
     } else if (isPeerOnline) {
       statusText = speedMeta.isMoving ? speedMeta.text : 'Live Location';
     } else {
@@ -2026,12 +2038,19 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                 paddingBottom: isCardCollapsed ? 0 : sp.sm,
                 borderBottomWidth: isCardCollapsed ? 0 : 1,
                 borderBottomColor: colors.cardBorder,
+                minWidth: 0,
               }}
             >
               <TouchableOpacity
                 activeOpacity={0.85}
                 onPress={toggleCardCollapsed}
-                style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  flex: 1,
+                  minWidth: 0,
+                  marginRight: 4,
+                }}
               >
                 <View
                   style={{
@@ -2040,7 +2059,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                     borderRadius: (isCardCollapsed ? 38 : bigAvatarSize) / 2,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginRight: sp.md,
+                    marginRight: 10,
                     borderWidth: 2,
                     borderColor: '#FFFFFF',
                     backgroundColor: currentMember?.avatarBg || '#0171F8',
@@ -2048,6 +2067,7 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                     shadowOffset: { width: 0, height: 2 },
                     shadowOpacity: 0.15,
                     shadowRadius: 6,
+                    flexShrink: 0,
                   }}
                 >
                   <Text
@@ -2061,94 +2081,122 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                   </Text>
                 </View>
 
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={{ fontSize: fs.md, fontWeight: '800', color: colors.ink }}>
-                      {currentMember?.name || 'Squad Member'}
+                <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <Text
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      style={{ fontSize: fs.md, fontWeight: '800', color: colors.ink, flexShrink: 1 }}
+                    >
+                      {getFirstName(currentMember?.name)}
                     </Text>
                     {currentMember?.isOnline && (
-                      <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981' }} />
+                      <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#10B981', flexShrink: 0 }} />
                     )}
                   </View>
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: sp.sm }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <MapPin size={12} color="#0171F8" style={{ marginRight: 3 }} />
-                      <Text style={{ fontSize: fs.xs, color: colors.ink, fontWeight: '600' }}>
-                        {currentMember?.statusText || 'Trip Member'}
-                      </Text>
-                    </View>
-                    <Text style={{ fontSize: fs.xs, color: colors.inkSoft }}>
-                      • {currentMember?.distance || 'Here'}
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginTop: 2, minWidth: 0 }}>
+                    <MapPin
+                      size={11}
+                      color={currentMember?.hasLocation ? '#0171F8' : colors.inkSoft}
+                      style={{ marginRight: 3, marginTop: 1.5, flexShrink: 0 }}
+                    />
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        fontSize: 11,
+                        color: currentMember?.hasLocation ? colors.ink : colors.inkSoft,
+                        fontWeight: '600',
+                        lineHeight: 14,
+                        flexShrink: 1,
+                      }}
+                    >
+                      {currentMember?.statusText || 'Trip Member'}
                     </Text>
+                    {currentMember?.hasLocation && currentMember?.distance && currentMember.distance !== '--' && (
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 11,
+                          color: colors.inkSoft,
+                          marginLeft: 4,
+                          flexShrink: 0,
+                          lineHeight: 14,
+                        }}
+                      >
+                        • {currentMember.distance}
+                      </Text>
+                    )}
                   </View>
                 </View>
               </TouchableOpacity>
 
-              {/* Ping Member Button */}
-              {currentMember && !currentMember.isMe && (
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  disabled={pingingMemberId === currentMember.id}
-                  onPress={() => handlePingMember(currentMember)}
-                  style={{
-                    backgroundColor: '#0171F8',
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 100,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 4,
-                    marginRight: 4,
-                  }}
-                >
-                  <Radio size={12} color="#FFFFFF" />
-                  <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>
-                    {pingingMemberId === currentMember.id ? 'Pinging…' : 'Ping'}
-                  </Text>
-                </TouchableOpacity>
-              )}
+              {/* Right Action Controls: Ping button + Battery & Time + Collapse chevron */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                {/* Ping Member Button */}
+                {currentMember && !currentMember.isMe && (
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    disabled={pingingMemberId === currentMember.id}
+                    onPress={() => handlePingMember(currentMember)}
+                    style={{
+                      backgroundColor: '#0171F8',
+                      paddingHorizontal: 8,
+                      paddingVertical: 5,
+                      borderRadius: 100,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 4,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Radio size={11} color="#FFFFFF" strokeWidth={2.4} />
+                    <Text style={{ color: '#FFFFFF', fontSize: 10.5, fontWeight: '800' }}>
+                      {pingingMemberId === currentMember.id ? 'Pinging…' : 'Ping'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
 
-              {/* Battery & Last Updated */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: sp.sm }}>
-                <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                {/* Battery & Last Updated */}
+                <View style={{ alignItems: 'flex-end', gap: 2, flexShrink: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
                     {currentMember?.isCharging ? (
-                      <BatteryCharging size={14} color="#3A8E71" />
+                      <BatteryCharging size={13} color="#3A8E71" />
                     ) : (
-                      <BatteryIcon size={13} color={currentMember?.battery <= 20 ? '#EF4444' : '#3A8E71'} />
+                      <BatteryIcon size={12} color={(currentMember?.battery ?? 100) <= 20 ? '#EF4444' : '#3A8E71'} />
                     )}
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: currentMember?.battery <= 20 ? '#EF4444' : '#3A8E71' }}>
+                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: (currentMember?.battery ?? 100) <= 20 ? '#EF4444' : '#3A8E71' }}>
                       {`${currentMember?.battery ?? 100}%`}
                     </Text>
                   </View>
-                  {!isCardCollapsed && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                      <Clock size={11} color={colors.inkSoft} />
-                      <Text style={{ fontSize: 10, color: colors.inkSoft, fontWeight: '500' }}>
-                        {currentMember?.lastUpdated || 'Just now'}
+                  {!isCardCollapsed && currentMember?.hasLocation && currentMember?.lastUpdated && currentMember.lastUpdated !== 'Not shared' && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2.5 }}>
+                      <Clock size={9.5} color={colors.inkSoft} />
+                      <Text style={{ fontSize: 9, color: colors.inkSoft, fontWeight: '500' }}>
+                        {currentMember.lastUpdated}
                       </Text>
                     </View>
                   )}
                 </View>
 
+                {/* Chevron Collapse Toggle */}
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={toggleCardCollapsed}
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
+                    width: 28,
+                    height: 28,
+                    borderRadius: 14,
                     backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    marginLeft: 4,
+                    flexShrink: 0,
                   }}
                 >
                   {isCardCollapsed ? (
-                    <ChevronUp size={18} color={colors.ink} />
+                    <ChevronUp size={15} color={colors.ink} />
                   ) : (
-                    <ChevronDown size={18} color={colors.ink} />
+                    <ChevronDown size={15} color={colors.ink} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -2505,9 +2553,9 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                 </View>
               </View>
 
-              {/* Right Actions: flexShrink: 0 so Planner and Ping buttons are NEVER compressed or cropped */}
-              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                {activeBottomTab === 'itinerary' && onNavigateToTab && (
+              {/* Right Actions: Planner shortcut when on itinerary tab */}
+              {activeBottomTab === 'itinerary' && onNavigateToTab && (
+                <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 0 }}>
                   <TouchableOpacity
                     onPress={() => onNavigateToTab(1)}
                     activeOpacity={0.8}
@@ -2526,33 +2574,8 @@ export const BarkadaRadarScreen: React.FC<BarkadaRadarScreenProps> = ({
                     <CalendarDays size={13} color="#EA580C" strokeWidth={2.4} />
                     <Text style={{ color: '#EA580C', fontSize: 11.5, fontWeight: '800' }}>Planner</Text>
                   </TouchableOpacity>
-                )}
-
-                <TouchableOpacity
-                  onPress={() => {
-                    if (isDeviceOnline) {
-                      Alert.alert('Ping Broadcast', 'Location ping sent to your squad!');
-                    } else {
-                      Alert.alert('Offline Mode', 'Your live location is active locally. It will broadcast to peers once internet is reconnected.');
-                    }
-                  }}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: 'rgba(1, 113, 248, 0.12)',
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    borderRadius: 10,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 4.5,
-                    flexShrink: 0,
-                    minHeight: 34,
-                  }}
-                >
-                  <Radio size={13} color="#0171F8" strokeWidth={2.4} />
-                  <Text style={{ color: '#0171F8', fontSize: 11.5, fontWeight: '800' }}>Ping</Text>
-                </TouchableOpacity>
-              </View>
+                </View>
+              )}
             </View>
           </Animated.View>
         </View>

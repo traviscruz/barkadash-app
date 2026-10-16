@@ -39,19 +39,30 @@ interface BarkadashLogoProps {
   height?: number;
   style?: ViewStyle;
   tintColor?: string;
+  opticalCenter?: boolean;
 }
 
-export const BarkadashLogo: React.FC<BarkadashLogoProps> = ({ height = 36, style, tintColor }) => {
+export const BarkadashLogo: React.FC<BarkadashLogoProps> = ({
+  height = 36,
+  style,
+  tintColor,
+  opticalCenter = true,
+}) => {
   const width = Math.round(height * (248 / 321));
 
   const xml = React.useMemo(() => {
-    if (!tintColor) return LOGO_SVG_XML;
-    return LOGO_SVG_XML
+    let result = LOGO_SVG_XML;
+    if (opticalCenter) {
+      // Shift viewBox horizontally to optically balance the solid vertical spine on the left
+      result = result.replace('viewBox="0 0 248 321"', 'viewBox="-8 0 256 321"');
+    }
+    if (!tintColor) return result;
+    return result
       .replace(/#0193FB/g, tintColor)
       .replace(/#0072F8/g, tintColor)
       .replace(/#0298FD/g, tintColor)
       .replace(/#0171F8/g, tintColor);
-  }, [tintColor]);
+  }, [tintColor, opticalCenter]);
 
   return (
     <View style={[{ justifyContent: 'center', alignItems: 'center' }, style]}>

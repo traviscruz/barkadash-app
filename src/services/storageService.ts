@@ -120,3 +120,90 @@ export const receiptPublicUrl = (path: string): string => {
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 };
+
+/**
+ * Uploads a place or itinerary photo to Supabase Storage.
+ * Primary bucket: 'trip-places'. Fallback: 'trip-photos'.
+ * If uri is already a remote web URL, it returns it directly.
+ */
+export const uploadTripPlacePhoto = async (
+  uri: string,
+  tripId?: string,
+  overrideUserId?: string
+): Promise<string> => {
+  if (!uri) return '';
+  // If it's already a remote public URL, keep it
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    return uri;
+  }
+
+  let userId = overrideUserId;
+  if (!userId) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      userId = sessionData?.session?.user?.id ?? 'anon';
+    } catch {
+      userId = 'anon';
+    }
+  }
+
+  try {
+    const ext = extFor(uri);
+    const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${ext}`;
+    const filePath = `${tripId || 'places'}/${userId}/${fileName}`;
+
+    let fileBytes: Uint8Array | ArrayBuffer | null = null;
+
+    // 1. Try reading via FileSystem as base64
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: 'base64',
+      });
+      if (base64) {
+        fileBytes = decodeBase64ToUint8Array(base64);
+      }
+    } catch (fsErr) {
+      console.warn('uploadTripPlacePhoto FileSystem read notice, trying fetch blob:', fsErr);
+    }
+
+    // 2. Fallback to fetch blob
+    if (!fileBytes) {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      fileBytes = await new Response(blob).arrayBuffer();
+    }
+
+    if (!fileBytes || (fileBytes instanceof Uint8Array && fileBytes.length === 0)) {
+      throw new Error('Empty file content');
+    }
+
+    // Primary bucket is trip-places. Fallback to trip-photos if trip-places bucket not found
+    const buckets = ['trip-places', 'trip-photos'];
+    for (const b of buckets) {
+      try {
+        const { data: uploadData, error } = await supabase.storage.from(b).upload(filePath, fileBytes, {
+          contentType,
+          upsert: true,
+        });
+
+        if (!error && uploadData) {
+          const { data: pub } = supabase.storage.from(b).getPublicUrl(uploadData.path || filePath);
+          if (pub?.publicUrl) {
+            return pub.publicUrl;
+          }
+        } else if (error) {
+          console.warn(`supabase storage (${b}) upload error:`, error.message);
+        }
+      } catch (err) {
+        console.warn(`uploadTripPlacePhoto error in bucket ${b}:`, err);
+      }
+    }
+  } catch (e) {
+    console.warn('uploadTripPlacePhoto failed, falling back to local uri:', e);
+  }
+
+  // Graceful fallback to local uri if upload fails
+  return uri;
+};
+

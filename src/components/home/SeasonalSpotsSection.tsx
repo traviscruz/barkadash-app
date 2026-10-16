@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { useTheme } from '../../context/ThemeContext';
 import { useResponsive } from '../../utils/responsive';
-import { ShimmerImage } from '../common/ShimmerImage';
 import {
   getCurrentPhilippineSeason,
   getSpotsBySeason,
@@ -33,7 +32,6 @@ import {
   Lightbulb,
   Check,
   ChevronRight,
-  Thermometer,
   Wind,
   Sun,
   CloudRain,
@@ -41,7 +39,6 @@ import {
   Palmtree,
   Coffee,
   Landmark,
-  Wallet,
 } from 'lucide-react-native';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -59,6 +56,53 @@ const CATEGORIES: { key: SpotCategory; label: string; icon: React.ComponentType<
   { key: 'food', label: 'Food Trip', icon: Utensils },
   { key: 'heritage', label: 'Heritage', icon: Landmark },
 ];
+
+const getCategoryIcon = (category: string, size = 14, color?: string) => {
+  switch (category) {
+    case 'mountain':
+      return <Mountain size={size} color={color} strokeWidth={2.2} />;
+    case 'beach':
+      return <Palmtree size={size} color={color} strokeWidth={2.2} />;
+    case 'cozy':
+      return <Coffee size={size} color={color} strokeWidth={2.2} />;
+    case 'food':
+      return <Utensils size={size} color={color} strokeWidth={2.2} />;
+    case 'heritage':
+      return <Landmark size={size} color={color} strokeWidth={2.2} />;
+    default:
+      return <Compass size={size} color={color} strokeWidth={2.2} />;
+  }
+};
+
+const getCategoryColor = (category: string) => {
+  switch (category) {
+    case 'mountain':
+      return { color: '#059669', bg: 'rgba(5, 150, 105, 0.1)' };
+    case 'beach':
+      return { color: '#0284C7', bg: 'rgba(2, 132, 199, 0.1)' };
+    case 'cozy':
+      return { color: '#D97706', bg: 'rgba(217, 119, 6, 0.1)' };
+    case 'food':
+      return { color: '#EA580C', bg: 'rgba(234, 88, 12, 0.1)' };
+    case 'heritage':
+      return { color: '#7C3AED', bg: 'rgba(124, 58, 237, 0.1)' };
+    default:
+      return { color: '#0171F8', bg: 'rgba(1, 113, 248, 0.1)' };
+  }
+};
+
+const getRegionBadge = (region: string) => {
+  switch (region) {
+    case 'Luzon':
+      return { label: 'Luzon', color: '#0171F8', bg: 'rgba(1, 113, 248, 0.1)' };
+    case 'Visayas':
+      return { label: 'Visayas', color: '#EA580C', bg: 'rgba(234, 88, 12, 0.1)' };
+    case 'Mindanao':
+      return { label: 'Mindanao', color: '#D97706', bg: 'rgba(217, 119, 6, 0.1)' };
+    default:
+      return { label: region, color: '#3A8E71', bg: 'rgba(58, 142, 113, 0.1)' };
+  }
+};
 
 export const SeasonalSpotsSection: React.FC<SeasonalSpotsSectionProps> = ({
   onPlanTrip,
@@ -323,81 +367,150 @@ export const SeasonalSpotsSection: React.FC<SeasonalSpotsSectionProps> = ({
           decelerationRate="fast"
           snapToInterval={cardWidth + 14}
         >
-          {spots.map((spot) => (
-            <TouchableOpacity
-              key={spot.id}
-              activeOpacity={0.92}
-              onPress={() => setSelectedSpot(spot)}
-              style={[
-                styles.spotCard,
-                {
-                  width: cardWidth,
-                  backgroundColor: colors.card,
-                  borderColor: colors.cardBorder,
-                },
-              ]}
-            >
-              {/* Photo with badges */}
-              <View style={styles.cardImageContainer}>
-                <ShimmerImage
-                  source={{ uri: spot.imageUrl }}
-                  style={styles.cardImage}
-                  borderRadius={16}
-                />
+          {spots.map((spot) => {
+            const catStyle = getCategoryColor(spot.category);
+            const regionBadge = getRegionBadge(spot.region);
 
-                {/* Floating Top Badges */}
-                <View style={styles.floatingBadgesRow}>
-                  <View style={[styles.weatherPill, { backgroundColor: 'rgba(15, 23, 42, 0.82)' }]}>
-                    <Thermometer size={11} color="#FFFFFF" />
-                    <Text style={styles.weatherPillText}>{spot.weatherTemp}</Text>
+            return (
+              <TouchableOpacity
+                key={spot.id}
+                activeOpacity={0.92}
+                onPress={() => setSelectedSpot(spot)}
+                style={[
+                  styles.spotCard,
+                  {
+                    width: cardWidth,
+                    backgroundColor: colors.card,
+                    borderColor: colors.cardBorder,
+                  },
+                ]}
+              >
+                {/* Header Banner (No Image) */}
+                <View
+                  style={[
+                    styles.cardHeaderBanner,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : catStyle.bg,
+                      borderBottomColor: colors.cardBorder,
+                    },
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View
+                        style={[
+                          styles.catIconCircle,
+                          { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#FFFFFF' },
+                        ]}
+                      >
+                        {getCategoryIcon(spot.category, 14, catStyle.color)}
+                      </View>
+                      <View
+                        style={[
+                          styles.regionPill,
+                          { backgroundColor: regionBadge.bg },
+                        ]}
+                      >
+                        <Text style={[styles.regionPillText, { color: regionBadge.color }]}>
+                          {regionBadge.label}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.vibePill,
+                        {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF',
+                          borderColor: isDark ? colors.cardBorder : 'rgba(0,0,0,0.06)',
+                        },
+                      ]}
+                    >
+                      <Sparkles size={10} color={activeSeasonMeta.accentColor} />
+                      <Text
+                        style={[styles.vibePillText, { color: colors.ink }]}
+                        numberOfLines={1}
+                      >
+                        {spot.vibeTag}
+                      </Text>
+                    </View>
                   </View>
 
-                  <View style={[styles.budgetPill, { backgroundColor: 'rgba(15, 23, 42, 0.82)' }]}>
-                    <Text style={styles.budgetPillText}>{spot.budgetLevel}</Text>
+                  <View style={{ marginTop: 10 }}>
+                    <View style={styles.locationHeaderRow}>
+                      <MapPin size={12} color={colors.tealDark} style={{ flexShrink: 0 }} />
+                      <Text style={[styles.provinceText, { color: colors.tealDark }]} numberOfLines={1}>
+                        {spot.province}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: colors.inkSoft }}>•</Text>
+                      <Calendar size={11} color={colors.inkSoft} style={{ flexShrink: 0 }} />
+                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.inkSoft }}>
+                        {spot.bestMonths}
+                      </Text>
+                    </View>
+
+                    <Text style={[styles.spotNameText, { color: colors.ink }]} numberOfLines={1}>
+                      {spot.name}
+                    </Text>
+
+                    <Text style={[styles.spotTaglineText, { color: colors.inkSoft }]} numberOfLines={2}>
+                      {spot.tagline}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Bottom Vibe Tag */}
-                <View style={styles.vibeFloatingBadge}>
-                  <Text style={styles.vibeFloatingText}>{spot.vibeTag}</Text>
+                {/* Card Body */}
+                <View style={styles.cardBody}>
+                  {/* Why Now Highlight snippet */}
+                  <View
+                    style={[
+                      styles.cardWhyNowBox,
+                      {
+                        backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : activeSeasonMeta.accentBg,
+                        borderColor: isDark ? colors.cardBorder : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.cardWhyNowText, { color: colors.ink }]} numberOfLines={2}>
+                      <Text style={{ fontWeight: '800', color: activeSeasonMeta.accentColor }}>Why now: </Text>
+                      {spot.whyNow}
+                    </Text>
+                  </View>
+
+                  {/* Highlights preview */}
+                  <View style={styles.highlightsPreviewRow}>
+                    {spot.highlights.slice(0, 2).map((item, idx) => (
+                      <View
+                        key={idx}
+                        style={[
+                          styles.highlightTag,
+                          {
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F1F5F9',
+                            borderColor: colors.cardBorder,
+                          },
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[styles.highlightTagText, { color: colors.inkSoft }]}
+                        >
+                          • {item}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Action Row */}
+                  <View style={styles.cardFooter}>
+                    <Text style={[styles.viewDetailsText, { color: colors.tealDark }]}>
+                      View Ideas & Bites
+                    </Text>
+                    <ChevronRight size={14} color={colors.tealDark} />
+                  </View>
                 </View>
-              </View>
-
-              {/* Card Body */}
-              <View style={styles.cardBody}>
-                <View style={styles.locationHeaderRow}>
-                  <MapPin size={13} color={colors.tealDark} style={{ marginTop: 2, flexShrink: 0 }} />
-                  <Text style={[styles.provinceText, { color: colors.tealDark }]} numberOfLines={1}>
-                    {spot.province} · {spot.region}
-                  </Text>
-                </View>
-
-                <Text style={[styles.spotNameText, { color: colors.ink }]} numberOfLines={1}>
-                  {spot.name}
-                </Text>
-
-                <Text style={[styles.spotTaglineText, { color: colors.inkSoft }]} numberOfLines={2}>
-                  {spot.tagline}
-                </Text>
-
-                {/* Why Now Highlight snippet */}
-                <View style={[styles.cardWhyNowBox, { backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : '#F8F9FA' }]}>
-                  <Text style={[styles.cardWhyNowText, { color: colors.ink }]} numberOfLines={2}>
-                    <Text style={{ fontWeight: '800', color: activeSeasonMeta.accentColor }}>Why now: </Text>
-                    {spot.whyNow}
-                  </Text>
-                </View>
-
-                {/* Action Row */}
-                <View style={styles.cardFooter}>
-                  <Text style={[styles.viewDetailsText, { color: colors.tealDark }]}>
-                    View Ideas & Bites
-                  </Text>
-                  <ChevronRight size={14} color={colors.tealDark} />
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       )}
 
@@ -416,44 +529,84 @@ export const SeasonalSpotsSection: React.FC<SeasonalSpotsSectionProps> = ({
                 { backgroundColor: colors.paper, borderColor: colors.cardBorder },
               ]}
             >
-              {/* Modal Cover Image */}
-              <View style={styles.modalImageContainer}>
-                <ShimmerImage
-                  source={{ uri: selectedSpot.imageUrl }}
-                  style={styles.modalImage}
-                  borderRadius={0}
-                />
-                <View style={styles.modalImageOverlay} />
+              {/* Modal Header Banner (No Image) */}
+              <View
+                style={[
+                  styles.modalHeaderBanner,
+                  {
+                    backgroundColor: isDark ? colors.card : '#F8FAFC',
+                    borderBottomColor: colors.cardBorder,
+                  },
+                ]}
+              >
+                {/* Top Row: Category icon, Region badge, and Close Button */}
+                <View style={styles.modalHeaderTopRow}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                    <View
+                      style={[
+                        styles.catIconCircle,
+                        {
+                          backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#FFFFFF',
+                          borderColor: colors.cardBorder,
+                          borderWidth: 1,
+                        },
+                      ]}
+                    >
+                      {getCategoryIcon(selectedSpot.category, 16, getCategoryColor(selectedSpot.category).color)}
+                    </View>
+                    <View
+                      style={[
+                        styles.regionPill,
+                        { backgroundColor: getRegionBadge(selectedSpot.region).bg },
+                      ]}
+                    >
+                      <Text style={[styles.regionPillText, { color: getRegionBadge(selectedSpot.region).color }]}>
+                        {getRegionBadge(selectedSpot.region).label}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.vibePill,
+                        {
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : '#FFFFFF',
+                          borderColor: colors.cardBorder,
+                          borderWidth: 1,
+                        },
+                      ]}
+                    >
+                      <Sparkles size={10} color={activeSeasonMeta.accentColor} />
+                      <Text style={[styles.vibePillText, { color: colors.ink }]} numberOfLines={1}>
+                        {selectedSpot.vibeTag}
+                      </Text>
+                    </View>
+                  </View>
 
-                {/* Close Button */}
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedSpot(null)}
-                  style={styles.modalCloseBtn}
-                >
-                  <X size={18} color="#FFFFFF" strokeWidth={2.5} />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedSpot(null)}
+                    style={[
+                      styles.modalCloseBtnClean,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                      },
+                    ]}
+                  >
+                    <X size={17} color={colors.ink} strokeWidth={2.4} />
+                  </TouchableOpacity>
+                </View>
 
-                {/* Title inside image */}
-                <View style={styles.modalImageTitleContainer}>
-                  <View style={styles.modalImageLocationRow}>
-                    <MapPin size={13} color="#FDE68A" />
-                    <Text style={styles.modalImageLocationText}>
+                {/* Spot Name & Tagline */}
+                <View style={{ marginTop: 12 }}>
+                  <View style={styles.locationHeaderRow}>
+                    <MapPin size={13} color={colors.tealDark} style={{ flexShrink: 0 }} />
+                    <Text style={[styles.provinceText, { color: colors.tealDark }]} numberOfLines={1}>
                       {selectedSpot.province} · {selectedSpot.region}
                     </Text>
                   </View>
-                  <Text
-                    style={styles.modalImageSpotName}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                  >
+                  <Text style={[styles.modalSpotName, { color: colors.ink }]}>
                     {selectedSpot.name}
                   </Text>
-                  <Text
-                    style={styles.modalImageTagline}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                  >
+                  <Text style={[styles.modalTagline, { color: colors.inkSoft }]}>
                     {selectedSpot.tagline}
                   </Text>
                 </View>
@@ -464,22 +617,26 @@ export const SeasonalSpotsSection: React.FC<SeasonalSpotsSectionProps> = ({
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.modalScrollBody}
               >
-                {/* Meta pills row */}
+                {/* Meta pills row (NO degrees, NO peso sign) */}
                 <View style={styles.modalMetaRow}>
                   <View style={[styles.modalMetaPill, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                    <Thermometer size={13} color={colors.inkSoft} />
-                    <Text style={[styles.modalMetaPillText, { color: colors.ink }]}>{selectedSpot.weatherTemp}</Text>
+                    <Calendar size={13} color={activeSeasonMeta.accentColor} />
+                    <Text style={[styles.modalMetaPillText, { color: colors.ink }]}>
+                      Best Months: {selectedSpot.bestMonths}
+                    </Text>
                   </View>
 
                   <View style={[styles.modalMetaPill, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                    <Calendar size={13} color={colors.inkSoft} />
-                    <Text style={[styles.modalMetaPillText, { color: colors.ink }]}>Best: {selectedSpot.bestMonths}</Text>
+                    <Compass size={13} color={colors.tealDark} />
+                    <Text style={[styles.modalMetaPillText, { color: colors.ink }]}>
+                      {selectedSpot.region} Region
+                    </Text>
                   </View>
 
                   <View style={[styles.modalMetaPill, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-                    <Wallet size={13} color={colors.inkSoft} />
-                    <Text style={[styles.modalMetaPillText, { color: colors.ink, fontWeight: '800' }]}>
-                      {selectedSpot.budgetLevel}
+                    <Sparkles size={13} color="#D97706" />
+                    <Text style={[styles.modalMetaPillText, { color: colors.ink }]}>
+                      {selectedSpot.vibeTag}
                     </Text>
                   </View>
                 </View>
@@ -776,61 +933,42 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  cardImageContainer: {
-    height: 155,
-    width: '100%',
-    position: 'relative',
+  cardHeaderBanner: {
+    padding: 13,
+    borderBottomWidth: 1,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
   },
-  cardImage: {
-    width: '100%',
-    height: 155,
-  },
-  floatingBadgesRow: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  catIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  weatherPill: {
+  regionPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  regionPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  vibePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3.5,
     borderRadius: 100,
+    borderWidth: 1,
   },
-  weatherPillText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  budgetPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 100,
-  },
-  budgetPillText: {
-    color: '#FDE68A',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  vibeFloatingBadge: {
-    position: 'absolute',
-    bottom: 10,
-    left: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  vibeFloatingText: {
-    color: '#FFFFFF',
+  vibePillText: {
     fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 0.2,
   },
   cardBody: {
     padding: 13,
@@ -838,8 +976,8 @@ const styles = StyleSheet.create({
   locationHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
+    gap: 5,
+    marginBottom: 3,
   },
   provinceText: {
     fontSize: 11,
@@ -862,11 +1000,25 @@ const styles = StyleSheet.create({
   cardWhyNowBox: {
     padding: 8,
     borderRadius: 9,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   cardWhyNowText: {
     fontSize: 11.5,
     lineHeight: 15.5,
+  },
+  highlightsPreviewRow: {
+    gap: 4,
+    marginBottom: 10,
+  },
+  highlightTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  highlightTagText: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   cardFooter: {
     flexDirection: 'row',
@@ -906,61 +1058,36 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
   },
-  modalImageContainer: {
-    height: 215,
-    width: '100%',
-    position: 'relative',
+  modalHeaderBanner: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
   },
-  modalImage: {
-    width: '100%',
-    height: 215,
-  },
-  modalImageOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-  },
-  modalCloseBtn: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 20,
-  },
-  modalImageTitleContainer: {
-    position: 'absolute',
-    bottom: 14,
-    left: 16,
-    right: 50,
-  },
-  modalImageLocationRow: {
+  modalHeaderTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
+    justifyContent: 'space-between',
   },
-  modalImageLocationText: {
-    color: '#FDE68A',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
+  modalCloseBtnClean: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  modalImageSpotName: {
-    color: '#FFFFFF',
+  modalSpotName: {
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.3,
     lineHeight: 26,
-  },
-  modalImageTagline: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 12.5,
-    fontWeight: '600',
     marginTop: 2,
+  },
+  modalTagline: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 3,
+    lineHeight: 18,
   },
   modalScrollBody: {
     padding: 16,

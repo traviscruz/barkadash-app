@@ -625,7 +625,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               >
                 <Compass size={12} color={colors.tealDark} strokeWidth={2.4} />
                 <Text style={[styles.homeDividerText, { color: colors.inkSoft }]}>
-                  SEASONAL INSPIRATION
+                  REGIONAL INSPIRATION
                 </Text>
               </View>
               <View style={[styles.homeDividerLine, { backgroundColor: colors.rule }]} />

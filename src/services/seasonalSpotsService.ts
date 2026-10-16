@@ -51,8 +51,8 @@ export const PHILIPPINE_SEASONS: SeasonMeta[] = [
     tagline: 'Paskong Pinoy Breezes & Highland Fog',
     badge: 'Crisp Chills & Festivities',
     iconName: 'sparkles',
-    monthsLabel: 'Sep – Nov',
-    monthsNumbers: [8, 9, 10], // Sep, Oct, Nov
+    monthsLabel: 'Sep – Dec',
+    monthsNumbers: [8, 9, 10, 11], // Sep, Oct, Nov, Dec
     description: 'The legendary Filipino Christmas countdown begins! Cool mountain breezes start rolling in, giant lanterns light up, and highland getaways are at their coziest.',
     whyVisitNowSummary: 'Ideal for sweater-weather road trips, early holiday lights, flower farms, and vibrant food festivals before the peak holiday rush.',
     gradientColors: ['#B45309', '#D97706'],
@@ -66,8 +66,8 @@ export const PHILIPPINE_SEASONS: SeasonMeta[] = [
     tagline: 'Tag-lamig, Sweater Weather & Clear Blue Skies',
     badge: 'Sea of Clouds & Clear Skies',
     iconName: 'wind',
-    monthsLabel: 'Dec – Feb',
-    monthsNumbers: [11, 0, 1], // Dec, Jan, Feb
+    monthsLabel: 'Jan – Feb',
+    monthsNumbers: [0, 1], // Jan, Feb
     description: 'Northeast monsoon winds bring the crispest, coldest air of the year to the Philippines with low humidity, blue skies, and textbook sea-of-clouds sunrises.',
     whyVisitNowSummary: 'Coldest temperatures of the year! Experience freezing morning treks in the Cordilleras, Panagbenga flower floats, and Sinulog festival.',
     gradientColors: ['#0284C7', '#0EA5E9'],
@@ -108,7 +108,7 @@ export const PHILIPPINE_SEASONS: SeasonMeta[] = [
 
 export const PHILIPPINE_SPOTS: PhilippineSpot[] = [
   // ==========================================
-  // BER MONTHS (September – November)
+  // BER MONTHS (September – December)
   // ==========================================
   {
     id: 'baguio_ber',
@@ -732,11 +732,11 @@ export function getCurrentPhilippineSeason(date: Date = new Date()): SeasonMeta 
   if (month >= 5 && month <= 7) {
     return PHILIPPINE_SEASONS.find((s) => s.key === 'monsoon')!;
   }
-  // September, October, November (8, 9, 10) -> Ber Months
-  if (month >= 8 && month <= 10) {
+  // September, October, November, December (8, 9, 10, 11) -> Ber Months
+  if (month >= 8 && month <= 11) {
     return PHILIPPINE_SEASONS.find((s) => s.key === 'ber_months')!;
   }
-  // December, January, February (11, 0, 1) -> Amihan
+  // January, February (0, 1) -> Amihan
   return PHILIPPINE_SEASONS.find((s) => s.key === 'amihan')!;
 }
 

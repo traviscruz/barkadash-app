@@ -22,6 +22,8 @@ import { TripService } from '../../services/tripService';
 import { supabase } from '../../utils/supabase';
 import { DestinationPollOption } from '../../types/trip';
 import { getPlacePhotoUrl, searchPlaces, searchPlacesWithAi, getPlaceDetails, PlaceSelection, PlacePrediction, PlacePhoto, PlaceSearchError } from '../../services/googlePlaces';
+import { uploadTripPlacePhoto } from '../../services/storageService';
+import { PlacePhotoPicker } from './PlacePhotoPicker';
 import { ShimmerImage } from '../common/ShimmerImage';
 import {
   MapPin,
@@ -97,7 +99,7 @@ const InlineCalendar: React.FC<InlineCalendarProps> = ({
   const nextMonth = () => setViewing(v => monthOf(new Date(v.getFullYear(), v.getMonth() + 1, 1)));
 
   const daysInMonth = new Date(viewing.getFullYear(), viewing.getMonth() + 1, 0).getDate();
-  const firstDayOfWeek = startOfMonth(viewing).getDay();
+  const firstDayOfWeek = startOfMonth(viewing).getDay(); // 0=Sun … 6=Sat
 
   const handleDayPress = (day: number) => {
     const pressed = new Date(viewing.getFullYear(), viewing.getMonth(), day);
@@ -112,8 +114,6 @@ const InlineCalendar: React.FC<InlineCalendarProps> = ({
     }
   };
 
-  const cellSize = Math.max(38, Math.round((Math.min(Dimensions.get('window').width, 420) - 40 - 28) / 7));
-  const circleSize = cellSize - 6;
   const rangeFill = withAlpha(accent, isDark ? 0.28 : 0.16);
   const todayRing = withAlpha(accent, 0.6);
   const navBtnColor = isDark ? 'rgba(255,255,255,0.06)' : '#F1F5F9';
@@ -123,83 +123,21 @@ const InlineCalendar: React.FC<InlineCalendarProps> = ({
 
   const isPastDay = (d: Date) => d < today;
 
-  const cells: React.ReactElement[] = [];
-  for (let i = 0; i < firstDayOfWeek; i++) {
-    cells.push(<View key={`e${i}`} style={{ width: cellSize, height: cellSize }} />);
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = new Date(viewing.getFullYear(), viewing.getMonth(), d);
-    const isPast = isPastDay(date);
-    const isStart = !!startDate && isSameDay(date, startDate);
-    const isEnd = !!endDate && isSameDay(date, endDate);
-    const selected = isStart || isEnd;
-    const inRange = !!startDate && !!endDate && isBetween(date, startDate, endDate);
-    const isToday = isSameDay(date, today);
-
-    let textColor = ink;
-    if (isPast) {
-      textColor = withAlpha(muted, isDark ? 0.28 : 0.35);
+  // Build a flat slot array: nulls for leading blank cells, then day numbers
+  const totalSlots = firstDayOfWeek + daysInMonth;
+  const slotRows: (number | null)[][] = [];
+  let slot = 0;
+  while (slot < totalSlots) {
+    const row: (number | null)[] = [];
+    for (let col = 0; col < 7; col++) {
+      if (slot < firstDayOfWeek || slot >= totalSlots) {
+        row.push(null);
+      } else {
+        row.push(slot - firstDayOfWeek + 1);
+      }
+      slot++;
     }
-    if (selected) textColor = '#FFFFFF';
-    if (inRange) textColor = isDark ? colors.tealDark : accent;
-
-    cells.push(
-      <TouchableOpacity
-        key={d}
-        disabled={isPast}
-        onPress={() => handleDayPress(d)}
-        activeOpacity={0.7}
-        style={{
-          width: cellSize,
-          height: cellSize,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <View
-          style={[
-            {
-              width: circleSize,
-              height: circleSize,
-              borderRadius: circleSize / 2,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: selected
-                ? accent
-                : inRange
-                  ? rangeFill
-                  : 'transparent',
-              borderWidth: inRange ? 1.5 : 0,
-              borderColor: inRange ? withAlpha(accent, isDark ? 0.5 : 0.35) : 'transparent',
-            },
-            isToday && !selected && !inRange && { borderWidth: 1.5, borderColor: todayRing },
-          ]}
-        >
-          <Text
-            style={{
-              fontSize: 13,
-              fontWeight: selected || inRange || isToday ? '900' : '600',
-              color: textColor,
-            }}
-          >
-            {d}
-          </Text>
-          {isToday && (
-            <Text
-              style={{
-                fontSize: 5.5,
-                fontWeight: '900',
-                color: textColor,
-                letterSpacing: 0.4,
-                marginTop: 1,
-              }}
-            >
-              TODAY
-            </Text>
-          )}
-        </View>
-      </TouchableOpacity>
-    );
+    slotRows.push(row);
   }
 
   return (
@@ -283,15 +221,84 @@ const InlineCalendar: React.FC<InlineCalendarProps> = ({
           {/* Weekday headers */}
           <View style={{ flexDirection: 'row', paddingHorizontal: 14 }}>
             {WEEKDAY_LABELS.map((label, i) => (
-              <View key={`${label}-${i}`} style={{ width: cellSize, alignItems: 'center' }}>
-                <Text style={{ fontSize: 10, fontWeight: '900', letterSpacing: 0.5, color: muted }}>{label}</Text>
+              <View key={`${label}-${i}`} style={{ flex: 1, alignItems: 'center', paddingVertical: 4 }}>
+                <Text style={{ fontSize: 10, fontWeight: '900', letterSpacing: 0.5, color: i === 0 || i === 6 ? withAlpha(muted, 0.7) : muted }}>{label}</Text>
               </View>
             ))}
           </View>
 
-          {/* Day cells */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 14, paddingTop: 6 }}>
-            {cells}
+          {/* Day rows — each row is a flex row so columns always align with headers */}
+          <View style={{ paddingHorizontal: 14, paddingTop: 4 }}>
+            {slotRows.map((row, rowIdx) => (
+              <View key={rowIdx} style={{ flexDirection: 'row' }}>
+                {row.map((dayNum, colIdx) => {
+                  if (dayNum === null) {
+                    return <View key={`e-${rowIdx}-${colIdx}`} style={{ flex: 1, aspectRatio: 1 }} />;
+                  }
+                  const date = new Date(viewing.getFullYear(), viewing.getMonth(), dayNum);
+                  const isPast = isPastDay(date);
+                  const isStart = !!startDate && isSameDay(date, startDate);
+                  const isEnd = !!endDate && isSameDay(date, endDate);
+                  const selected = isStart || isEnd;
+                  const inRange = !!startDate && !!endDate && isBetween(date, startDate, endDate);
+                  const isToday = isSameDay(date, today);
+
+                  let textColor = ink;
+                  if (isPast) textColor = withAlpha(muted, isDark ? 0.28 : 0.35);
+                  if (selected) textColor = '#FFFFFF';
+                  if (inRange) textColor = isDark ? colors.tealDark : accent;
+
+                  return (
+                    <TouchableOpacity
+                      key={dayNum}
+                      disabled={isPast}
+                      onPress={() => handleDayPress(dayNum)}
+                      activeOpacity={0.7}
+                      style={{ flex: 1, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <View
+                        style={[
+                          {
+                            width: '82%',
+                            aspectRatio: 1,
+                            borderRadius: 999,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: selected ? accent : inRange ? rangeFill : 'transparent',
+                            borderWidth: inRange ? 1.5 : 0,
+                            borderColor: inRange ? withAlpha(accent, isDark ? 0.5 : 0.35) : 'transparent',
+                          },
+                          isToday && !selected && !inRange && { borderWidth: 1.5, borderColor: todayRing },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            fontWeight: selected || inRange || isToday ? '900' : '600',
+                            color: textColor,
+                          }}
+                        >
+                          {dayNum}
+                        </Text>
+                        {isToday && (
+                          <Text
+                            style={{
+                              fontSize: 5.5,
+                              fontWeight: '900',
+                              color: textColor,
+                              letterSpacing: 0.4,
+                              marginTop: 1,
+                            }}
+                          >
+                            TODAY
+                          </Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         </>
       )}
@@ -865,6 +872,8 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   const [placeInput, setPlaceInput] = useState('');
   const [placeNote, setPlaceNote] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<PlaceSelection | null>(null);
+  const [placePhoto, setPlacePhoto] = useState<string>('');
+  const [savingPlace, setSavingPlace] = useState(false);
 
   // Add date
   const [showAddDate, setShowAddDate] = useState(false);
@@ -876,6 +885,8 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   const [editTitle, setEditTitle] = useState('');
   const [editNote, setEditNote] = useState('');
   const [editPlace, setEditPlace] = useState<PlaceSelection | null>(null);
+  const [editPhoto, setEditPhoto] = useState<string>('');
+  const [savingEdit, setSavingEdit] = useState(false);
   const [editStart, setEditStart] = useState<Date | null>(null);
   const [editEnd, setEditEnd] = useState<Date | null>(null);
 
@@ -968,19 +979,25 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   }, [tripId, refresh]);
 
   const submitPlace = async () => {
-    if (isTripEnded || !placeInput.trim()) return;
+    if (isTripEnded || !placeInput.trim() || savingPlace) return;
+    setSavingPlace(true);
+    let finalPhoto = placePhoto;
+    if (placePhoto && !placePhoto.startsWith('http://') && !placePhoto.startsWith('https://') && !placePhoto.startsWith('AUac')) {
+      finalPhoto = await uploadTripPlacePhoto(placePhoto, tripId, userId);
+    }
     await TripService.getInstance().addTripPollOptionDB({
       tripId,
       title: placeInput.trim(),
       type: 'place',
       subtitle: placeNote.trim() || undefined,
       placeId: selectedPlace?.placeId,
-      placeName: selectedPlace?.name,
+      placeName: selectedPlace?.name || placeInput.trim(),
       placeAddress: selectedPlace?.address,
-      photoReference: selectedPlace?.photoReference,
+      photoReference: finalPhoto || undefined,
       userId,
     });
-    setShowAddPlace(false); setPlaceInput(''); setPlaceNote(''); setSelectedPlace(null);
+    setSavingPlace(false);
+    setShowAddPlace(false); setPlaceInput(''); setPlaceNote(''); setSelectedPlace(null); setPlacePhoto('');
     refresh();
   };
 
@@ -1004,29 +1021,46 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
   const openEdit = (p: DestinationPollOption) => {
     if (isTripEnded) return;
     setEditPoll(p); setEditTitle(p.title); setEditNote(p.subtitle || '');
-    setEditPlace(p.placeId ? {
-      placeId: p.placeId,
+    setEditPhoto(p.photoReference || '');
+    const initialPlaceObj: PlaceSelection = {
+      placeId: p.placeId || '',
       name: p.placeName || p.title,
       address: p.placeAddress || '',
       photoReference: p.photoReference,
-    } : null);
+    };
+    setEditPlace(initialPlaceObj);
+    if (p.placeId) {
+      getPlaceDetails(p.placeId).then((details) => {
+        if (details?.photos?.length) {
+          setEditPlace((prev) => (prev ? { ...prev, photos: details.photos } : prev));
+        }
+      });
+    }
     setEditStart(null); setEditEnd(null);
   };
 
   const saveEdit = async () => {
-    if (isTripEnded || !editPoll) return;
+    if (isTripEnded || !editPoll || savingEdit) return;
+    setSavingEdit(true);
     const title = editPoll.type === 'date' && editStart && editEnd ? fmtRange(editStart, editEnd) : editTitle.trim();
+    let finalPhoto = editPhoto;
+    if (editPoll.type === 'place' && editPhoto && !editPhoto.startsWith('http://') && !editPhoto.startsWith('https://') && !editPhoto.startsWith('AUac')) {
+      finalPhoto = await uploadTripPlacePhoto(editPhoto, tripId, userId);
+    }
     await TripService.getInstance().updateTripPollOptionDB({
       pollId: editPoll.id,
       tripId,
       newTitle: title,
       newSubtitle: editNote,
       placeId: editPoll.type === 'place' ? editPlace?.placeId : undefined,
-      placeName: editPoll.type === 'place' ? editPlace?.name : undefined,
+      placeName: editPoll.type === 'place' ? (editPlace?.name || title) : undefined,
       placeAddress: editPoll.type === 'place' ? editPlace?.address : undefined,
-      photoReference: editPoll.type === 'place' ? editPlace?.photoReference : undefined,
+      photoReference: editPoll.type === 'place' ? (finalPhoto || undefined) : undefined,
     });
-    setEditPoll(null); refresh();
+    setSavingEdit(false);
+    setEditPoll(null);
+    setEditPhoto('');
+    refresh();
   };
 
   const onVote = async (poll: DestinationPollOption) => {
@@ -1554,10 +1588,14 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
             </TouchableOpacity>
             <TouchableOpacity
               onPress={submitPlace}
-              disabled={!placeInput.trim()}
-              style={[pill(accent), !placeInput.trim() && { opacity: 0.5 }]}
+              disabled={!placeInput.trim() || savingPlace}
+              style={[pill(accent), (!placeInput.trim() || savingPlace) && { opacity: 0.5 }]}
             >
-              <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs.sm }}>Propose Destination</Text>
+              {savingPlace ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs.sm }}>Propose Destination</Text>
+              )}
             </TouchableOpacity>
           </View>
         }
@@ -1569,20 +1607,34 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
           onSelect={(sel) => {
             setPlaceInput(sel.name);
             setSelectedPlace(sel);
+            if (sel.photoReference) {
+              setPlacePhoto(sel.photoReference);
+            }
           }}
           selectedAddress={selectedPlace?.address}
           placeholder="e.g. Tokyo, Boracay, Osaka, Paris, Baguio..."
           accent={accent} ink={ink} muted={muted} border={border} isDark={isDark} fs={fs}
           autoFocus
         />
-        {selectedPlace?.photos && selectedPlace.photos.length > 0 && (
-          <PhotoPickerRow
-            photos={selectedPlace.photos}
-            selectedRef={selectedPlace.photoReference}
-            onSelect={(ref) => setSelectedPlace((prev) => (prev ? { ...prev, photoReference: ref } : prev))}
-            accent={accent} border={border} isDark={isDark} fs={fs}
-          />
-        )}
+        <PlacePhotoPicker
+          googlePhotos={selectedPlace?.photos}
+          selectedPhoto={placePhoto}
+          onSelectPhoto={(refOrUrl) => {
+            setPlacePhoto(refOrUrl);
+            setSelectedPlace((prev) => (prev ? { ...prev, photoReference: refOrUrl } : prev));
+          }}
+          onClearPhoto={() => {
+            setPlacePhoto('');
+            setSelectedPlace((prev) => (prev ? { ...prev, photoReference: undefined } : prev));
+          }}
+          accent={accent}
+          border={border}
+          ink={ink}
+          muted={muted}
+          paper={paper}
+          isDark={isDark}
+          fs={fs}
+        />
 
         <LabelText muted={muted} fs={fs}>WHY PROPOSE THIS? (OPTIONAL)</LabelText>
         <FieldWrap border={border} isDark={isDark} icon={<FileText size={16} color={muted} strokeWidth={1.8} />}>
@@ -1718,19 +1770,33 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
                     onSelect={(sel) => {
                       setEditTitle(sel.name);
                       setEditPlace(sel);
+                      if (sel.photoReference) {
+                        setEditPhoto(sel.photoReference);
+                      }
                     }}
                     selectedAddress={editPlace?.address}
                     placeholder="Search for a destination"
                     accent={accent} ink={ink} muted={muted} border={border} isDark={isDark} fs={fs}
                   />
-                  {editPlace?.photos && editPlace.photos.length > 0 && (
-                    <PhotoPickerRow
-                      photos={editPlace.photos}
-                      selectedRef={editPlace.photoReference}
-                      onSelect={(ref) => setEditPlace((prev) => (prev ? { ...prev, photoReference: ref } : prev))}
-                      accent={accent} border={border} isDark={isDark} fs={fs}
-                    />
-                  )}
+                  <PlacePhotoPicker
+                    googlePhotos={editPlace?.photos}
+                    selectedPhoto={editPhoto}
+                    onSelectPhoto={(refOrUrl) => {
+                      setEditPhoto(refOrUrl);
+                      setEditPlace((prev) => (prev ? { ...prev, photoReference: refOrUrl } : prev));
+                    }}
+                    onClearPhoto={() => {
+                      setEditPhoto('');
+                      setEditPlace((prev) => (prev ? { ...prev, photoReference: undefined } : prev));
+                    }}
+                    accent={accent}
+                    border={border}
+                    ink={ink}
+                    muted={muted}
+                    paper={paper}
+                    isDark={isDark}
+                    fs={fs}
+                  />
                 </>
               ) : (
                 <>
@@ -1761,8 +1827,16 @@ export const TripVotingPollsSection: React.FC<TripVotingPollsSectionProps> = ({ 
               <TouchableOpacity onPress={() => setEditPoll(null)} style={pill('transparent', border)}>
                 <Text style={{ color: muted, fontWeight: '700', fontSize: fs.sm }}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={saveEdit} style={pill(accent)}>
-                <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs.sm }}>Save</Text>
+              <TouchableOpacity
+                onPress={saveEdit}
+                disabled={savingEdit || (!editTitle.trim() && editPoll?.type === 'place')}
+                style={[pill(accent), (savingEdit || (!editTitle.trim() && editPoll?.type === 'place')) && { opacity: 0.5 }]}
+              >
+                {savingEdit ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '800', fontSize: fs.sm }}>Save</Text>
+                )}
               </TouchableOpacity>
             </View>
           </Pressable>

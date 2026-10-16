@@ -636,9 +636,6 @@ export function getPlacePhotoUrl(photoReference?: string, maxWidth = 1200): stri
   if (!photoReference) {
     return '';
   }
-  if (photoReference.startsWith('https://images.unsplash.com') || photoReference.includes('unsplash.com')) {
-    return '';
-  }
   if (photoReference.startsWith('http://') || photoReference.startsWith('https://')) {
     return photoReference;
   }
